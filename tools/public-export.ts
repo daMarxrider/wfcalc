@@ -16,7 +16,12 @@
  *     per-shell reload, Fulmin Prime's magazine);
  *   - the snapshot's riven disposition: the export's `omegaAttenuation` is 1.2 for every weapon,
  *     a placeholder rather than the live disposition.
- * Non-positive values (a charge weapon's `fireRate: 0`) are never applied. A weapon whose export damage total differs from
+ * Non-positive values (a charge weapon's `fireRate: 0`) are never applied.
+ *
+ * Stack caps come from the same export: ExportUpgrades (mods) and ExportRelicArcane (arcanes)
+ * carry DE's own effect text ("Stacks up to 12x"). It is parsed with the snapshot's parser and
+ * every conditional effect's `maxStacks` is checked against it: a missing cap is filled, a
+ * different one is replaced, and a cap DE does not state is reported but kept. A weapon whose export damage total differs from
  * the snapshot by more than 1% is reported and left alone: that is almost always a different
  * attack (charged shot, alt-fire, a bow's full draw), not a balance change. Weapons the export
  * has but the snapshot lacks are listed; they cannot be added here because the export carries
@@ -25,6 +30,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { decompressLzma } from './lib/lzma.ts';
+import { parseModEffects } from '../src/mods/parse.ts';
 import { DAMAGE_TYPES, type DamageType, type Snapshot, type WeaponData } from '../src/types.ts';
 
 const ROOT = new URL('..', import.meta.url).pathname;
@@ -154,6 +160,42 @@ async function main(): Promise<void> {
     .filter((weapon) => CATEGORY[weapon.productCategory ?? ''] && weapon.damagePerShot && !known.has(plainName(weapon.name)))
     .map((weapon) => weapon.name);
 
+  // ---- stack caps from DE's mod and arcane text
+  const stackChanges: Array<{ item: string; effect: string; from: number | null; to: number }> = [];
+  const stackUnconfirmed: string[] = [];
+  const exportFile = async (name: string, key: string): Promise<Array<{ name: string; levelStats?: Array<{ stats: string[] }> }>> => {
+    const line = index.split(/\r?\n/).find((row) => row.startsWith(`${name}_en.json`));
+    if (!line) throw new Error(`${name}_en.json is missing from the Public Export index`);
+    const body = new TextDecoder().decode(await download(`${MANIFEST_URL}/${line.trim()}`));
+    writeFileSync(join(RAW, `${name}_en.json`), body);
+    return (parseExport(body) as unknown as Record<string, Array<{ name: string; levelStats?: Array<{ stats: string[] }> }>>)[key] ?? [];
+  };
+  const upgrades = await exportFile('ExportUpgrades', 'ExportUpgrades');
+  const relicArcane = await exportFile('ExportRelicArcane', 'ExportRelicArcane');
+  const effectKey = (effect: { target: string; condition?: string; element?: string }): string =>
+    `${effect.target}|${effect.condition ?? ''}|${effect.element ?? ''}`;
+  for (const [list, items] of [[upgrades, snapshot.mods], [relicArcane, snapshot.arcanes]] as const) {
+    const deByName = new Map(list.filter((item) => item.levelStats?.length).map((item) => [item.name.toLowerCase(), item]));
+    for (const item of Object.values(items) as Array<{ name: string; effects: Array<{ target: string; condition?: string; element?: string; maxStacks?: number; raw: string }> }>) {
+      const de = deByName.get(item.name.toLowerCase());
+      if (!de) continue;
+      const parsed = parseModEffects(de.levelStats!.map((rank) => rank.stats)).effects;
+      for (const effect of item.effects) {
+        if (!effect.condition) continue;
+        const match = parsed.find((candidate) => effectKey(candidate) === effectKey(effect));
+        if (match?.maxStacks !== undefined && match.maxStacks !== effect.maxStacks) {
+          stackChanges.push({ item: item.name, effect: effect.raw, from: effect.maxStacks ?? null, to: match.maxStacks });
+          effect.maxStacks = match.maxStacks;
+        } else if (match && match.maxStacks === undefined && effect.maxStacks !== undefined) {
+          stackUnconfirmed.push(`${item.name}: ${effect.raw} (snapshot ${effect.maxStacks}x, DE states no cap)`);
+        }
+      }
+    }
+  }
+  for (const change of stackChanges) console.log(`  ${change.item}: ${change.effect} stacks ${change.from ?? 'none'} -> ${change.to}`);
+  console.log(`stack caps: ${stackChanges.length} set from DE text, ${stackUnconfirmed.length} not stated by DE (kept)`);
+  changes.push(...stackChanges.map((change) => ({ weapon: change.item, field: 'maxStacks', from: change.from ?? 0, to: change.to })));
+
   for (const change of changes) console.log(`  ${change.weapon}: ${change.field} ${change.from} -> ${change.to}`);
   console.log(`${changes.length} field(s) differ across ${new Set(changes.map((change) => change.weapon)).size} weapon(s)`);
   if (profileMismatch.length) console.log(`kept (different attack profile): ${profileMismatch.length}, see data/public-export-report.json`);
@@ -161,7 +203,7 @@ async function main(): Promise<void> {
   if (missing.length) console.log(`in the export but not in the snapshot: ${missing.length}`);
 
   writeFileSync(join(ROOT, 'data/public-export-report.json'), JSON.stringify({
-    source: entry.trim(), checkedAt: new Date().toISOString(), changes, profileMismatch, unmatched, missing,
+    source: entry.trim(), checkedAt: new Date().toISOString(), changes, profileMismatch, unmatched, missing, stackUnconfirmed,
   }, null, 2) + '\n');
   if (check) {
     process.exitCode = changes.length ? 1 : 0;
