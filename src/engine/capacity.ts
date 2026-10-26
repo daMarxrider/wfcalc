@@ -8,6 +8,7 @@
 import { findMod } from '../data.ts';
 import type { BuildMod } from './build.ts';
 import { fitMods } from './search.ts';
+import { rivenAsMod, type RivenSpec } from './riven.ts';
 import type { Snapshot, WeaponData } from '../types.ts';
 
 export interface CapacityResult {
@@ -23,6 +24,7 @@ export function capacityOf(
   weapon: WeaponData,
   mods: Array<string | BuildMod>,
   capacity = 60,
+  riven?: RivenSpec,
 ): CapacityResult {
   const resolved: Array<{ mod: NonNullable<ReturnType<typeof findMod>['item']>; rank: number }> = [];
   for (const entry of mods) {
@@ -32,6 +34,9 @@ export function capacityOf(
     if (!item) continue;
     resolved.push({ mod: item, rank: rank ?? item.maxRank });
   }
+  // A riven with its card drain takes a slot and capacity like any mod.
+  const rivenMod = riven ? rivenAsMod(riven) : null;
+  if (rivenMod) resolved.push({ mod: rivenMod, rank: 0 });
   const fitted = fitMods(resolved, weapon, capacity);
   return {
     capacityUsed: fitted.drain,

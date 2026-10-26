@@ -115,7 +115,7 @@ function calculate(body: any) {
     const code = error instanceof InputError ? error.code : undefined;
     return { error: String((error as Error).message), ...(code ? { code } : {}) };
   }
-  const capacity = capacityOf(snapshot, weapon, build.mods, body.capacity !== undefined ? Number(body.capacity) : 60);
+  const capacity = capacityOf(snapshot, weapon, build.mods, body.capacity !== undefined ? Number(body.capacity) : 60, build.riven);
 
   let target = null;
   let hitWarnings: string[] = [];

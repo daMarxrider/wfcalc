@@ -249,3 +249,25 @@ test('a beam ramps up from 20%: the simulated kill is slower than the steady sta
   const simulated = hitEnemy(snapshot, resolved, scaled, { simulate: true });
   assert.ok((simulated.timeToKill ?? 0) > (steady.timeToKill ?? Infinity));
 });
+
+test('a riven with its card values: exact stats, a slot and its drain in the brute force', async () => {
+  const riven = { stats: ['crit-chance', 'multishot', 'faction-grineer'], malus: 'zoom', values: { 'crit-chance': 142.3, multishot: 110.2, 'faction-grineer': 1.24, zoom: 40.1 }, drain: 18, polarity: 'madurai' };
+  const plain = resolveBuild(snapshot, { weapon: 'Soma Prime', mods: [] });
+  const withRiven = resolveBuild(snapshot, { weapon: 'Soma Prime', mods: [], riven });
+  assert.ok(Math.abs(withRiven.critChance - plain.critChance * 2.423) < 1e-9);
+  assert.ok(Math.abs(withRiven.multishot - plain.multishot * 2.102) < 1e-9);
+  assert.ok(Math.abs((withRiven.factionBonus.grineer ?? 0) - 0.24) < 1e-9);
+
+  const result = await bruteForce(snapshot, {
+    weapon: 'Soma Prime', enemy: 'Bombard', level: 150, capacity: 60, maxEvaluations: 5_000, limit: 2, base: { riven },
+  });
+  for (const build of result.builds) {
+    // Seven searched mods plus the riven, which takes a madurai slot at half drain (Soma has two).
+    const rivenRow = build.mods.find((mod) => mod.name === 'Riven');
+    assert.ok(rivenRow && rivenRow.fixed);
+    assert.equal(rivenRow!.drain, 9);
+    assert.equal(build.mods.length, 8);
+    assert.ok(build.capacityUsed <= build.capacity);
+    assert.ok(build.riven.some((line) => line.includes('142.3')));
+  }
+});

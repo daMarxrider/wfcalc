@@ -100,15 +100,28 @@ function parseRiven(args: Args): RivenSpec | undefined {
   if (!raw) return undefined;
   const stats: string[] = [];
   let malus: string | undefined;
+  // "crit-chance=142.3" gives the card's own value; a bare id estimates it from disposition.
+  const values: Record<string, number> = {};
   for (const token of raw.split(',').map((entry) => entry.trim()).filter(Boolean)) {
-    if (token.startsWith('-')) malus = token.slice(1);
-    else stats.push(token);
+    const negative = token.startsWith('-');
+    const [id, rawValue] = (negative ? token.slice(1) : token).split('=').map((part) => part.trim());
+    if (negative) malus = id;
+    else stats.push(id);
+    if (rawValue !== undefined) {
+      const value = Number(rawValue.replace(/^[x+]/i, '').replace(/%$/, ''));
+      if (!Number.isFinite(value)) throw new CliError(`--riven: bad value for ${id}: ${rawValue}`, 'invalid_argument');
+      values[id] = value;
+    }
   }
+  const drain = flag(args, 'riven-drain');
   return {
     stats,
     malus,
     roll: flag(args, 'riven-roll') ? Number(flag(args, 'riven-roll')) : undefined,
     rank: flag(args, 'riven-rank') ? Number(flag(args, 'riven-rank')) : undefined,
+    ...(Object.keys(values).length ? { values } : {}),
+    ...(drain !== undefined ? { drain: Number(drain) } : {}),
+    ...(flag(args, 'riven-polarity') ? { polarity: flag(args, 'riven-polarity')!.toLowerCase() } : {}),
   };
 }
 
@@ -409,7 +422,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
   });
   const allWarnings = [...resolved.warnings, ...hit.warnings];
   const capacityLimit = flag(args, 'capacity') ? Number(flag(args, 'capacity')) : 60;
-  const fit = capacityOf(snapshot, resolved.weapon, build.mods, capacityLimit);
+  const fit = capacityOf(snapshot, resolved.weapon, build.mods, capacityLimit, build.riven);
 
   // One line, for an agent that runs dozens of these: the numbers that answer the question
   // without the per-type and per-status breakdown it did not ask for.
@@ -924,7 +937,7 @@ async function main(): Promise<void> {
         break;
       }
       const modList = (build: (typeof result.builds)[number]): string =>
-        [...build.mods.map((mod) => `${mod.fixed ? '*' : ''}${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}`),
+        [...build.mods.map((mod) => `${mod.fixed ? '*' : ''}${mod.name}${mod.name === 'Riven' ? ` (${build.riven.join(', ')})` : mod.rank < 99 ? ` R${mod.rank}` : ''}`),
           ...(build.exilus ? [`*${build.exilus.name} R${build.exilus.rank} (exilus)`] : [])].join(', ');
       const target = `${result.enemy} lv${result.level}${result.steelPath ? ' Steel Path' : ''}`;
       if (briefMode(args) !== 'off') {
@@ -1154,7 +1167,7 @@ async function main(): Promise<void> {
                 }
               : undefined),
           });
-          const fit = capacityOf(snapshot, resolved.weapon, build.mods, record.capacity === undefined ? 60 : Number(record.capacity));
+          const fit = capacityOf(snapshot, resolved.weapon, build.mods, record.capacity === undefined ? 60 : Number(record.capacity), build.riven);
           if (jsonOut) {
             // Rounded on purpose: a batch line is for comparing, and full float noise costs
             // tokens without adding information.
@@ -1235,6 +1248,9 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
          --hit head|body              where shots land (default body); --headshot, --bodyshot
          --shards "crimson:primaryStatus,violet:primaryElectricity:tau"   Archon Shards (up to 5)
          --zoom N|max  --sniper-combo N   sniper zoom level buff and Shot Combo Counter
+         --riven "crit-chance=142.3,multishot=110.2,-zoom=40.1"   the card's own values
+                                      (x1.24 for faction stats); a bare id estimates the value
+         --riven-drain 18 --riven-polarity madurai   the riven's slot cost (counts in capacity)
          --no-sim                     steady-state statuses instead of the fight simulation
          --brief one line per result        --brief=answer answer only
          --json machine-readable output      --debug stack trace on failure

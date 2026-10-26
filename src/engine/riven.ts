@@ -17,7 +17,7 @@
  * The base values are parsed from the wiki table into `snapshot.rivenStats`;
  * the disposition multiplier is the game's own value (`omegaAttenuation`).
  */
-import type { DamageType, Effect, Faction, Snapshot, WeaponData } from '../types.ts';
+import type { DamageType, Effect, Faction, ModData, Snapshot, WeaponData } from '../types.ts';
 
 export interface RivenSpec {
   /** Attribute ids, see RIVEN_ATTRIBUTES. Two or three bonuses. */
@@ -28,6 +28,25 @@ export interface RivenSpec {
   roll?: number;
   /** Mod rank, 0-8. Defaults to 8 (max). */
   rank?: number;
+  /**
+   * The values printed on the player's own riven, by attribute id (malus included): percent for
+   * percentage stats (142.3 for +142.3%), the multiplier for faction stats (1.24 for x1.24), the
+   * plain amount for metres and seconds. A stat given here skips the disposition/roll estimate.
+   */
+  values?: Record<string, number>;
+  /** Drain shown on the card at its rank, and its polarity: what the riven costs in its slot. */
+  drain?: number;
+  polarity?: string;
+}
+
+/** The riven as a mod for capacity: its card drain, polarity and slot (no effects of its own). */
+export function rivenAsMod(spec: RivenSpec): ModData | null {
+  if (spec.drain === undefined || !Number.isFinite(spec.drain)) return null;
+  return {
+    id: 'Riven', name: 'Riven', category: 'Riven Mod', classes: [], polarity: spec.polarity ?? null, rarity: 'Riven',
+    baseDrain: Math.max(0, spec.drain), maxRank: 0, description: '', effects: [], cardImage: null, partial: false,
+    outOfScopeLines: [], incompatible: [], set: null, upgradeTypes: [], isAugment: false, isRiven: true, conclave: false,
+  } as unknown as ModData;
 }
 
 export interface RivenAttribute {
@@ -148,14 +167,23 @@ export function rivenEffects(snapshot: Snapshot, weapon: WeaponData, spec: Riven
       warnings.push(`unknown riven attribute: ${id}`);
       return;
     }
-    const base = table[attribute.label];
-    if (base === undefined || base === 0) {
-      warnings.push(`${attribute.label} is not available on ${weapon.type} rivens`);
-      return;
+    const given = spec.values?.[id] ?? spec.values?.[attribute.id];
+    let value: number;
+    if (given !== undefined && Number.isFinite(given)) {
+      // The player's own riven: the card value as printed, its sign set by bonus or malus.
+      const magnitude = Math.abs(given);
+      const fraction = attribute.faction ? (magnitude < 3 ? magnitude - 1 : magnitude / 100) : attribute.flat ? magnitude : magnitude / 100;
+      value = negative ? (attribute.faction ? -Math.abs(fraction) : -fraction) : fraction;
+    } else {
+      const base = table[attribute.label];
+      if (base === undefined || base === 0) {
+        warnings.push(`${attribute.label} is not available on ${weapon.type} rivens`);
+        return;
+      }
+      const weight = negative ? weights.malus : weights.bonus;
+      if (weight === 0) return;
+      value = base * disposition * weight * roll * rankScale;
     }
-    const weight = negative ? weights.malus : weights.bonus;
-    const value = base * disposition * weight * roll * rankScale;
-    if (weight === 0) return;
     const raw = `${attribute.label} ${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`;
     lines.push(raw);
     effects.push({

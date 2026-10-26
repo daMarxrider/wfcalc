@@ -32,6 +32,9 @@ and in-game calibration. On top of it this fork adds:
   damage on heads, headshot multipliers, weak point crit chance, head crits).
 - **Stacks**: `--stacks none|max` or per source (`--source-stacks "Primary Merciless=6"`); caps
   come from DE's own effect text, effects without a cap count once.
+- **Your own riven**: `--riven "crit-chance=142.3,multishot=110.2,-zoom=40.1" --riven-drain 18
+  --riven-polarity madurai` uses the card's values and slot cost; brute force keeps it in its slot
+  and searches the other seven. The web UI has the same fields on the Build and Find tabs.
 - **Primary Compression**, **Archon Shards** (`--shards`), **sniper zoom and Shot Combo**
   (`--zoom`, `--sniper-combo`) and the **mismatched-polarity** drain penalty.
 - **Web UI** (`wfcalc serve`): a dark frosted-glass theme with a gold accent; a Steel Path switch

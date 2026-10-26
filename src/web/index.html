@@ -81,6 +81,7 @@
           </div>
         </div>
         <div id="stack-list" class="stack-list"></div>
+        <button type="button" class="link" id="edit-conditions">custom reads aiming, on-kill, status types… · edit ↓</button>
         <label class="switch"><input type="checkbox" id="simulate" checked /> Simulate status build-up <small>Viral, Corrosive, Heat… over the fight</small></label>
       </div>
       <div id="target-report"></div>
@@ -196,8 +197,16 @@
 
     <details>
       <summary>Riven, Incarnon &amp; combo</summary>
-      <label class="field"><span>Riven stats (− marks the malus)</span>
-        <input id="riven-input" placeholder="damage,multishot,-zoom" autocomplete="off" /></label>
+      <label class="field"><span>Riven stats: card values, − marks the malus</span>
+        <input id="riven-input" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
+      <p class="hint">Faction stats as the multiplier (faction-grineer=1.24); ids: wfcalc rivens. A stat without “=value” is estimated from
+        disposition, roll and rank below.</p>
+      <div class="row">
+        <label class="field"><span>Riven drain (card)</span>
+          <input id="riven-drain" type="number" min="0" max="30" step="1" placeholder="not counted" /></label>
+        <label class="field"><span>Riven polarity</span>
+          <select id="riven-polarity"><option value="">none</option><option value="madurai">Madurai</option><option value="vazarin">Vazarin</option><option value="naramon">Naramon</option><option value="zenurik">Zenurik</option></select></label>
+      </div>
       <div class="row">
         <label class="field"><span>Riven roll <b id="roll-value">1.00</b></span>
           <input id="riven-roll" type="range" min="0.9" max="1.1" step="0.01" value="1" /></label>
@@ -241,7 +250,7 @@
       </div>
       <p class="hint greedy-only">Greedy fill plus local search: fast, usually right.</p>
       <p class="hint brute-only">Every feasible mod combination, scored on every core. Only mods are searched:
-        arcanes, buffs and Ability Strength below, plus riven and Incarnon from the Build tab, are used as given.</p>
+        your loadout below (arcanes, buffs, strength, riven, conditions) and Incarnon from the Build tab are used as given.</p>
     </div>
     <p class="hint">Eight slots, capacity and Forma included. Leave weapon empty to use the Build tab's.</p>
     <div class="compare-grid">
@@ -306,6 +315,33 @@
         Per-mod stack counts set on the Build tab apply here too.</p>
       <datalist id="find-arcane-list"></datalist>
       <p class="hint" id="find-shards"></p>
+      <h3>Riven <span class="hint">· kept in its slot; the other mods are brute forced around it</span></h3>
+      <div class="compare-grid">
+        <label class="field wide-field"><span>Stats (card values, − marks the malus)</span>
+          <input id="find-riven-input" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
+        <label class="field"><span>Drain</span>
+          <input id="find-riven-drain" type="number" min="0" max="30" step="1" placeholder="not counted" /></label>
+        <label class="field"><span>Polarity</span>
+          <select id="find-riven-polarity"><option value="">none</option><option value="madurai">Madurai</option><option value="vazarin">Vazarin</option><option value="naramon">Naramon</option><option value="zenurik">Zenurik</option></select></label>
+      </div>
+      <h3>Conditions <span class="hint">· used when conditional effects are on “custom”</span></h3>
+      <div class="toggles">
+        <label><input type="checkbox" id="find-aiming" /> aiming</label>
+        <label class="stack">On-kill <input type="number" id="find-onkill" min="0" max="50" value="0" /></label>
+        <label class="stack">Status types <input type="number" id="find-status-types" min="1" max="12" value="1" /></label>
+        <label class="stack">Viral <input type="number" id="find-viral" min="0" max="10" value="0" /></label>
+        <label class="stack">Corrosive <input type="number" id="find-corrosive" min="0" max="14" value="0" /></label>
+      </div>
+      <div class="compare-grid">
+        <label class="field"><span>Corrosive Projections</span>
+          <input id="find-cp-input" type="number" min="0" max="4" step="1" value="0" /></label>
+        <label class="field"><span>Armour strip %</span>
+          <input id="find-strip-input" type="number" min="0" max="100" step="5" value="0" /></label>
+        <label class="field"><span>Shattering Impact hits</span>
+          <input id="find-shattering-input" type="number" min="0" max="100" step="1" value="0" /></label>
+        <label class="field"><span>Strip from ability</span>
+          <select id="find-strip-from"><option value="">none</option></select></label>
+      </div>
       <span class="field-label">Warframe buffs <span id="find-buff-count" class="badge"></span></span>
       <div id="find-buff-list" class="buffs"></div>
     </section>
