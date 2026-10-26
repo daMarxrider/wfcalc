@@ -358,6 +358,82 @@ shield-capable damage), then health using direct damage plus DoT DPS. Toxin bypa
 shields (except Treasurer and Hounds). Time comes from the sustained fire rate, which
 accounts for the magazine and reload cycle.
 
+**Fight simulation** (default in calc, search, brute force, batch and the API; `--no-sim` turns
+it off): `src/engine/simulate.ts` walks the fight in ~200 steps on expected values. Shots follow
+the magazine and reload; each shot adds expected procs (none while Overguard is up); every status
+keeps its own stacks for its duration (Status Duration stretches it) and feeds back into damage:
+
+| Status | Effect | Duration, cap |
+|---|---|---|
+| Viral | +100%, then +25%/stack damage to health (to +325%) | 6 s, 10 |
+| Corrosive | −26%, then −6%/stack armour (to −80%; Emerald shards allow more) | 8 s, 10 |
+| Heat | refreshes all stacks; strip ramps 15/30/40/50% per 0.5 s, decays 50/40/30/15/0% per 1.5 s; ×(1 − strip) after Corrosive; ticks from 1 s | 6 s |
+| Magnetic | +100%, then +25%/stack damage to shields and Overguard | 6 s, 10 |
+| Cold | +0.1, then +0.05/stack critical multiplier (to +0.5), additive after mods | 6 s, 10 |
+| Puncture | +5%/stack critical chance (to +25%), additive after mods | 10 s, 5 |
+| Tau | +10%/stack status chance | 8 s, 10 |
+| Blast | 30% of the hit's base damage, 1.5 s after the proc | — |
+| Slash, Toxin, Electricity, Gas | one tick per second | 6 s |
+
+A tick is seeded when it procs (crit, location, faction, status damage of that hit) and lands
+through the target's state at that moment. Heat on expected values: a chain is alive with
+probability `1 − e^−W` (W = expected procs in the window). Continuous weapons ramp from 20% (Phage
+70%, Embolist 30%, Convectrix 60/80%) to full damage over 0.6 s and decay 0.8 s after stopping.
+Fights longer than four times the steady-state estimate (two hours at most) keep that estimate.
+Searches rank every build with *steady-state* stacks (rate × duration, capped) and simulate the
+best few hundred for the final order.
+
+## 15. Hit location (`Enemy_Body_Parts`, `Critical_Hit → Critical Headshots`)
+
+```
+head  multiplier = (base + 1.5 × Σ weak point damage) × (1 + Σ headshot multiplier)
+      base = 3.0 (1.5 for the Murmur and the Techrot), or a replacement such as Sonar's
+      crit chance += base crit × Σ weak point critical chance
+      head crits: 1 + tier × (2 × CD − 1)   → average 1 + CC × (2 × CD − 1)
+body  multiplier = 1 + Σ bodyshot damage   (Meticulous Aim −45%)
+```
+
+Verified against the wiki's worked example: `(3 + 1.5 × (3.5 + 0.75)) × (1 + 0.3 + 0.4) = 15.9375`.
+The multiplier and head crits carry into status ticks.
+
+## 16. Conditional effects and stacks
+
+Each effect's cap is the "Stacks up to Nx" of its text; DE's Public Export (`ExportUpgrades`,
+`ExportRelicArcane`) is checked against the snapshot by `npm run public-export` (all 108
+conditional effects agree). An effect without a cap does not stack and counts once. Modes:
+`custom` reads the conditions (`--stacks onKill=12`), `none` turns every conditional effect off,
+`max` puts each at its cap, with weak-point conditions only on head hits. `--source-stacks`
+pins one source. Max-rank passives that DE repeats on their own line (Merciless' reload,
+Deadhead's headshot multiplier) are unconditional.
+
+## 17. Primary Compression (`Primary_Compression`)
+
+While aiming the radius drops to 20%: `bonus = (0.5 + 0.1 × rank) × 0.8 × radius × effectiveness`,
+radius after radius mods. Per-attack radius, effectiveness and whether the bonus multiplies or
+adds to Serration come from the wiki's table (`npm run compression`). Kuva Bramma: +664%, or
++956.16% with Primed Firestorm, as the table lists.
+
+## 18. Archon Shards (`Archon_Shard`)
+
+Five slots, Tauforged ×1.5. Crimson: +25% Melee Critical Damage / Primary Status Chance /
+Secondary Critical Chance, +10% Ability Strength (added only to a strength derived from frame
+mods). Violet: Primary Electricity `+30% + 10% × (Crimson + Azure + Violet shards)`, joining the
+elements like an innate one; +25% Melee Critical Damage, doubled over 500 Energy (condition
+`energyOver500`). Topaz: +1% Secondary Critical Chance per Heat kill, 50 stacks (`onHeatKill`).
+Emerald: Toxin status +30%; Corrosion cap +2 (+3 Tauforged), each extra stack −6% armour.
+
+## 19. Sniper rifles (`Sniper_Rifle`)
+
+Each zoom level has its own scoped buff (wiki table, `npm run snipers`, `--zoom N|max`). Shot
+Combo: `1.5 + 0.5 × floor(log3(combo / minimum combo))` once the combo reaches the minimum
+(`--sniper-combo N`); it multiplies the shot and its status ticks.
+
+## 20. Mod capacity (`Polarity`)
+
+A matching slot halves the cost (rounded up), a slot of another polarity adds 25% (rounded up).
+Matching mods take the weapon's polarised slots, the rest the unpolarised ones, and any overflow
+sits mismatched; Forma goes where it saves the most drain.
+
 ## Calibration result (2026-10)
 
 Validated against an independent calculator (Overframe) on a real Haalvu build:
