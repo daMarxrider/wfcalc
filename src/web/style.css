@@ -735,3 +735,7 @@ button.link:hover { text-decoration: underline; }
 /* Hover help: labels with a tooltip show it. */
 label[title], .segmented[title], button.link[title] { cursor: help; }
 label[title] > span:first-child, label.stack[title], .toggles label[title] { text-decoration: underline dotted color-mix(in srgb, var(--muted) 60%, transparent); text-underline-offset: 3px; }
+
+/* Touch help bubble (no hover on phones). */
+.tip-bubble { position: absolute; left: 16px; right: 16px; z-index: 50; padding: 10px 12px; border-radius: 12px; font-size: 12.5px; line-height: 1.4;
+  background: rgba(24,23,27,.92); border: 1px solid var(--border-strong); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); box-shadow: var(--shadow); }
