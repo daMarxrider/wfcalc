@@ -14,7 +14,8 @@
  *   --faction grineer           shorthand: picks a Grineer benchmark and enables faction mods
  *   --mode "Incarnon Form"      use an alternative fire mode
  *   --stacks onKill=5           activate a conditional effect
- *   --status-types 4            number of status types on the target (Galvanized mods)
+ *   --status-types 4            total status types on the target (default: each build's own + extra)
+ *   --extra-status-types 2      status types other sources keep on the target
  *   --headshot                  treat every hit as a weak-point hit
  *   --brief                     one line per result (cheapest output for an agent)
  *   --json                      machine-readable output (only when you must parse it)
@@ -185,6 +186,7 @@ function parseConditions(args: Args): Record<string, number> {
       conditions[key.trim()] = value ? Number(value) : 1;
     }
   }
+  // A number is the total on the target; without one (or with `auto`) each build counts its own.
   const statusTypes = flag(args, 'status-types');
   if (statusTypes && statusTypes !== 'auto') conditions.statusTypes = Number(statusTypes);
   // Harrow's Covenant scales with the damage prevented during invulnerability.
@@ -260,6 +262,7 @@ function buildFromArgs(snapshot: Snapshot, args: Args, mods: string[]): Build {
     stackMode: parseStackMode(args),
     sourceStacks: parseSourceStacks(snapshot, args),
     shards: parseShards(args),
+    extraStatusTypes: flag(args, 'extra-status-types') ? Number(flag(args, 'extra-status-types')) : undefined,
   };
 }
 
@@ -297,10 +300,6 @@ function targetScale(args: Args): { eximus?: boolean; overguard?: number; steelP
 }
 
 /** Damage types with a non-zero share: the status types a build can put on a target. */
-function countStatusTypes(resolved: ReturnType<typeof resolveBuild>): number {
-  return Math.max(1, Object.values(resolved.damage.perProjectile).filter((amount) => amount > 0).length);
-}
-
 /** `--attenuation archon|eidolon|custom` plus the explicit caps. */
 function attenuationFromArgs(args: Args): string | AttenuationProfile | null | undefined {
   const id = flag(args, 'attenuation');
@@ -347,7 +346,6 @@ function calcBriefLine(
   mode: 'full' | 'answer',
   fit?: ReturnType<typeof capacityOf>,
   arcanes?: Array<{ name: string; rank?: number }>,
-  inferredStatusTypes?: number | null,
 ): string {
   const head = `${label ? `${label}: ` : ''}${resolved.weapon.name} vs ${enemyName} ${level}`;
   const ttk = hit.timeToKill === null ? 'cannot kill' : `ttk ${num(hit.timeToKill, 2)}s (${num(hit.shotsToKill, 1)} shots)`;
@@ -367,7 +365,7 @@ function calcBriefLine(
     ...(hit.multiTargetDps !== null ? [`${hit.multiTargetTargets} targets = ${num(hit.multiTargetDps)} dps`] : []),
     ...(fit && fit.mods.length ? [`${fit.capacityUsed}/${fit.capacity} cap${fit.fits ? '' : ' OVER'}`, `${fit.formaNeeded}F`] : []),
     ...(arcanes?.length ? [`arcane ${arcanes.map((arcane) => arcane.name).join(' + ')}`] : []),
-    ...(inferredStatusTypes ? [`statusTypes ${inferredStatusTypes} (inferred)`] : []),
+    ...(resolved.usesStatusTypes ? [`statusTypes ${resolved.statusTypes}`] : []),
   ];
   const warnings = resolved.warnings.length + hit.warnings.length + resolved.unsupportedMods.length;
   if (warnings) parts.push(`${warnings} warning(s)`);
@@ -405,14 +403,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
   let build = buildFromArgs(snapshot, args, mods.map((m) => (m.rank ? `${m.name}=R${m.rank}` : m.name)));
   // Re-apply ranks lost by the string round-trip above.
   build.mods = mods;
-  let resolved = resolveBuild(snapshot, build);
-  // `--status-types auto`: count the damage types the build itself applies. The count changes
-  // the value of Condition Overload/Galvanized Aptitude, so re-resolve once with it.
-  const inferredStatusTypes = flag(args, 'status-types') === 'auto' ? countStatusTypes(resolved) : null;
-  if (inferredStatusTypes !== null) {
-    build = { ...build, conditions: { ...(build.conditions ?? {}), statusTypes: inferredStatusTypes } };
-    resolved = resolveBuild(snapshot, build);
-  }
+  const resolved = resolveBuild(snapshot, build);
   const { enemy, level } = resolveEnemy(snapshot, args);
   const scaled = scaleEnemy(snapshot, enemy, level, targetScale(args));
   const hit = hitEnemy(snapshot, resolved, scaled, {
@@ -431,7 +422,6 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
     console.log(calcBriefLine(
       label === 'build' ? '' : label, resolved, hit, enemy.name, level, brief, fit,
       (build.arcanes ?? []).map((entry) => (typeof entry === 'string' ? { name: entry } : { name: entry.name, rank: entry.rank })),
-      inferredStatusTypes,
     ));
     return;
   }
@@ -481,7 +471,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
           dot: hit.dot,
           totalDps: hit.totalDps,
           arcanes: (build.arcanes ?? []).map((entry) => (typeof entry === 'string' ? { name: entry } : { name: entry.name, rank: entry.rank })),
-          statusTypes: inferredStatusTypes ?? (typeof build.conditions?.statusTypes === 'number' ? build.conditions.statusTypes : null),
+          statusTypes: resolved.usesStatusTypes ? resolved.statusTypes : null,
           activeBuffs: resolved.activeBuffs,
           abilityStrength: resolved.abilityStrength,
           riven: resolved.rivenLines,
@@ -530,8 +520,8 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
   if (fit.mods.length) {
     console.log(`  capacity     ${fit.capacityUsed}/${fit.capacity}${fit.fits ? '' : ' over'}${fit.formaNeeded ? `   ${fit.formaNeeded} forma` : ''}`);
   }
-  if (inferredStatusTypes !== null) {
-    console.log(`  status types ${inferredStatusTypes} (inferred from the build's damage types)`);
+  if (resolved.usesStatusTypes) {
+    console.log(`  status types ${resolved.statusTypes}${build.conditions?.statusTypes === undefined ? ' (the build\'s own + extra)' : ''}`);
   }
   console.log(
     `  target       hp ${num(scaled.health)}  shields ${num(scaled.shield)}  armor ${num(hit.armor)}` +
@@ -826,31 +816,7 @@ async function main(): Promise<void> {
         attenuation: attenuationFromArgs(args),
         base: commaList('incarnon').includes('auto') ? { ...base, incarnon: undefined } : base,
       };
-      let result = search(snapshot, request);
-      // `--status-types auto`: infer the count from the best build's own damage profile and
-      // iterate until it is self-consistent (the count changes Galvanized Aptitude/CO).
-      if (flag(args, 'status-types') === 'auto') {
-        let inferred = 0;
-        for (let round = 0; round < 3; round++) {
-          const top = result.builds[0];
-          if (!top) break;
-          const topBuild = resolveBuild(snapshot, {
-            ...base,
-            weapon: item.name,
-            mods: top.mods.map((mod) => ({ name: mod.name, rank: mod.rank })),
-            incarnon: top.incarnon.length ? top.incarnon : undefined,
-            conditions: { ...(base.conditions ?? {}), statusTypes: inferred || 1 },
-          });
-          const count = countStatusTypes(topBuild);
-          if (count === inferred) break;
-          inferred = count;
-          result = search(snapshot, {
-            ...request,
-            base: { ...request.base, conditions: { ...(request.base?.conditions ?? {}), statusTypes: count } },
-          });
-        }
-        result.assumptions.push(`statusTypes inferred: ${inferred}`);
-      }
+      const result = search(snapshot, request);
       if (wantsJson(args)) {
         emitJson(result);
         break;
@@ -1241,7 +1207,10 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
          --attenuation archon|eidolon|custom   boss damage caps (Eidolons are automatic)
          --mdpt N --mdps N            explicit caps per hit / per second (implies custom)
          --flat-dr 20 --status-dr 50  flat and status damage reduction, in percent
-         --stacks onKill=5  --status-types N
+         --stacks onKill=5
+         --extra-status-types N       status types other sources keep on the target; each build
+                                      adds its own (Galvanized Aptitude, Condition Overload)
+         --status-types N             fix the total instead
          --stacks none|max            every conditional effect off, or on at its cap (DE's
                                       "Stacks up to Nx"; weak-point ones only with --hit head)
          --source-stacks "Primary Merciless=6,Galvanized Chamber=max"   per mod/arcane/buff
