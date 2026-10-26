@@ -41,7 +41,8 @@ export function buildFromJson(snapshot: Snapshot, body: any, weaponName: string)
           value: Number(body.elementBonus.value) > 1 ? Number(body.elementBonus.value) / 100 : Number(body.elementBonus.value),
         }
       : undefined,
-    aoeDistance: body.aoeDistance !== undefined ? Number(body.aoeDistance) : undefined,
+    // null means "not set" (the UI's default), not a distance of 0 m.
+    aoeDistance: body.aoeDistance != null ? Number(body.aoeDistance) : undefined,
     comboHits: body.comboHits ? Number(body.comboHits) : undefined,
     heavyAttack: Boolean(body.heavyAttack),
     riven: body.riven ?? undefined,

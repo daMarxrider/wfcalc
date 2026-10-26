@@ -224,6 +224,15 @@ export function falloffFactor(falloff: { start: number; end: number; reduction: 
 }
 
 /** Reads a weapon mode's stats, falling back to the arsenal block. */
+/** Arcane slot types each weapon category accepts. Arch-guns take a Primary and a Secondary arcane. */
+export const ARCANE_SLOTS: Record<string, string[]> = {
+  primary: ['primary', 'bow', 'shotgun'],
+  secondary: ['secondary'],
+  melee: ['melee'],
+  archgun: ['primary', 'secondary'],
+  archmelee: ['melee'],
+};
+
 export function statsForMode(weapon: WeaponData, modeName?: string): { stats: WeaponData['stats']; mode: WeaponMode | null } {
   if (modeName) {
     const wanted = normalizeName(modeName);
@@ -384,14 +393,12 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     });
   }
 
-  // Weapon arcanes: the slot has to match the weapon (Primary/Secondary/Melee/Bow/Shotgun).
-  const arcaneSlots: Record<string, string[]> = {
-    primary: ['primary', 'bow', 'shotgun'],
-    secondary: ['secondary'],
-    melee: ['melee'],
-    archgun: ['primary'],
-    archmelee: ['melee'],
-  };
+  // Weapon arcanes: the slot has to match the weapon (Primary/Secondary/Melee/Bow/Shotgun), and
+  // a weapon holds one arcane per slot type. Arch-guns are the exception with two: one Primary
+  // and one Secondary arcane, each unlocked by an Archgun Arcane Adapter (wiki: Arcane Enhancement).
+  const arcaneSlots = ARCANE_SLOTS;
+  const arcaneGroup = (slot: string): string => (weapon.category === 'archgun' ? (slot === 'secondary' ? 'secondary' : 'primary') : 'weapon');
+  const usedArcaneGroups = new Map<string, string>();
   for (const entry of build.arcanes ?? []) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
     const rank = typeof entry === 'string' ? undefined : entry.rank;
@@ -405,6 +412,14 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     if (arcane.slot && !allowed.includes(arcane.slot)) {
       collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.category} weapon`);
     }
+    const group = arcaneGroup(arcane.slot ?? '');
+    const taken = usedArcaneGroups.get(group);
+    if (taken) {
+      collected.warnings.push(weapon.category === 'archgun'
+        ? `${arcane.name}: an arch-gun holds one ${group} arcane, and ${taken} already fills it`
+        : `${arcane.name}: a weapon holds one arcane, and ${taken} already fills the slot`);
+    }
+    usedArcaneGroups.set(group, arcane.name);
     sources.push({ name: arcane.name, maxRank: arcane.maxRank, rank, effects: arcane.effects, partial: false, incompatible: [], kind: 'weaponArcane' });
   }
 
