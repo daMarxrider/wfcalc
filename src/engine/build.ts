@@ -455,6 +455,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   const arcaneSlots = ARCANE_SLOTS;
   const arcaneGroup = (slot: string): string => (weapon.category === 'archgun' ? (slot === 'secondary' ? 'secondary' : 'primary') : 'weapon');
   const usedArcaneGroups = new Map<string, string>();
+  let compressionRank: number | null = null;
   for (const entry of build.arcanes ?? []) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
     const rank = typeof entry === 'string' ? undefined : entry.rank;
@@ -476,6 +477,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
         : `${arcane.name}: a weapon holds one arcane, and ${taken} already fills the slot`);
     }
     usedArcaneGroups.set(group, arcane.name);
+    if (arcane.name === 'Primary Compression') compressionRank = Math.min(rank ?? arcane.maxRank, arcane.maxRank);
     sources.push({ name: arcane.name, maxRank: arcane.maxRank, rank, effects: arcane.effects, partial: false, incompatible: [], kind: 'weaponArcane' });
   }
 
@@ -686,7 +688,34 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
 
   // ---------------------------------------------------------------- base damage
   const baseTotal = DAMAGE_TYPES.reduce((sum, type) => sum + (stats[type] ?? 0), 0);
-  const damageBonus = 1 + bonus('baseDamage');
+  // Primary Compression (wiki): while aiming the explosion radius shrinks to 20%, and every
+  // metre lost adds +50% damage, +10% per rank (+100% at rank 5). The radius is the modded one
+  // (Firestorm), read through the wiki's per-attack table; on most weapons the bonus multiplies
+  // with Serration-type bonuses, on a few it adds to them.
+  let compressionMultiplier = 1;
+  let compressionAdd = 0;
+  if (compressionRank !== null) {
+    const aiming: Effect = { target: 'baseDamage', op: 'add', value: 0, condition: 'aiming', raw: 'Primary Compression: on aim' };
+    const active = conditionStacks(aiming, conditions, {
+      mode: build.stackMode ?? 'custom',
+      override: build.sourceStacks?.['Primary Compression'],
+      hit: hitZoneOf(build),
+    }) > 0;
+    const entries = snapshot.compression?.[weapon.name] ?? [];
+    const wanted = normalizeName(mode?.name ?? '');
+    const entry = (wanted ? entries.find((candidate) => normalizeName(candidate.attack).includes(wanted)) : undefined) ?? entries[0];
+    if (!entry) {
+      collected.warnings.push(`Primary Compression: no explosion radius known for ${weapon.name}, so no damage bonus`);
+    } else if (!active) {
+      collected.inactive.push('Primary Compression: active while aiming');
+    } else {
+      const radius = entry.radius * (1 + bonus('blastRadius'));
+      const value = (0.5 + 0.1 * compressionRank) * 0.8 * radius * entry.effectiveness;
+      if (entry.stacking === 'adds') compressionAdd = value;
+      else compressionMultiplier = 1 + value;
+    }
+  }
+  const damageBonus = (1 + bonus('baseDamage') + compressionAdd) * compressionMultiplier;
   // Flat base damage (Incarnon perks: "Increase Base Damage by +51") is spread over the
   // weapon's existing damage distribution, like any other base damage.
   const flatBase = collected.byTarget.get('baseDamageFlat') ?? 0;

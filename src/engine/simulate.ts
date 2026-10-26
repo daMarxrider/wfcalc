@@ -125,10 +125,12 @@ class Window {
 }
 
 export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: SimulationOptions): SimulationResult {
-  const maxSeconds = options.maxSeconds ?? 600;
   const estimate = options.estimate && Number.isFinite(options.estimate) ? options.estimate : 30;
-  // About 200 steps per kill, never coarser than a quarter second nor finer than 5 ms.
-  const dt = Math.min(0.25, Math.max(0.005, estimate / 200));
+  // Statuses only shorten a fight, but the steady-state guess can be off early on: allow four
+  // times the estimate (at least 10 minutes, at most two hours) before calling it unkillable.
+  const maxSeconds = options.maxSeconds ?? Math.min(7200, Math.max(600, estimate * 4));
+  // About 200 steps per kill, never coarser than a second nor finer than 5 ms.
+  const dt = Math.min(1, Math.max(0.005, estimate / 200));
   const durationScale = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
   const slots = (seconds: number): number => Math.max(1, Math.round((seconds * durationScale) / dt));
 

@@ -50,5 +50,10 @@ export function buildFromJson(snapshot: Snapshot, body: any, weaponName: string)
     mode: body.mode || undefined,
     conditions: body.conditions ?? {},
     headshot: Boolean(body.headshot),
+    hit: body.hit === 'head' || body.hit === 'body' ? body.hit : undefined,
+    stackMode: body.stackMode === 'none' || body.stackMode === 'max' || body.stackMode === 'custom' ? body.stackMode : undefined,
+    sourceStacks: body.sourceStacks && typeof body.sourceStacks === 'object'
+      ? Object.fromEntries(Object.entries(body.sourceStacks).map(([name, value]) => [name, Number(value)]).filter(([, value]) => Number.isFinite(value as number)))
+      : undefined,
   };
 }

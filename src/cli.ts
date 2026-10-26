@@ -22,7 +22,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { loadSnapshot, findEnemy, findMod, findWeapon, modsForWeapon } from './data.ts';
-import { resolveBuild, type Build, type BuildMod } from './engine/build.ts';
+import { resolveBuild, type Build, type BuildMod, type HitZone, type StackMode } from './engine/build.ts';
 import { search } from './engine/search.ts';
 import { bruteForce } from './engine/bruteforce.ts';
 import { capacityOf } from './engine/capacity.ts';
@@ -112,9 +112,46 @@ function parseRiven(args: Args): RivenSpec | undefined {
 }
 
 /** Conditions from `--stacks onKill=5` and friends. */
+/** `--stacks none|max` picks a stack mode; `--stacks onKill=5` sets conditions (custom mode). */
+const STACK_MODES: Record<string, StackMode> = { none: 'none', off: 'none', max: 'max', all: 'max', custom: 'custom' };
+
+function parseStackMode(args: Args): StackMode | undefined {
+  const modes = flagAll(args, 'stacks').map((entry) => STACK_MODES[entry.trim().toLowerCase()]).filter(Boolean);
+  return modes.at(-1);
+}
+
+/** `--source-stacks "Primary Merciless=6,Galvanized Chamber=max"`: stacks per mod, arcane or buff. */
+function parseSourceStacks(snapshot: Snapshot, args: Args): Record<string, number> | undefined {
+  const entries = flagAll(args, 'source-stacks').flatMap((entry) => entry.split(',')).map((entry) => entry.trim()).filter(Boolean);
+  if (!entries.length) return undefined;
+  const out: Record<string, number> = {};
+  for (const entry of entries) {
+    const [rawName, rawValue = 'max'] = entry.split('=').map((part) => part.trim());
+    // A cap comes from the data: the largest maxStacks among the source's conditional effects.
+    const source = findMod(snapshot, rawName).item ?? snapshot.arcanes[rawName];
+    const name = source?.name ?? rawName;
+    const cap = Math.max(1, ...(source?.effects ?? []).filter((effect) => effect.condition).map((effect) => effect.maxStacks ?? 1));
+    const value = /^(max|all)$/i.test(rawValue) ? cap : /^(none|off)$/i.test(rawValue) ? 0 : Number(rawValue);
+    if (!Number.isFinite(value) || value < 0) throw new CliError(`--source-stacks: bad value for ${rawName}: ${rawValue}`, 'invalid_argument');
+    out[name] = value;
+  }
+  return out;
+}
+
+/** `--hit head|body`, or the `--headshot` / `--bodyshot` shorthands. */
+function parseHitZone(args: Args): HitZone {
+  const raw = flag(args, 'hit')?.toLowerCase();
+  if (raw !== undefined && raw !== 'head' && raw !== 'body' && raw !== 'headshot' && raw !== 'bodyshot') {
+    throw new CliError('--hit must be head or body', 'invalid_argument');
+  }
+  if (raw === 'head' || raw === 'headshot' || args.flags.has('headshot')) return 'head';
+  return 'body';
+}
+
 function parseConditions(args: Args): Record<string, number> {
   const conditions: Record<string, number> = {};
   for (const entry of flagAll(args, 'stacks')) {
+    if (STACK_MODES[entry.trim().toLowerCase()]) continue;
     for (const pair of entry.split(',')) {
       const [key, value] = pair.split('=');
       conditions[key.trim()] = value ? Number(value) : 1;
@@ -188,7 +225,9 @@ function buildFromArgs(snapshot: Snapshot, args: Args, mods: string[]): Build {
     },
     mode: flag(args, 'mode'),
     conditions: parseConditions(args),
-    headshot: args.flags.has('headshot'),
+    hit: parseHitZone(args),
+    stackMode: parseStackMode(args),
+    sourceStacks: parseSourceStacks(snapshot, args),
   };
 }
 
@@ -347,6 +386,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
   const hit = hitEnemy(snapshot, resolved, scaled, {
     attenuation: attenuationFromArgs(args),
     targets: flag(args, 'targets') ? Number(flag(args, 'targets')) : undefined,
+    simulate: !args.flags.has('no-sim'),
   });
   const allWarnings = [...resolved.warnings, ...hit.warnings];
   const capacityLimit = flag(args, 'capacity') ? Number(flag(args, 'capacity')) : 60;
@@ -391,6 +431,12 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
           fireRate: resolved.fireRate,
           shotsToKill: hit.shotsToKill,
           timeToKill: hit.timeToKill,
+          hitZone: resolved.hitZone,
+          hitMultiplier: hit.hit.location,
+          stackMode: build.stackMode ?? 'custom',
+          simulation: hit.simulation
+            ? { timeToKill: hit.simulation.timeToKill, statusAtKill: hit.simulation.atEnd, damageBySource: hit.simulation.damageBySource }
+            : null,
           factionMultiplier: hit.factionMultiplier,
           // Armour actually applied, after every strip: the enemy's own value would make a
           // stripped target look untouched.
@@ -461,6 +507,17 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
       (hit.armor !== scaled.armor ? ` (base ${num(scaled.armor)})` : '') +
       `   -> ${num(hit.shotsToKill)} shots${hit.timeToKill !== null ? `, ${num(hit.timeToKill, 2)}s` : ''}`,
   );
+  console.log(`  hit          ${resolved.hitZone === 'head' ? 'headshots' : 'bodyshots'} x${num(hit.hit.location, 2)}`
+    + `  crit ${pct(hit.hit.critChance)} avg x${num(hit.hit.averageCrit, 2)}`
+    + `  stacks ${build.stackMode ?? 'custom'}${build.sourceStacks ? ` (${Object.entries(build.sourceStacks).map(([name, value]) => `${name} ${value}`).join(', ')})` : ''}`);
+  if (hit.simulation) {
+    const end = hit.simulation.atEnd;
+    const dealt = Object.entries(hit.simulation.damageBySource).filter(([, value]) => value > 0);
+    const totalDealt = dealt.reduce((sum, [, value]) => sum + value, 0) || 1;
+    console.log(`  fight        statuses at the kill: viral ${num(end.viral, 1)}, corrosive ${num(end.corrosive, 1)}, heat strip ${pct(end.heatStrip)}`
+      + `${end.magnetic ? `, magnetic ${num(end.magnetic, 1)}` : ''}${end.cold ? `, cold ${num(end.cold, 1)}` : ''}  armour ${num(end.armor)}`);
+    console.log(`  damage from  ${dealt.sort((a, b) => b[1] - a[1]).map(([source, value]) => `${source} ${pct(value / totalDealt)}`).join(', ')}`);
+  }
   if (hit.multiTargetDps !== null) {
     console.log(`  multi-target  ${num(hit.multiTargetFactor, 2)}x across the chain -> ${num(hit.multiTargetDps)} dps`);
   }
@@ -732,6 +789,7 @@ async function main(): Promise<void> {
         budget: flag(args, 'budget') ? Number(flag(args, 'budget')) : undefined,
         chooseIncarnon: commaList('incarnon').includes('auto'),
         chooseArcane: commaList('arcane').some((name) => name.toLowerCase() === 'auto'),
+        simulate: !args.flags.has('no-sim'),
         ...targetScale(args),
         attenuation: attenuationFromArgs(args),
         base: commaList('incarnon').includes('auto') ? { ...base, incarnon: undefined } : base,
@@ -833,6 +891,7 @@ async function main(): Promise<void> {
         maxEvaluations: numeric('max-evals'),
         limit: numeric('top') ?? 5,
         workers: numeric('workers'),
+        simulate: !args.flags.has('no-sim'),
         ...targetScale(args),
         attenuation: attenuationFromArgs(args),
         base: { ...base, mods: [] },
@@ -1064,6 +1123,7 @@ async function main(): Promise<void> {
             overguard: record.overguard !== undefined ? Number(record.overguard) : undefined,
             steelPath: Boolean(record.steelPath),
           }), {
+            simulate: record.simulate !== false,
             targets: record.targets !== undefined ? Number(record.targets) : undefined,
             attenuation: record.attenuation ?? (record.mdpt !== undefined || record.mdps !== undefined
               ? {
@@ -1149,7 +1209,12 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
          --attenuation archon|eidolon|custom   boss damage caps (Eidolons are automatic)
          --mdpt N --mdps N            explicit caps per hit / per second (implies custom)
          --flat-dr 20 --status-dr 50  flat and status damage reduction, in percent
-         --stacks onKill=5  --status-types N  --headshot
+         --stacks onKill=5  --status-types N
+         --stacks none|max            every conditional effect off, or on at its cap (DE's
+                                      "Stacks up to Nx"; weak-point ones only with --hit head)
+         --source-stacks "Primary Merciless=6,Galvanized Chamber=max"   per mod/arcane/buff
+         --hit head|body              where shots land (default body); --headshot, --bodyshot
+         --no-sim                     steady-state statuses instead of the fight simulation
          --brief one line per result        --brief=answer answer only
          --json machine-readable output      --debug stack trace on failure
 
