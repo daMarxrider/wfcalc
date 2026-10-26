@@ -554,7 +554,7 @@ details > *:not(summary) { margin-top: 8px; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .mcard-lines { display: none; }
-.mcard-lines span { font-size: 10px; color: #b9c0cc; }
+.mcard-lines span { font-size: 12.5px; line-height: 1.2; color: #c6ccd6; }
 .mcard-compat { opacity: 0; transition: opacity .12s ease; }
 .mcard-compat {
   position: absolute; bottom: 12px; left: 0; width: 100%; z-index: 5; text-align: center;
