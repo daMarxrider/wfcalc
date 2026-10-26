@@ -1004,6 +1004,9 @@ function renderResults(result) {
   if (result.weapon.mode) notes.push(`Using fire mode: ${result.weapon.mode}`);
   if (result.incarnon?.length) notes.push(`Incarnon: ${result.incarnon.join(' / ')}`);
   if (result.riven?.length) notes.push(`Riven: ${result.riven.join(', ')}`);
+  if (state.conditions.statusTypes !== undefined) {
+    notes.push(`Status types pinned to ${state.conditions.statusTypes} by this link; edit “Extra status types” to count each build's own instead.`);
+  }
   // A refused drop has no effect on the build, so it is reported on its own.
   if (dragWarning) notes.unshift(dragWarning);
   // An exilus mod sitting outside the exilus slot is an illegal build; flag it even when it
@@ -1562,6 +1565,26 @@ function applyTips() {
     tip(`find-${id}`, text);
   }
   for (const [id, source] of Object.entries(SHARED_TIPS)) tip(id, TIPS[source]);
+  // Touch screens have no hover: tapping or focusing a control shows its help in a bubble.
+  if (matchMedia('(hover: none)').matches) {
+    const bubble = document.createElement('div');
+    bubble.className = 'tip-bubble';
+    bubble.hidden = true;
+    document.body.append(bubble);
+    let timer;
+    const show = (event) => {
+      const owner = event.target.closest?.('[title]');
+      if (!owner) { bubble.hidden = true; return; }
+      const box = owner.getBoundingClientRect();
+      bubble.textContent = owner.title;
+      bubble.hidden = false;
+      bubble.style.top = `${Math.min(window.innerHeight - 16, box.bottom + 6) + window.scrollY}px`;
+      clearTimeout(timer);
+      timer = setTimeout(() => { bubble.hidden = true; }, 5000);
+    };
+    document.addEventListener('click', show);
+    document.addEventListener('focusin', show);
+  }
   const modes = 'none: every conditional effect off. custom: the values in Conditions (aiming, on-kill...). all: every conditional effect at its cap; weak-point ones need headshots.';
   for (const group of document.querySelectorAll('.segmented[aria-label^="Stack mode"]')) group.title = modes;
   const method = 'Quick search: greedy, fast, usually right. Brute force: every combination of the candidate mods, on every core.';
@@ -1592,8 +1615,7 @@ function syncInputs() {
   document.querySelector('.fight-box').classList.toggle('custom', (state.stackMode ?? 'custom') === 'custom');
   $('simulate').checked = $('find-simulate').checked = state.simulate !== false;
   $('onkill').value = String(state.conditions.onKill ?? 0);
-  // Older links fixed a total; each build now counts its own types and this is the extra.
-  delete state.conditions.statusTypes;
+  // Older links pinned a total (conditions.statusTypes); it stays until this field is edited.
   $('status-types').value = String(state.extraStatusTypes ?? 0);
   $('aiming').checked = Boolean(state.conditions.aiming);
   $('viral').value = String(state.debuffs?.viralStacks ?? 0);
@@ -1734,6 +1756,7 @@ function bindEvents() {
   conditionInput('onkill', 'onKill', true);
   $('status-types').addEventListener('change', (event) => {
     state.extraStatusTypes = Math.max(0, Number(event.target.value) || 0);
+    delete state.conditions.statusTypes;
     recalc();
   });
   conditionInput('aiming', 'aiming', false);
