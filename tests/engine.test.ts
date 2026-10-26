@@ -7,14 +7,21 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { falloffFactor, resolveBuild, type Build } from '../src/engine/build.ts';
-import { armorDamageReduction, overguardForLevel, scaleEnemy } from '../src/engine/enemy.ts';
+import { falloffFactor, resolveBuild as resolveQuantized, type Build } from '../src/engine/build.ts';
+import { armorDamageReduction, eximusBaseHealth, overguardForLevel, scaleEnemy } from '../src/engine/enemy.ts';
+import { elementalOrders } from '../src/engine/bruteforce.ts';
 import { hitEnemy } from '../src/engine/damage.ts';
 import { parseModEffects } from '../src/mods/parse.ts';
 import { buffEffects, buffById, abilityStrengthFromMods } from '../src/engine/buffs.ts';
 import { rivenEffects } from '../src/engine/riven.ts';
 import { viralMultiplier, corrosiveArmorMultiplier } from '../src/engine/dot.ts';
 import type { AbilityData, ArcaneData, EnemyData, ModData, Snapshot, WeaponData, WeaponStats } from '../src/types.ts';
+
+/**
+ * The golden values below pin each formula on its own, before the game's 1/32 quantization
+ * rounds the result; quantization has its own tests at the end of this file.
+ */
+const resolveBuild = (snap: Snapshot, build: Build) => resolveQuantized(snap, { quantize: false, ...build });
 
 const close = (actual: number, expected: number, tolerance = 1e-6) =>
   assert.ok(Math.abs(actual - expected) <= tolerance * Math.max(1, Math.abs(expected)), `${actual} != ${expected}`);
@@ -919,4 +926,103 @@ test('the per-hit attenuation formula accounts for multishot', () => {
   const hit = hitEnemy(snap, resolved, scaleEnemy(snap, dummy, 1), { attenuation: 'archon' });
   const perPellet = 500_000 * 460_000 / (500_000 * 2 + 460_000);
   close(hit.timeToKill!, 1_000_000 / (perPellet * 2 * 0.8));
+});
+
+// ------------------------------------------------------------- wiki checks added with bruteforce
+
+test('quantization rounds each type to 1/32 of base damage (wiki Damage/Calculation example)', () => {
+  // 30 Impact / 30 Puncture / 40 Slash: scale 100/32 = 3.125, so 30 -> 10 x 3.125 = 31.25 and
+  // 40 -> 13 x 3.125 = 40.625, total 103.125.
+  const snap = snapshot([weapon({ impact: 30, puncture: 30, slash: 40 })], []);
+  const resolved = resolveQuantized(snap, { weapon: 'Test Weapon', mods: [] });
+  close(resolved.damage.perProjectile.impact ?? 0, 31.25);
+  close(resolved.damage.perProjectile.puncture ?? 0, 31.25);
+  close(resolved.damage.perProjectile.slash ?? 0, 40.625);
+  close(resolved.damage.projectileTotal, 103.125);
+});
+
+test('quantization scales with damage mods: Serration is a plain multiplier on the quantized total', () => {
+  // Wiki: a non-elemental bonus multiplies the numerator and the scale alike.
+  const snap = snapshot([weapon({ impact: 30, puncture: 30, slash: 40 })], [serration]);
+  const resolved = resolveQuantized(snap, { weapon: 'Test Weapon', mods: ['Serration'] });
+  close(resolved.damage.projectileTotal, 103.125 * 2.65);
+});
+
+test('innate elements combine last in the hierarchy (wiki Damage)', () => {
+  // Innate Electricity, Hellfire then Cryo Rounds: Heat + Cold pair first (Blast 90 + 90), the
+  // innate Electricity is last and stays alone. Innate-first would have made Radiation.
+  const snap = snapshot([weapon({ impact: 80, electricity: 20 })], [hellfire, cryoRounds]);
+  const resolved = build(snap, ['Hellfire', 'Cryo Rounds']);
+  close(resolved.damage.perProjectile.blast ?? 0, 180);
+  close(resolved.damage.perProjectile.electricity ?? 0, 20);
+  assert.equal(resolved.damage.perProjectile.radiation ?? 0, 0);
+});
+
+test('a mod of the innate element pulls the innate damage to its position (wiki: Amprex + Stormbringer)', () => {
+  const snap = snapshot([weapon({ impact: 80, electricity: 20 })], [stormbringer, hellfire]);
+  const resolved = build(snap, ['Stormbringer', 'Hellfire']);
+  // Electricity (90 + innate 20) is first, Heat second: Radiation 200.
+  close(resolved.damage.perProjectile.radiation ?? 0, 200);
+  assert.equal(resolved.damage.perProjectile.electricity ?? 0, 0);
+});
+
+test('a repeated element keeps the position where it first appears (wiki: Thermite before Hellfire)', () => {
+  // Heat (60 + 90) is placed at Thermite's slot and pairs with Cold: one Blast of 240, no stray Heat.
+  const snap = snapshot([weapon({ impact: 100 })], [thermite, cryoRounds, hellfire]);
+  const resolved = build(snap, ['Thermite Rounds', 'Cryo Rounds', 'Hellfire']);
+  close(resolved.damage.perProjectile.blast ?? 0, 240);
+  assert.equal(resolved.damage.perProjectile.heat ?? 0, 0);
+});
+
+test('brute force tries one slot order per distinct elemental pairing', () => {
+  const elements: Record<string, 'heat' | 'cold' | 'toxin' | 'electricity'> = {
+    Hellfire: 'heat', 'Cryo Rounds': 'cold', 'Infected Clip': 'toxin', Stormbringer: 'electricity', 'Thermite Rounds': 'heat',
+  };
+  const of = (name: string) => elements[name] ?? null;
+  const mods = (names: string[]) => names.map((name) => ({ name }));
+  assert.equal(elementalOrders(mods(['Serration', 'Hellfire']), of, []).length, 1);
+  assert.equal(elementalOrders(mods(['Hellfire', 'Cryo Rounds']), of, []).length, 1);
+  // Three elements: which two pair up (3 ways). Four: which pairs (3 ways), not 24 permutations.
+  assert.equal(elementalOrders(mods(['Hellfire', 'Cryo Rounds', 'Infected Clip']), of, []).length, 3);
+  assert.equal(elementalOrders(mods(['Hellfire', 'Cryo Rounds', 'Infected Clip', 'Stormbringer']), of, []).length, 3);
+  // Two Heat mods are one element: still a single pairing with Cold.
+  assert.equal(elementalOrders(mods(['Hellfire', 'Thermite Rounds', 'Cryo Rounds']), of, []).length, 1);
+  // Innate elements come last, so two mod elements always pair with each other: one outcome.
+  assert.equal(elementalOrders(mods(['Hellfire', 'Cryo Rounds']), of, ['toxin']).length, 1);
+  // Three mod elements plus an innate fourth: the leftover mod element pairs with the innate one.
+  assert.equal(elementalOrders(mods(['Hellfire', 'Cryo Rounds', 'Infected Clip']), of, ['electricity']).length, 3);
+  // Every order keeps every mod.
+  for (const order of elementalOrders(mods(['Serration', 'Hellfire', 'Cryo Rounds', 'Infected Clip']), of, [])) {
+    assert.deepEqual(order.map((mod) => mod.name).sort(), ['Cryo Rounds', 'Hellfire', 'Infected Clip', 'Serration']);
+  }
+});
+
+test('Steel Path multiplies health and shields by 2.5 and leaves armour alone', () => {
+  const shielded: EnemyData = { ...bombard, shield: 200, pools: [{ type: 'Shield', category: 'shield', amount: 200 }, ...bombard.pools] };
+  const snap = snapshot([weapon({ impact: 100 })], [], [shielded]);
+  const normal = scaleEnemy(snap, shielded, 150);
+  const steel = scaleEnemy(snap, shielded, 150, { steelPath: true });
+  close(steel.health, normal.health * 2.5);
+  close(steel.shield, normal.shield * 2.5);
+  close(steel.armor, normal.armor);
+  assert.equal(steel.steelPath, true);
+  // Pools follow, so the damage engine sees the larger health.
+  close(steel.pools.find((pool) => pool.category === 'health')!.current, normal.pools.find((pool) => pool.category === 'health')!.current * 2.5);
+});
+
+test('Eximus units raise their base health before level scaling (wiki Enemy_Level_Scaling)', () => {
+  // Armoured unit, base 300: level 100 -> max(330, 0.25 x 1200 x (4.5 + 0.03 x 50)) = 1800.
+  close(eximusBaseHealth(300, 100, true), 1800);
+  // Level 10: the first step is 1, so 0.25 x 1200 = 300 loses to the 1.1x floor.
+  close(eximusBaseHealth(300, 10, true), 330);
+  // Above 100 the step is capped at 6; without shields or armour the factor is 0.375.
+  close(eximusBaseHealth(300, 150, false), 0.375 * 1200 * 6);
+  const snap = snapshot([weapon({ impact: 100 })], [], [bombard]);
+  close(scaleEnemy(snap, bombard, 100, { eximus: true }).health, scaleEnemy(snap, bombard, 100).health * 6);
+});
+
+test('Techrot health uses its own curve (wiki: 1 + 15.0998 q^0.7 above the transition)', () => {
+  const techrot: EnemyData = { ...bombard, faction: 'techrot', armor: 0, pools: [{ type: 'Flesh', category: 'health', amount: 300 }] };
+  const snap = snapshot([weapon({ impact: 100 })], [], [techrot]);
+  close(scaleEnemy(snap, techrot, 101).health, 300 * (1 + 15.0998 * Math.pow(100, 0.7)), 1e-5);
 });

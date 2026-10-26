@@ -61,9 +61,11 @@ export interface Build {
   /**
    * Kuva/Tenet weapon elemental bonus: the player-chosen element and its percentage of
    * base damage (25-60%). It behaves as innate damage, so it joins the elemental
-   * combination before any mod.
+   * combination after every mod (wiki: innate elements are last in the hierarchy).
    */
   elementBonus?: { type: DamageType; value: number };
+  /** Round each damage type to 1/32 of the modded base damage, as the game does. Default true. */
+  quantize?: boolean;
   /** Riven mod stats for this weapon. */
   riven?: RivenSpec;
   /** Status debuffs on the target, in DotContext terms (viralStacks, corrosiveStacks). */
@@ -631,8 +633,12 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
 
   // ------------------------------------------------- elemental combination phase
-  // Contributions in application order: innate single elements first, then mods in slot order.
-  const contributions: Array<{ element: BaseElement; amount: number }> = [];
+  // Hierarchy (wiki: Damage → Elemental Damage Combinations): mods in slot order, each element
+  // placed where it first appears and every later source of it merged there; innate elements go
+  // last, in Heat > Cold > Electricity > Toxin order, unless a mod already placed that element.
+  // Consecutive elements in the hierarchy then pair up into combined elements.
+  const modContributions: Array<{ element: BaseElement; amount: number }> = [];
+  const innateContributions: Array<{ element: BaseElement; amount: number }> = [];
 
   // "X% of Damage converted into <element>" (rare, mostly augments): that share of the
   // total stops being physical damage and becomes the target element instead.
@@ -644,44 +650,46 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
 
   for (const element of BASE_ELEMENTS) {
     const innate = (stats[element] ?? 0) * (1 - convertedShare);
-    if (innate > 0) contributions.push({ element, amount: innate * damageBonus });
+    if (innate > 0) innateContributions.push({ element, amount: innate * damageBonus });
   }
   for (const conversion of conversions) {
     if ((BASE_ELEMENTS as readonly string[]).includes(conversion.to)) {
-      contributions.push({ element: conversion.to as BaseElement, amount: baseTotal * conversion.share * damageBonus });
+      modContributions.push({ element: conversion.to as BaseElement, amount: baseTotal * conversion.share * damageBonus });
     } else {
       damage[conversion.to] = (damage[conversion.to] ?? 0) + baseTotal * conversion.share * damageBonus;
     }
   }
   for (const entry of collected.elementBonuses) {
-    contributions.push({ element: entry.element, amount: baseTotal * entry.amount * damageBonus });
+    modContributions.push({ element: entry.element, amount: baseTotal * entry.amount * damageBonus });
   }
 
-  const pending = new Map<BaseElement, number>();
-  const combined: Partial<Record<DamageType, number>> = {};
-  for (const { element, amount } of contributions) {
+  const hierarchy: BaseElement[] = [];
+  const elementTotals = new Map<BaseElement, number>();
+  for (const { element, amount } of [...modContributions, ...innateContributions]) {
     if (amount <= 0) continue;
-    const partner = [...pending.keys()].find((other) => {
-      const combo = Object.entries(ELEMENT_COMBINATIONS).find(
-        ([, pair]) => pair.includes(element) && pair.includes(other) && element !== other,
-      );
-      return Boolean(combo);
-    });
-    if (partner) {
-      const combo = Object.entries(ELEMENT_COMBINATIONS).find(
-        ([, pair]) => pair.includes(element) && pair.includes(partner) && element !== partner,
-      )!;
-      combined[combo[0] as DamageType] = (combined[combo[0] as DamageType] ?? 0) + amount + (pending.get(partner) ?? 0);
-      pending.delete(partner);
-    } else {
-      pending.set(element, (pending.get(element) ?? 0) + amount);
+    if (!hierarchy.includes(element)) hierarchy.push(element);
+    elementTotals.set(element, (elementTotals.get(element) ?? 0) + amount);
+  }
+  for (let index = 0; index < hierarchy.length; index += 2) {
+    const first = hierarchy[index];
+    const second = hierarchy[index + 1];
+    if (!second) {
+      damage[first] = (damage[first] ?? 0) + (elementTotals.get(first) ?? 0);
+      continue;
     }
+    const [result] = Object.entries(ELEMENT_COMBINATIONS).find(([, pair]) => pair.includes(first) && pair.includes(second))!;
+    damage[result as DamageType] = (damage[result as DamageType] ?? 0)
+      + (elementTotals.get(first) ?? 0) + (elementTotals.get(second) ?? 0);
   }
-  for (const [element, amount] of pending) {
-    if (amount > 0) damage[element] = (damage[element] ?? 0) + amount;
-  }
-  for (const [type, amount] of Object.entries(combined)) {
-    damage[type as DamageType] = (damage[type as DamageType] ?? 0) + (amount as number);
+
+  // Quantization (wiki: Damage/Calculation): each type rounds to the nearest 1/32 of the
+  // modded base damage. Serration scales the value and the scale alike, so this is the same
+  // as rounding against baseTotal × damageBonus. Later multipliers act on quantized values.
+  const quantum = (baseTotal * damageBonus) / 32;
+  if (build.quantize !== false && quantum > 0) {
+    for (const key of Object.keys(damage) as DamageType[]) {
+      damage[key] = Math.floor((damage[key] ?? 0) / quantum + 0.5) * quantum;
+    }
   }
 
   // Direct Damage bonuses (Galvanized Aptitude) multiply the finished damage, so they are

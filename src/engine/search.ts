@@ -16,6 +16,7 @@ import { hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import type { ModData, Snapshot, WeaponData } from '../types.ts';
+import { modsForWeapon } from '../data.ts';
 
 /** Effect axes that can change damage, and so are worth searching over. */
 const DAMAGE_TARGETS = new Set([
@@ -54,6 +55,8 @@ export interface SearchRequest {
   eximus?: boolean;
   /** Explicit Overguard amount (used as-is) instead of the Eximus formula. */
   overguard?: number;
+  /** Steel Path target: health and shields x2.5. `level` stays the enemy's actual level. */
+  steelPath?: boolean;
   /** Boss damage attenuation: a profile id, an explicit profile, or null to disable. */
   attenuation?: string | AttenuationProfile | null;
   /** Everything else that affects the result: buffs, frame, arcanes, riven, debuffs. */
@@ -110,6 +113,24 @@ export interface SearchResult {
   builds: SearchBuild[];
   assumptions: string[];
   notes: string[];
+}
+
+/**
+ * Mods worth searching for a weapon: they fit it, can change damage, are not Conclave, Flawed or
+ * Exilus, and the player owns them (`excluded` holds lower-cased names).
+ */
+export function searchableMods(snapshot: Snapshot, weapon: WeaponData, excluded: Set<string> = new Set()): ModData[] {
+  // modsForWeapon also accepts the category-wide classes ("Primary": Hunter Munitions), which a
+  // match on the weapon's own class ("Rifle") alone left out of every search.
+  return modsForWeapon(snapshot, weapon).filter((mod) => {
+    if (mod.conclave) return false;
+    if (excluded.has(mod.name.toLowerCase())) return false;
+    // Exilus mods cannot go in the eight standard slots, so the search leaves them out.
+    if (mod.isExilus) return false;
+    // Cannonade mods lock the trigger to semi-auto, so they only fit weapons that have one.
+    if (mod.effects.some((effect) => effect.target === 'requiresSemiTrigger') && weapon.trigger !== 'Semi') return false;
+    return mod.effects.some((effect) => DAMAGE_TARGETS.has(String(effect.target)));
+  });
 }
 
 /** One slot's polarity in the game's own terms. */
@@ -222,18 +243,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   const assumedCombo = weapon.category === 'melee' && request.base?.comboHits === undefined;
   const base = assumedCombo ? { ...(request.base ?? {}), comboHits: 220 } : (request.base ?? {});
 
-  const allMods = Object.values(snapshot.mods);
-  const fitsWeapon = allMods.filter((mod) => {
-    if (mod.conclave) return false;
-    if (/^Flawed /.test(mod.name)) return false;
-    if (excluded.has(mod.name.toLowerCase())) return false;
-    // Exilus mods cannot go in the eight standard slots, so the search leaves them out.
-    if (mod.isExilus) return false;
-    if (!mod.classes.some((c) => weapon.modClasses.some((w) => w.toLowerCase() === c.toLowerCase()))) return false;
-    // Cannonade mods lock the trigger to semi-auto, so they only fit weapons that have one.
-    if (mod.effects.some((effect) => effect.target === 'requiresSemiTrigger') && weapon.trigger !== 'Semi') return false;
-    return mod.effects.some((effect) => DAMAGE_TARGETS.has(String(effect.target)));
-  });
+  const fitsWeapon = searchableMods(snapshot, weapon, excluded);
 
   const pool = new Map(fitsWeapon.map((mod) => [mod.name, mod]));
   for (const name of mustInclude) {
@@ -245,7 +255,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   const enemyName = request.enemy ?? 'Bombard';
   const enemy = snapshot.enemies[enemyName];
   if (!enemy) throw new Error(`enemy not found: ${enemyName}`);
-  const scaled = scaleEnemy(snapshot, enemy, level, { eximus: request.eximus, overguard: request.overguard });
+  const scaled = scaleEnemy(snapshot, enemy, level, { eximus: request.eximus, overguard: request.overguard, steelPath: request.steelPath });
   const attenuation = resolveAttenuation(
     request.attenuation !== undefined ? request.attenuation : automaticAttenuation(enemy),
     scaled.health,
@@ -549,6 +559,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   if (base.arcanes?.length) {
     assumptions.push(`Arcane: ${base.arcanes.map((entry) => (typeof entry === 'string' ? entry : `${entry.name}${entry.rank !== undefined ? ` R${entry.rank}` : ''}`)).join(', ')}`);
   }
+  if (request.steelPath) assumptions.push('Steel Path: target health and shields x2.5');
   if (scaled.overguard > 0) assumptions.push(`Target Overguard: ${Math.round(scaled.overguard)}`);
   if (attenuation) assumptions.push(`Damage attenuation: ${attenuation.id} (${Math.round(attenuation.mdpi)} per hit, ${Math.round(attenuation.mdps)} per second)`);
   if (base.buffs?.length) assumptions.push(`Buffs: ${base.buffs.join(', ')}`);

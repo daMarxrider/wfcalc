@@ -28,9 +28,15 @@ Consequences worth remembering:
 
 ### Elemental combination order
 
-Elements combine in mod-slot order (top-left to bottom-right), with the weapon's
-innate element counting first. Two singles of the same type just add up. A third
-single pairs with the earliest pending compatible element.
+Elements combine in mod-slot order (top-left to bottom-right), following the wiki
+(`Damage → Elemental Damage Combinations`):
+
+- an element takes the position of the **first** mod that carries it; later mods of the same
+  element (Hellfire after Thermite Rounds) add to that position;
+- the weapon's **innate** elements go **last**, in Heat > Cold > Electricity > Toxin order
+  (this also decides a Kuva/Tenet weapon with two innate elements), unless a mod already
+  placed that element, in which case the innate damage joins it there;
+- consecutive elements of the hierarchy pair up: 1st + 2nd, 3rd + 4th.
 
 | Pair | Result | | Pair | Result |
 |---|---|---|---|---|
@@ -90,15 +96,31 @@ multiplier = f1 + (f2 − f1) · s
 | Grineer/Scaldra health | `1 + 0.015q^2.12` → `1 + 10.7332q^0.72` |
 | Corpus health | `1 + 0.015q^2.12` → `1 + 13.4165q^0.55` |
 | Infested health | `1 + 0.0225q^2.12` → `1 + 16.0998q^0.72` |
-| Corrupted/Orokin health | `1 + 0.015q^2.1` → `1 + 10.7332q^0.685` |
+| Corrupted/Orokin/Anarch health | `1 + 0.015q^2.1` → `1 + 10.7332q^0.685` |
 | Murmur/Sentient/Neutral health | `1 + 0.015q^2` → `1 + 10.7332q^0.5` |
+| Techrot health | `1 + 0.02q^2.12` → `1 + 15.0998q^0.7` |
 | Corpus shields | `1 + 0.02q^1.76` → `1 + 2q^0.76` |
-| Corrupted shields | `1 + 0.02q^1.75` → `1 + 2q^0.75` |
+| Techrot shields | `1 + 0.02q^1.76` → `1 + 3.5q^0.76` |
+| Corrupted/Anarch shields | `1 + 0.02q^1.75` → `1 + 2q^0.75` |
 | Grineer/Sentient shields | `1 + 0.02q^1.75` → `1 + 1.6q^0.75` |
 | Armor (all factions) | `1 + 0.005q^1.75` → `1 + 0.4q^0.75` |
 
 Level-scaled armor is clamped to **200..2700**. Every enemy's base level is taken as
 1 unless the dataset says otherwise (that is the case for all normal enemies).
+
+**Eximus** (`--eximus`): besides Overguard, the base health and shields are raised before the
+faction curve, with `x` the current level and `step(x)` = 1 (x≤15), `1+0.025(x−15)` (≤25),
+`1.25+0.125(x−25)` (≤35), `2.5+(2/15)(x−35)` (≤50), `4.5+0.03(x−50)` (≤100), `6` above:
+
+```
+health = max(base × 1.1, k × (base + 900) × step(x))   k = 0.25 with shields or armour, else 0.375
+shield = max(base × 1.1, base × step(x))
+```
+
+**Steel Path** (`--steel-path`, wiki `The_Steel_Path`): health and shields ×2.5 after level
+scaling. Armour is unchanged (Update 29.10 removed the armour multiplier; only the Simulacrum
+and Undercroft still apply it). The mode also adds +100 to a node's level; `--level` is the
+enemy's *actual* level, so for a star-chart node at level L pass `--level L+100`.
 
 ## 3. Armor damage reduction (`Armor`)
 
@@ -197,8 +219,13 @@ Notes:
 ```
 tick      = (seed + 1) × C × status_damage_bonus × faction²
 total     = tick × ticks
-dot_dps   = procs_per_second × total
+dot_dps   = Σ procs × crit multiplier of the proc'ing hit × total
 ```
+
+- Crits: a tick inherits the crit multiplier of the hit that applied it (wiki `Damage_over_Time
+  → DoT Damage Scaling`). Ordinary procs roll independently of crits and carry the average
+  `1 + CC × (CD − 1)`; crit-gated forced procs (Hunter Munitions) carry the multiplier of a
+  critical hit, `(average − (1 − p)) / p` with `p = min(CC, 1)`, so orange/red crits count.
 
 - `seed`: the modded damage of that type (the **whole** damage for Bleed).
 - `C`: 0.35 for Slash, 0.5 for Heat / Electricity / Toxin / Gas.
@@ -305,7 +332,7 @@ P(at least one)  = 1 - (1 - critChance)^pellets
 
 Kuva and Tenet weapons carry a player-chosen element worth 25-60% of **base damage**.
 It behaves exactly like innate damage: it is added before anything else, counts as part
-of base damage for elemental mods, and joins the combination first.
+of base damage for elemental mods, and joins the combination last (see the hierarchy above).
 
 ```
 element_amount = base_total × bonus
@@ -392,9 +419,9 @@ Three layers, in `npm run validate` and `tests/`:
 - Buff uptime is not modelled: a buff is either on or off. "Fury at maximum" means the
   value assuming full ramp-up.
 
-- Quantization (`1/32` of base damage) is **not** applied: it shifts things by well
-  under 1% except for the Shattering Impact edge case. DoT ticks are not quantized in
-  the game either, so the golden DoT examples match to the decimal.
+- Quantization (`1/32` of the modded base damage, wiki `Damage/Calculation`) is applied to each
+  damage type after the elemental combination. Flat base damage (Incarnon perks) is added after
+  it, so its share is not quantized. DoT ticks are not quantized in the game either.
 - The DoT `+1` accumulator uses the seed before the elemental multiplier, which is what
   the wiki's worked examples do; treating it as a flat +1 would drift ~1%.
 - Multishot and crit are treated as expectations, not per-pellet rolls.
