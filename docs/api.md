@@ -153,6 +153,31 @@ Response (abridged):
 }
 ```
 
+## `POST /api/bruteforce`
+
+Exhaustive build search: every feasible mod combination, scored against one target. Same body as
+`/api/search` for the target and build inputs (`enemy`, `level`, `eximus`, `overguard`,
+`attenuation`, `capacity`, `maxForma`, `exclude`, and `base` or top-level buffs, Incarnon,
+arcanes, riven), plus:
+
+| Field | Meaning |
+|---|---|
+| `steelPath` | `true`: target health and shields x2.5 (`level` is the actual enemy level) |
+| `fixed` | Mods always equipped: `["Serration", {"name": "Hunter Munitions", "rank": 3}]` |
+| `maxEvaluations` | Combination budget that sizes the shortlist (default 2,000,000) |
+| `pool` | Force a shortlist of this many candidate mods |
+| `limit` | Builds to return (default 5) |
+
+```json
+{"weapon": "Soma Prime", "enemy": "Heavy Gunner", "level": 200, "steelPath": true,
+ "fixed": ["Serration"], "buffs": ["roar"], "abilityStrength": 150}
+```
+
+The answer carries `builds` (best first, each mod flagged `fixed` or not), `exhaustive` (true when
+every candidate mod was enumerated, false when a shortlist was), `candidates`, `leftOut`,
+`combinations`, `evaluated`, `workers`, and the scaled target (`health`, `shield`, `armor`).
+`steelPath` is also accepted by `/api/calc` and `/api/search`.
+
 ## `POST /api/calc`
 
 ```json

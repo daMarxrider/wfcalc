@@ -10,6 +10,33 @@ wiki) and the game's own data export, so the numbers answer the question
 Runs on Node ≥ 23 with **no runtime dependencies** — the TypeScript sources are
 executed directly through Node's type stripping.
 
+## warframe-dmg-optimizer
+
+This repository is a fork of [asphyksia/wfcalc](https://github.com/asphyksia/wfcalc) (GPL-3.0),
+chosen as the base after comparing the public Warframe damage calculators on GitHub: it was the
+only one combining a permissive-to-fork licence, wiki-sourced formulas, an automated test suite
+and in-game calibration. On top of it this fork adds:
+
+- **`wfcalc bruteforce`** — an exhaustive build search: every feasible mod combination for one
+  weapon against one enemy, at any level, with or without **Steel Path**, with **fixed mods**
+  the search must keep. Warframe buffs (`--buff`, `--strength`) and Incarnon evolutions
+  (`--incarnon`) are inputs, not searched. Parallel across cores; pruned by capacity, Forma and
+  incompatible mods; one evaluation per distinct elemental pairing rather than per slot order.
+- **`--steel-path`** on every command: enemy health and shields ×2.5 (armour unchanged).
+- **DE Public Export**: `npm run public-export` downloads `ExportWeapons` from DE's official
+  endpoint (with a built-in LZMA decoder for the index) and checks or updates every weapon's stat
+  block against it.
+- Formula fixes found while checking wfcalc against the wiki (see `docs/formulas.md`): elemental
+  combination order (innate elements last; a repeated element keeps its first slot), 1/32 damage
+  quantization, Eximus base health/shield increase, Techrot and Anarch scaling curves, and
+  category-wide mods (Hunter Munitions) that the search never considered.
+
+```sh
+# Best build for a Soma Prime against a level 200 Steel Path Heavy Gunner, keeping two mods
+./bin/wfcalc bruteforce "Soma Prime" --enemy "Heavy Gunner" --level 200 --steel-path \
+    --fixed "Serration,Hunter Munitions" --buff roar --strength 150
+```
+
 ## Install
 
 Node ≥ 23 and nothing else (no runtime dependencies). The snapshot ships with the repo, so
@@ -87,7 +114,8 @@ after closing the terminal: `setsid wfcalc serve --host 0.0.0.0 >/tmp/wfcalc.log
 
 | Command | What it does |
 |---|---|
-| `wfcalc search <weapon> [options]` | Find the best build for a target |
+| `wfcalc search <weapon> [options]` | Find the best build for a target (greedy + local search) |
+| `wfcalc bruteforce <weapon> [options]` | Try every mod combination for a target (exhaustive) |
 | `wfcalc calc <weapon> [options]` | Full damage report |
 | `wfcalc compare <weapon> --vs a,b --vs c,d` | Same build, different mod choices |
 | `wfcalc weapons [query]` | Search the 622 weapons |
@@ -133,6 +161,10 @@ current state, the working method and what is left to do.
 | `--combo-hits 220` / `--heavy` | Melee combo counter and heavy attack |
 | `--aoe-distance 4` | Distance to the blast centre for AoE weapons (falloff) |
 | `--enemy NAME`, `--level N` | Target and level (default Bombard at 100) |
+| `--steel-path` | Steel Path target: health and shields ×2.5. `--level` is the actual enemy level (node level + 100) |
+| `--fixed "A,B:R3"` | (bruteforce) Mods always equipped; an Exilus mod goes in the Exilus slot |
+| `--max-evals N` / `--pool N` | (bruteforce) Combination budget (default 2,000,000) / force a shortlist size |
+| `--workers N` | (bruteforce) Threads, default every core |
 | `--faction grineer` | Shorthand for a benchmark enemy of that faction |
 | `--mode "Incarnon Form"` | Use an alternative fire mode |
 | `--stacks onKill=5` | Activate a conditional effect with N stacks |
@@ -215,8 +247,12 @@ Everything comes from two upstreams, rebuilt into `data/snapshot.json` (1.7 MB):
   `Enemy_Level_Scaling`, `Riven_Mods`).
 - **WFCD/warframe-items** (game export): per-rank mod numbers, weapon stat blocks,
   enemy health pools, arcanes.
+- **DE Public Export** (`origin.warframe.com/PublicExport`, the game's official data API):
+  weapon stat blocks, checked and applied by `npm run public-export`. Corrections in
+  `data/weapon-overrides.json` win over it, and riven dispositions are kept from WFCD because
+  the export now carries a placeholder (1.2) for every weapon.
 
-`wfcalc update` refreshes both. Raw files land in `data/raw/`, the digest in
+`wfcalc update` refreshes all three. Raw files land in `data/raw/`, the digest in
 `data/snapshot.json`. Nothing talks to the network at calculation time.
 
 ## What it does model
@@ -423,6 +459,8 @@ The **data** has its own terms and they are not all compatible with commercial u
 
 - [WFCD/warframe-items](https://github.com/WFCD/warframe-items): MIT. Weapon, mod, enemy and
   arcane numbers, and the game-export text.
+- DE Public Export: Digital Extremes' public data files, fetched on demand; not redistributed
+  beyond the numbers already in the snapshot.
 - [wiki.warframe.com](https://wiki.warframe.com): **CC BY-NC-SA 3.0**. Mod descriptions, Incarnon
   evolution trees, ability numbers and the formulas quoted in `docs/formulas.md` are derived
   from it. NC means non-commercial: a paid product built on this snapshot needs permission or a

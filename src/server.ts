@@ -19,6 +19,7 @@ import { scaleEnemy } from './engine/enemy.ts';
 import { hitEnemy, statusProcs } from './engine/damage.ts';
 import { availableBuffs } from './engine/buffs.ts';
 import { search } from './engine/search.ts';
+import { bruteForce } from './engine/bruteforce.ts';
 import { abilityCast } from './engine/ability.ts';
 import { buildFromJson } from './request.ts';
 import { InputError } from './errors.ts';
@@ -123,6 +124,7 @@ function calculate(body: any) {
     const scaled = scaleEnemy(snapshot, enemy, Number(body.level ?? 100), {
       eximus: Boolean(body.eximus),
       overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
+      steelPath: Boolean(body.steelPath),
     });
     const attenuation = body.attenuation !== undefined
       ? body.attenuation
@@ -327,6 +329,7 @@ const server = createServer(async (req, res) => {
         chooseArcane,
         eximus: Boolean(body.eximus),
         overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
+        steelPath: Boolean(body.steelPath),
         attenuation: body.attenuation !== undefined
           ? body.attenuation
           : (body.mdpt !== undefined || body.mdps !== undefined
@@ -335,6 +338,43 @@ const server = createServer(async (req, res) => {
         base: chooseIncarnon ? { ...base, incarnon: undefined } : base,
       });
       return json(res, 200, result);
+    }
+    if (url.pathname === '/api/bruteforce' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { item: weapon, suggestions } = findWeapon(snapshot, body.weapon ?? '');
+      if (!weapon) return json(res, 404, { error: `weapon not found: ${body.weapon ?? ''}`, suggestions });
+      const asList = (value: unknown): string[] =>
+        Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
+      // Mods are searched; everything else (buffs, Incarnon, arcanes, riven) is the player's input.
+      const baseSource = body.base && typeof body.base === 'object' ? body.base : body;
+      try {
+        const base = { ...buildFromJson(snapshot, baseSource, weapon.name), mods: [] };
+        const fixed = Array.isArray(body.fixed)
+          ? body.fixed.map((entry: unknown) => (typeof entry === 'string' ? { name: entry } : entry))
+          : asList(body.fixed).map((name) => ({ name }));
+        const result = await bruteForce(snapshot, {
+          weapon: weapon.name,
+          objective: body.objective === 'dps' ? 'dps' : 'ttk',
+          enemy: body.enemy ?? 'Bombard',
+          level: body.level !== undefined ? Number(body.level) : 150,
+          steelPath: Boolean(body.steelPath),
+          eximus: Boolean(body.eximus),
+          overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
+          attenuation: body.attenuation,
+          capacity: body.capacity !== undefined ? Number(body.capacity) : 60,
+          maxForma: body.maxForma === null || body.maxForma === undefined ? null : Number(body.maxForma),
+          fixed,
+          exclude: asList(body.exclude),
+          pool: body.pool !== undefined ? Number(body.pool) : undefined,
+          maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
+          limit: body.limit !== undefined ? Number(body.limit) : 5,
+          base,
+        });
+        return json(res, 200, result);
+      } catch (error) {
+        if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
+        throw error;
+      }
     }
     if (url.pathname === '/api/abilities') {
       // Everything the ability tab and the strip picker need in one list.

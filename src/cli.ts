@@ -24,6 +24,7 @@ import { readFileSync } from 'node:fs';
 import { loadSnapshot, findEnemy, findMod, findWeapon, modsForWeapon } from './data.ts';
 import { resolveBuild, type Build, type BuildMod } from './engine/build.ts';
 import { search } from './engine/search.ts';
+import { bruteForce } from './engine/bruteforce.ts';
 import { capacityOf } from './engine/capacity.ts';
 import { attenuationProfile, type AttenuationProfile } from './engine/attenuation.ts';
 import { abilityCast } from './engine/ability.ts';
@@ -212,15 +213,16 @@ function resolveEnemy(snapshot: Snapshot, args: Args) {
   return { enemy: item, level };
 }
 
-/** `--eximus` / `--overguard N`: the target's extra layer. */
-function targetScale(args: Args): { eximus?: boolean; overguard?: number } {
+/** `--eximus` / `--overguard N`: the target's extra layer. `--steel-path`: health and shields x2.5. */
+function targetScale(args: Args): { eximus?: boolean; overguard?: number; steelPath?: boolean } {
+  const steelPath = args.flags.has('steel-path') ? { steelPath: true } : {};
   const raw = flag(args, 'overguard');
-  if (raw === undefined) return args.flags.has('eximus') ? { eximus: true } : {};
+  if (raw === undefined) return { ...(args.flags.has('eximus') ? { eximus: true } : {}), ...steelPath };
   const value = Number(raw);
   if (!Number.isFinite(value) || value < 0) {
     throw new CliError('--overguard expects a non-negative number', 'invalid_argument');
   }
-  return { overguard: value };
+  return { overguard: value, ...steelPath };
 }
 
 /** Damage types with a non-zero share: the status types a build can put on a target. */
@@ -424,7 +426,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
   }
 
   const w = resolved.weapon;
-  console.log(`\n${label}  —  ${w.name} (${w.type}${resolved.mode ? `, ${resolved.mode.name}` : ''}) vs ${enemy.name} lv${level}`);
+  console.log(`\n${label}  —  ${w.name} (${w.type}${resolved.mode ? `, ${resolved.mode.name}` : ''}) vs ${enemy.name} lv${level}${scaled.steelPath ? ' (Steel Path)' : ''}`);
   console.log('─'.repeat(78));
   console.log(
     `  damage/shot  ${num(resolved.damage.projectileTotal, 2).padStart(9)}  ` +
@@ -549,7 +551,7 @@ function requireWeapon(snapshot: Snapshot, query: string) {
   return item;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const snapshot = loadSnapshot();
 
@@ -800,6 +802,77 @@ function main(): void {
       for (const note of result.notes) console.log(`· ${note}`);
       break;
     }
+    case 'bruteforce': {
+      const item = requireWeapon(snapshot, args.positional[0] ?? '');
+      const base = buildFromArgs(snapshot, args, []);
+      const commaList = (name: string): string[] =>
+        flagAll(args, name).flatMap((entry) => entry.split(',')).map((entry) => entry.trim()).filter(Boolean);
+      const numeric = (name: string): number | undefined => {
+        const raw = flag(args, name);
+        if (raw === undefined) return undefined;
+        const value = Number(raw);
+        if (!Number.isFinite(value) || value < 0) throw new CliError(`--${name} expects a non-negative number`, 'invalid_argument');
+        return value;
+      };
+      const objective = flag(args, 'objective') ?? 'ttk';
+      if (objective !== 'ttk' && objective !== 'dps') throw new CliError('--objective must be ttk or dps', 'invalid_argument');
+      if (commaList('incarnon').includes('auto')) {
+        throw new CliError('bruteforce takes the Incarnon evolutions as input: --incarnon "EVO2:0,EVO4:1" (see `wfcalc incarnon`)', 'invalid_argument');
+      }
+      const showProgress = !wantsJson(args) && briefMode(args) === 'off' && process.stderr.isTTY;
+      const result = await bruteForce(snapshot, {
+        weapon: item.name,
+        objective,
+        enemy: resolveEnemy(snapshot, args).enemy.name,
+        level: numeric('level') ?? 150,
+        capacity: numeric('capacity') ?? 60,
+        maxForma: numeric('forma') ?? null,
+        fixed: commaList('fixed').map(parseModArg),
+        exclude: commaList('exclude'),
+        pool: numeric('pool'),
+        maxEvaluations: numeric('max-evals'),
+        limit: numeric('top') ?? 5,
+        workers: numeric('workers'),
+        ...targetScale(args),
+        attenuation: attenuationFromArgs(args),
+        base: { ...base, mods: [] },
+        onProgress: showProgress
+          ? (done, total) => process.stderr.write(`\r  ${num(done, 0)} / ~${num(total, 0)} combinations`)
+          : undefined,
+      });
+      if (showProgress) process.stderr.write('\r\x1b[K');
+      if (wantsJson(args)) {
+        emitJson(result);
+        break;
+      }
+      const modList = (build: (typeof result.builds)[number]): string =>
+        [...build.mods.map((mod) => `${mod.fixed ? '*' : ''}${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}`),
+          ...(build.exilus ? [`*${build.exilus.name} R${build.exilus.rank} (exilus)`] : [])].join(', ');
+      const target = `${result.enemy} lv${result.level}${result.steelPath ? ' Steel Path' : ''}`;
+      if (briefMode(args) !== 'off') {
+        result.builds.forEach((build, index) => {
+          const ttk = build.timeToKill === null ? 'cannot kill' : `${num(build.timeToKill, 2)}s`;
+          console.log(`${index + 1}. ${ttk} · ${num(build.totalDps)} dps · ${build.formaNeeded}F · ${build.capacityUsed}/${build.capacity} cap · ${modList(build)}`);
+        });
+        if (briefMode(args) === 'full') console.log(`${result.weapon} vs ${target} · ${result.exhaustive ? 'exhaustive' : `shortlist ${result.candidates.length}`} · ${num(result.combinations, 0)} combinations`);
+        break;
+      }
+      console.log(`${result.weapon} vs ${target}  —  hp ${num(result.health, 0)}  shields ${num(result.shield, 0)}  armor ${num(result.armor, 0)}${result.overguard > 0 ? `  overguard ${num(result.overguard, 0)}` : ''}`);
+      console.log(`${num(result.combinations, 0)} combinations, ${num(result.evaluated, 0)} builds scored on ${result.workers} thread(s) in ${(result.elapsedMs / 1000).toFixed(1)}s`
+        + ` — ${result.exhaustive ? `exhaustive over all ${result.candidates.length} candidate mods` : `exhaustive over a shortlist of ${result.candidates.length}`}\n`);
+      result.builds.forEach((build, index) => {
+        const ttk = build.timeToKill === null ? 'cannot kill' : `${build.timeToKill.toFixed(2)}s (${Math.ceil(build.shotsToKill ?? 0)} shots)`;
+        console.log(`${index + 1}. ${ttk}  ${num(build.totalDps, 0)} dps on target (${num(build.sustainedDps, 0)} direct)  crit ${pct(build.critChance)}x${num(build.critMultiplier, 1)}  status ${pct(build.statusChance)}  multishot ${num(build.multishot, 2)}`);
+        console.log(`   elements ${build.elements.slice(0, 4).map((entry) => `${entry.type} ${pct(entry.share)}`).join(', ')}`);
+        console.log(`   capacity ${build.capacityUsed}/${build.capacity}${build.formaNeeded ? ` — ${build.formaNeeded} forma` : ''}`);
+        console.log(`   ${modList(build)}\n`);
+      });
+      if (result.builds.some((build) => build.mods.some((mod) => mod.fixed) || build.exilus)) console.log('* fixed mod');
+      for (const assumption of result.assumptions) console.log(`· ${assumption}`);
+      for (const note of result.notes) console.log(`· ${note}`);
+      if (!result.exhaustive && result.leftOut.length) console.log(`· Left out: ${result.leftOut.join(', ')}`);
+      break;
+    }
     case 'abilities': {
       const query = (args.positional[0] ?? '').toLowerCase();
       const list = Object.values(snapshot.damageAbilities ?? {}).filter(
@@ -961,6 +1034,7 @@ function main(): void {
                 distance: record.distance !== undefined ? Number(record.distance) : undefined,
                 eximus: Boolean(record.eximus),
                 overguard: record.overguard !== undefined ? Number(record.overguard) : undefined,
+                steelPath: Boolean(record.steelPath),
               });
             } catch (error) {
               const message = (error as Error).message;
@@ -988,6 +1062,7 @@ function main(): void {
           const hit = hitEnemy(snapshot, resolved, scaleEnemy(snapshot, enemy, level, {
             eximus: Boolean(record.eximus),
             overguard: record.overguard !== undefined ? Number(record.overguard) : undefined,
+            steelPath: Boolean(record.steelPath),
           }), {
             targets: record.targets !== undefined ? Number(record.targets) : undefined,
             attenuation: record.attenuation ?? (record.mdpt !== undefined || record.mdps !== undefined
@@ -1044,6 +1119,7 @@ function main(): void {
   wfcalc enemies [query]                search enemies
   wfcalc calc <weapon> [options]        damage report
   wfcalc search <weapon> [options]      find the best build for a target
+  wfcalc bruteforce <weapon> [options]  try every mod combination for a target
   wfcalc abilities [query]              abilities that deal damage
   wfcalc ability <name> [options]       damage per cast of one ability
   wfcalc compare <weapon> --vs a,b      compare setups
@@ -1066,7 +1142,9 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
          --aoe-distance 4            (AoE falloff distance in metres)
          --capacity 30|60            (Orokin Catalyst: 60, default)
          --enemy NAME  --level N  --faction NAME  --mode "Name"
-         --eximus                     target is an Eximus (adds level-scaled Overguard)
+         --eximus                     target is an Eximus (raised base health/shields + Overguard)
+         --steel-path                 Steel Path target: health and shields x2.5
+                                      (--level is the actual enemy level, i.e. node level + 100)
          --overguard N                explicit Overguard amount
          --attenuation archon|eidolon|custom   boss damage caps (Eidolons are automatic)
          --mdpt N --mdps N            explicit caps per hit / per second (implies custom)
@@ -1092,13 +1170,21 @@ Search options:
          --top N               how many builds to return (default 3)
          --incarnon auto       also choose the Incarnon evolutions for the weapon
          --incarnon "EVO2:0"   use these evolutions instead
-         --budget N            evaluation budget (default 12000)`);
+         --budget N            evaluation budget (default 12000)
+
+Brute-force options (also: --objective --capacity --forma --exclude, and every build option;
+buffs, --strength, --incarnon and --arcane are fixed inputs, not searched):
+         --fixed "A,B:R3"      mods always equipped (an Exilus mod goes in the Exilus slot)
+         --top N               how many builds to return (default 5)
+         --max-evals N         combination budget; decides the shortlist (default 2000000)
+         --pool N              force a shortlist of N candidate mods
+         --workers N           threads (default: every core)`);
   }
 }
 
-function run(): void {
+async function run(): Promise<void> {
   try {
-    main();
+    await main();
   } catch (error) {
     const args = parseArgs(process.argv.slice(2));
     const message = error instanceof Error ? error.message : String(error);
@@ -1114,4 +1200,4 @@ function run(): void {
   }
 }
 
-run();
+void run();
