@@ -338,6 +338,12 @@ const server = createServer(async (req, res) => {
       return json(res, 200, result);
     }
     if (url.pathname === '/api/shards') return json(res, 200, SHARD_BONUSES);
+    if (url.pathname === '/api/snipers') {
+      return json(res, 200, Object.fromEntries(Object.entries(snapshot.snipers ?? {}).map(([name, data]) => [name, {
+        minimumCombo: data.minimumCombo,
+        zooms: data.zooms.map((zoom) => ({ zoom: zoom.zoom, text: zoom.text })),
+      }])));
+    }
     if (url.pathname === '/api/bruteforce' && req.method === 'POST') {
       const body = await readBody(req);
       const { item: weapon, suggestions } = findWeapon(snapshot, body.weapon ?? '');

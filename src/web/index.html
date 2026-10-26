@@ -154,6 +154,12 @@
         <label class="stack">Viral <input type="number" id="viral" min="0" max="10" value="0" /></label>
         <label class="stack">Corrosive <input type="number" id="corrosive" min="0" max="10" value="0" /></label>
       </div>
+      <div class="row" id="sniper-fields" hidden>
+        <label class="field"><span>Sniper zoom</span>
+          <select id="zoom-select"><option value="0">unscoped</option></select></label>
+        <label class="field"><span>Shot combo (hits) <b id="sniper-combo-value"></b></span>
+          <input id="sniper-combo" type="number" min="0" step="1" value="0" /></label>
+      </div>
       <div class="row">
         <label class="field"><span>Corrosive Projections</span>
           <input id="cp-input" type="number" min="0" max="4" step="1" value="0" /></label>

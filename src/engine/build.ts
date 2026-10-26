@@ -118,6 +118,10 @@ export interface Build {
   sourceStacks?: Record<string, number>;
   /** Archon Shards on the Warframe (up to 5). */
   shards?: ShardSpec[];
+  /** Sniper rifles: zoom level while scoped (1 = first step, 0 = unscoped) and its buff. */
+  zoom?: number;
+  /** Sniper rifles: the Shot Combo Counter (hits in a row while scoped). */
+  sniperCombo?: number;
 }
 
 export interface ResolvedDamage {
@@ -180,6 +184,8 @@ export interface ResolvedBuild {
   statusDamageBonus: number;
   /** Total Status Duration bonus (Continuous Misery): stretches status timers. */
   statusDurationBonus: number;
+  /** Sniper Shot Combo multiplier in effect (1 when none). */
+  sniperComboMultiplier: number;
   /** Extra damage of Toxin status ticks only (Emerald Archon Shard). */
   toxinStatusDamageBonus: number;
   /** Corrosion stacks allowed above the usual 10 (Emerald Archon Shard). */
@@ -423,7 +429,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     incompatible: string[];
     set?: string | null;
     /** Where the bonus comes from: a melee form treats them differently. */
-    kind: 'mod' | 'weaponArcane' | 'incarnon' | 'riven' | 'warframeArcane' | 'buff' | 'shard';
+    kind: 'mod' | 'weaponArcane' | 'incarnon' | 'riven' | 'warframeArcane' | 'buff' | 'shard' | 'zoom';
   }
   const sources: Source[] = [];
   if (aoeWarning) collected.warnings.push(aoeWarning);
@@ -549,6 +555,13 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   const abilityStrength = frameStrength ? frameStrength.strength + shards.abilityStrength : build.abilityStrength ?? 100;
   if (shards.effects.length) {
     sources.push({ name: 'Archon Shards', maxRank: 0, effects: shards.effects, partial: false, incompatible: [], kind: 'shard' });
+  }
+  // Sniper zoom (wiki: Sniper Rifle): each zoom level carries a scoped buff of its own.
+  const sniper = snapshot.snipers?.[weapon.name];
+  if (build.zoom && build.zoom > 0) {
+    const level = sniper?.zooms[Math.min(build.zoom, sniper.zooms.length) - 1];
+    if (!level) collected.warnings.push(`${weapon.name} has no zoom levels in the data; zoom ignored`);
+    else sources.push({ name: `Zoom ${level.zoom}x`, maxRank: 0, effects: level.effects, partial: false, incompatible: [], kind: 'zoom' });
   }
 
   // Warframe arcanes also buff the weapon directly (Arcane Avenger: +45% crit chance).
@@ -829,6 +842,17 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     }
   }
 
+  // Sniper Shot Combo (wiki: Sniper Rifle): 1.5x at the minimum combo, +0.5x every 3x more hits.
+  // It multiplies the shot's total damage, and status ticks inherit it (wiki: Damage over Time).
+  const sniperHits = Number(build.sniperCombo ?? 0);
+  const sniperComboMultiplier = sniper && sniperHits >= sniper.minimumCombo
+    ? 1.5 + 0.5 * Math.floor(Math.log(sniperHits / sniper.minimumCombo) / Math.log(3) + 1e-9)
+    : 1;
+  if (sniperHits > 0 && !sniper) collected.warnings.push(`${weapon.name} is not a sniper rifle; the shot combo does nothing`);
+  if (sniperComboMultiplier !== 1) {
+    for (const key of Object.keys(damage) as DamageType[]) damage[key] = (damage[key] ?? 0) * sniperComboMultiplier;
+  }
+
   // Direct Damage bonuses (Galvanized Aptitude) multiply the finished damage, so they are
   // applied after the elemental combination like faction damage.
   const directDamageBonus = 1 + (collected.byTarget.get('directDamage') ?? 0);
@@ -958,6 +982,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     weakPointOverride,
     statusDamageBonus: bonus('statusDamage'),
     statusDurationBonus: bonus('statusDuration'),
+    sniperComboMultiplier,
     toxinStatusDamageBonus: shards.toxinStatusDamage,
     corrosiveCapBonus: shards.corrosiveStacks,
     elementBonuses: collected.elementBonuses.reduce<Partial<Record<BaseElement, number>>>((acc, entry) => {

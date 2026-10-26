@@ -228,6 +228,9 @@ function buildFromArgs(snapshot: Snapshot, args: Args, mods: string[]): Build {
     elementBonus: parseElementBonus(args),
     aoeDistance: flag(args, 'aoe-distance') ? Number(flag(args, 'aoe-distance')) : undefined,
     comboHits: flag(args, 'combo-hits') ? Number(flag(args, 'combo-hits')) : undefined,
+    // Sniper zoom: a level number (1 = first step) or `max`; the Shot Combo Counter as hits.
+    zoom: flag(args, 'zoom') === 'max' ? 99 : flag(args, 'zoom') ? Number(flag(args, 'zoom')) : undefined,
+    sniperCombo: flag(args, 'sniper-combo') ? Number(flag(args, 'sniper-combo')) : undefined,
     heavyAttack: args.flags.has('heavy'),
     // "auto" is handled by the search command; a list is passed through as it stands.
     ...(flagAll(args, 'incarnon').length
@@ -1231,6 +1234,7 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
          --source-stacks "Primary Merciless=6,Galvanized Chamber=max"   per mod/arcane/buff
          --hit head|body              where shots land (default body); --headshot, --bodyshot
          --shards "crimson:primaryStatus,violet:primaryElectricity:tau"   Archon Shards (up to 5)
+         --zoom N|max  --sniper-combo N   sniper zoom level buff and Shot Combo Counter
          --no-sim                     steady-state statuses instead of the fight simulation
          --brief one line per result        --brief=answer answer only
          --json machine-readable output      --debug stack trace on failure
