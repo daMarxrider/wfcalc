@@ -27,12 +27,13 @@
 import { type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
+import { hitProfile } from './hit.ts';
 
 /** Damage types that produce a damage-over-time effect from weapon hits. */
 export const DOT_TYPES = ['slash', 'heat', 'toxin', 'electricity', 'gas', 'blast'] as const;
 
 /** Tick coefficient per type (wiki: C). */
-const TICK_COEFFICIENT: Record<string, number> = {
+export const TICK_COEFFICIENT: Record<string, number> = {
   slash: 0.35,
   heat: 0.5,
   toxin: 0.5,
@@ -42,7 +43,7 @@ const TICK_COEFFICIENT: Record<string, number> = {
 };
 
 /** Number of ticks per proc. */
-const TICK_COUNT: Record<string, number> = {
+export const TICK_COUNT: Record<string, number> = {
   slash: 6,
   heat: 6,
   toxin: 6,
@@ -52,7 +53,7 @@ const TICK_COUNT: Record<string, number> = {
 };
 
 /** Bleed is True damage: it ignores armour and health-type modifiers. */
-const TICK_DAMAGE_TYPE: Record<string, DamageType> = {
+export const TICK_DAMAGE_TYPE: Record<string, DamageType> = {
   slash: 'true',
   heat: 'heat',
   toxin: 'toxin',
@@ -76,7 +77,7 @@ export interface DotEntry {
   damagePerProc: number;
 }
 
-const healthModifier = (snapshot: Snapshot, type: DamageType, healthType: string): number =>
+export const healthModifier = (snapshot: Snapshot, type: DamageType, healthType: string): number =>
   (snapshot.modifiers[type]?.[healthType] ?? 0) / 100;
 
 export interface DotContext {
@@ -84,6 +85,8 @@ export interface DotContext {
   viralStacks?: number;
   /** Corrosive stacks: 26% armour reduction, then 6% more each, capped at 80%. */
   corrosiveStacks?: number;
+  /** Heat's armour strip, 0..0.5; multiplicative with Corrosive and the other strips (wiki: Heat). */
+  heatStrip?: number;
   /**
    * Fraction of armour removed by percentage strips, 0..1. Ability strips and Corrosive
    * Projection auras are **additive**: the wiki's own example is Terrify (60%) plus one
@@ -126,7 +129,8 @@ export function effectiveArmor(armor: number, context: DotContext): number {
   // base), then the additive percentage strips, then corrosive procs on what is left.
   const afterFlat = Math.max(0, armor - (context.armorStripFlat ?? 0) - fromBase);
   const fraction = Math.max(0, Math.min(1, context.armorStrip ?? 0));
-  return Math.max(0, afterFlat * (1 - fraction) * corrosiveArmorMultiplier(context.corrosiveStacks ?? 0));
+  const heat = Math.max(0, Math.min(0.5, context.heatStrip ?? 0));
+  return Math.max(0, afterFlat * (1 - fraction) * corrosiveArmorMultiplier(context.corrosiveStacks ?? 0) * (1 - heat));
 }
 
 /**
@@ -155,10 +159,11 @@ export function computeDot(
   // A tick inherits the crit multiplier of the hit that applied it. A status roll is independent
   // of the crit roll, so ordinary procs carry the average multiplier; a proc that only happens on
   // a crit (Hunter Munitions) carries the multiplier of a critical hit, orange/red tiers included.
-  const critChance = Math.max(0, build.critChance);
-  const averageCrit = 1 + critChance * (Math.max(1, build.critMultiplier) - 1);
-  const pCrit = Math.min(1, critChance);
-  const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : Math.max(1, build.critMultiplier);
+  // The hit location (body part multiplier) and its crit numbers carry into the tick as well.
+  const hit = hitProfile(build, scaled.enemy.faction);
+  const averageCrit = hit.averageCrit;
+  const pCrit = Math.min(1, hit.critChance);
+  const critOnCrit = hit.critOnCrit;
 
   // Forced procs (Hunter Munitions): extra proc rate of a type, sometimes gated on crits.
   // Kept as damage-weighted rates: `forced` counts procs, `forcedWeight` procs x crit multiplier.
@@ -205,7 +210,7 @@ export function computeDot(
     const rawTick = ((seed * factionMultiplier) + 1) * coefficient * (1 + elementalBonus) * statusDamageBonus * factionMultiplier;
     const dr = dotType === 'true' ? 0 : armorDamageReduction(armor);
     const healthMod = dotType === 'true' ? 0 : healthModifier(snapshot, dotType, healthClass);
-    const tickDamage = rawTick * (1 + healthMod) * (1 - dr) * viral;
+    const tickDamage = rawTick * hit.location * (1 + healthMod) * (1 - dr) * viral;
 
     const dps = critWeighted * tickDamage * ticks;
     entries.push({

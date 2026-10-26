@@ -87,6 +87,8 @@ test('brute force finds the same optimum as every subset in every slot order', a
   const fixed = ['Serration', 'Split Chamber', 'Point Strike', 'Vital Sense'];
   const result = await bruteForce(snapshot, {
     weapon: 'Test Rifle', enemy: 'Heavy', level: 120, capacity: 60, fixed, limit: 3,
+    // The enumeration is what is under test here; the simulated re-rank has its own test.
+    simulate: false,
   });
   assert.equal(result.exhaustive, true);
   assert.equal(result.workers, 1, 'an in-memory snapshot cannot be reloaded by workers');
@@ -205,4 +207,14 @@ test('brute force keeps the player arcanes and buffs on every build', async () =
   });
   assert.ok(result.assumptions.some((line) => line.includes('Primary Merciless') && line.includes('Secondary Merciless')));
   assert.ok(result.assumptions.some((line) => line.includes('roar') && line.includes('180%')));
+});
+
+test('the simulated re-rank reports the fight: stacks at the kill and damage by source', async () => {
+  const result = await bruteForce(snapshot, {
+    weapon: 'Soma Prime', enemy: 'Heavy Gunner', level: 150, maxEvaluations: 5_000, limit: 2,
+  });
+  const top = result.builds[0];
+  assert.ok(top.statusAtKill && top.damageBySource);
+  assert.ok((top.damageBySource!.direct ?? 0) > 0);
+  assert.ok(result.notes.some((note) => note.includes('simulated')));
 });

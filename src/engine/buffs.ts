@@ -48,6 +48,12 @@ export interface BuffDefinition {
   note?: string;
   /** True for augments: only available if that augment mod is equipped. */
   augment?: boolean;
+  /**
+   * The buff builds up in a fight instead of applying at once (Vex Armor's Fury grows with damage
+   * taken). Its effects carry the `buffRamp` condition, so a stack mode of `none` starts it at
+   * zero and `max` at its cap; by default it is counted at its maximum.
+   */
+  ramps?: boolean;
 }
 
 /** Reads the first segment whose label contains all the given words. */
@@ -88,7 +94,7 @@ const byIndex =
 export const BUFFS: BuffDefinition[] = [
   { id: 'roar', ability: 'Roar', kind: 'faction' },
   { id: 'eclipse', ability: 'Eclipse', kind: 'damage', pick: byLabel('damage', 'bonus'), note: 'day side' },
-  { id: 'vex-armor', ability: 'Vex Armor', kind: 'damage', pick: byLabel('fury', 'max'), note: 'Fury at maximum' },
+  { id: 'vex-armor', ability: 'Vex Armor', kind: 'damage', pick: byLabel('fury', 'max'), note: 'Fury at maximum', ramps: true },
   { id: 'xatas-whisper', ability: "Xata's Whisper", kind: 'element', element: 'void' },
   { id: 'toxic-lash', ability: 'Toxic Lash', kind: 'element', element: 'toxin', pick: byLabel('gun') },
   { id: 'nourish', ability: 'Nourish', kind: 'element', element: 'viral', pick: byIndex(3) },

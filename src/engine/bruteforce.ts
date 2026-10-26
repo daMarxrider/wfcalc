@@ -27,6 +27,7 @@ import { Worker } from 'node:worker_threads';
 import type { Build, BuildMod } from './build.ts';
 import { resolveBuild, statsForMode } from './build.ts';
 import { hitEnemy } from './damage.ts';
+import type { SimulationResult } from './simulate.ts';
 import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
 import type { AttenuationProfile } from './attenuation.ts';
 import { fitMods, search, searchableMods } from './search.ts';
@@ -58,6 +59,14 @@ export interface BruteForceRequest {
   exclude?: string[];
   /** Everything the player decides: buffs, Ability Strength, Incarnon, arcanes, riven, debuffs. */
   base?: Partial<Build>;
+  /**
+   * Status effects build up over the fight (simulate.ts). Every combination is ranked with their
+   * steady-state stacks, and the best `rerank` are simulated shot by shot for the final order.
+   * Default true; false keeps the plain steady-state model throughout.
+   */
+  simulate?: boolean;
+  /** How many of the best combinations to simulate (default: 40 x limit, at least 200). */
+  rerank?: number;
   /** Shortlist size. Omitted: as many candidates as `maxEvaluations` allows. */
   pool?: number;
   /** Upper bound on combinations to evaluate; decides the automatic shortlist size. */
@@ -97,6 +106,7 @@ export interface BruteForcePlan {
   /** Candidates that were ranked out of the shortlist. */
   leftOut: string[];
   base: Partial<Build>;
+  simulate: boolean;
   steelPath: boolean;
   eximus: boolean;
   overguard?: number;
@@ -136,6 +146,9 @@ export interface BruteForceBuild {
   multishot: number;
   /** Damage composition per projectile, largest first. */
   elements: Array<{ type: DamageType; share: number }>;
+  /** From the fight simulation: status stacks on the target when it died, and damage by source. */
+  statusAtKill: SimulationResult['atEnd'] | null;
+  damageBySource: Record<string, number> | null;
   warnings: string[];
 }
 
@@ -316,7 +329,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
 
   // Rank the candidates in the company of the greedy search's best builds.
   const scaled = scaleTarget(snapshot, request, enemy, level);
-  const scoreOf = makeScorer(snapshot, weapon.name, base, scaled, objective, request.attenuation);
+  const scoreOf = makeScorer(snapshot, weapon.name, base, scaled, objective, request.attenuation, request.simulate === false ? 'plain' : 'steady');
   const seed = search(snapshot, {
     weapon: weapon.name, objective, enemy: enemy.name, level, capacity, maxForma,
     exclude: request.exclude, mustInclude: [...fixedNames].filter((name) => name !== exilus?.name),
@@ -396,6 +409,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
     exhaustive,
     leftOut,
     base,
+    simulate: request.simulate !== false,
     steelPath: Boolean(request.steelPath),
     eximus: Boolean(request.eximus),
     overguard: request.overguard,
@@ -429,11 +443,12 @@ function makeScorer(
   scaled: ScaledEnemy,
   objective: 'ttk' | 'dps',
   attenuation: string | AttenuationProfile | null | undefined,
+  mode: 'steady' | 'simulate' | 'plain' = 'plain',
 ): (mods: BuildMod[], exilus: BuildMod | null) => number {
   return (mods, exilus) => {
     try {
       const resolved = resolveBuild(snapshot, { ...base, weapon, mods: exilus ? [...mods, exilus] : mods });
-      const hit = hitEnemy(snapshot, resolved, scaled, { attenuation });
+      const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate' });
       if (objective === 'dps') return hit.totalDps;
       return hit.timeToKill === null ? -Infinity : 1 / Math.max(hit.timeToKill, 1e-9);
     } catch {
@@ -461,7 +476,7 @@ export function runShard(
   const weapon = snapshot.weapons[plan.weapon];
   const enemy = snapshot.enemies[plan.enemy];
   const scaled = scaleTarget(snapshot, plan, enemy, plan.level);
-  const scoreOf = makeScorer(snapshot, weapon.name, plan.base, scaled, plan.objective, plan.attenuation);
+  const scoreOf = makeScorer(snapshot, weapon.name, plan.base, scaled, plan.objective, plan.attenuation, plan.simulate ? 'steady' : 'plain');
   const innate = innateElements(weapon, plan.base);
   const exilusDrain = exilusCost(snapshot, weapon, plan.exilus);
 
@@ -551,7 +566,7 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
   const weapon = snapshot.weapons[plan.weapon];
   const fixedNames = new Set(plan.fixed.map((mod) => mod.name));
   const resolved = resolveBuild(snapshot, { ...plan.base, weapon: weapon.name, mods: plan.exilus ? [...combination.mods, plan.exilus] : combination.mods });
-  const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation });
+  const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation, simulate: plan.simulate });
   const entries = combination.mods.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? snapshot.mods[mod.name].maxRank }));
   const exilusDrain = exilusCost(snapshot, weapon, plan.exilus);
   const fit = fitMods(entries, weapon, plan.capacity - exilusDrain);
@@ -576,6 +591,8 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
       .filter(([, amount]) => amount > 0)
       .map(([type, amount]) => ({ type, share: amount / total }))
       .sort((a, b) => b.share - a.share),
+    statusAtKill: hit.simulation?.atEnd ?? null,
+    damageBySource: hit.simulation?.damageBySource ?? null,
     warnings: [...resolved.warnings, ...hit.warnings],
   };
 }
@@ -622,13 +639,24 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
     ? (done: number) => request.onProgress!(Math.min(done, plan.plannedCombinations), plan.plannedCombinations)
     : undefined;
 
+  // Ranking uses steady-state status stacks; the best few are then simulated shot by shot,
+  // because the stacks a fight actually reaches can reorder close builds.
+  const pool = plan.simulate ? Math.max(request.rerank ?? limit * 40, 200, limit) : limit;
   const shards = workers === 1
-    ? [runShard(snapshot, plan, 0, 1, limit, progress)]
-    : await runInWorkers(plan, request.snapshotPath, workers, limit, progress);
+    ? [runShard(snapshot, plan, 0, 1, pool, progress)]
+    : await runInWorkers(plan, request.snapshotPath, workers, pool, progress);
 
   const scaled = scaleTarget(snapshot, plan, snapshot.enemies[plan.enemy], plan.level);
-  const winners = mergeTop(shards, limit);
+  let winners = mergeTop(shards, pool);
+  if (plan.simulate) {
+    const simulated = makeScorer(snapshot, plan.weapon, plan.base, scaled, plan.objective, plan.attenuation, 'simulate');
+    winners = winners
+      .map((winner) => ({ ...winner, score: simulated(winner.mods, plan.exilus) }))
+      .sort((a, b) => b.score - a.score);
+  }
+  winners = winners.slice(0, limit);
   const notes = [...plan.notes];
+  if (plan.simulate) notes.push(`Ranked with steady-state status stacks; the best ${pool} were simulated over the fight for the final order.`);
   if (!winners.length) notes.push('No combination of the candidates fits the capacity and Forma limits.');
   // Every worker counts every leaf it walks, so one shard's count is the tree's.
   const combinations = shards[0]?.combinations ?? 0;

@@ -14,6 +14,8 @@ import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
 import { computeDot, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
+import { hitProfile, type HitProfile } from './hit.ts';
+import { simulateKill, type SimulationResult } from './simulate.ts';
 
 export interface TypeBreakdown {
   type: DamageType;
@@ -37,6 +39,18 @@ export interface HitOptions {
   attenuation?: string | AttenuationProfile | null;
   /** Total enemies hit by one shot when the weapon has a chain (Torid). */
   targets?: number;
+  /**
+   * Time to kill from a step simulation in which status effects (Viral, Corrosive, Heat,
+   * Magnetic, Cold, Puncture, Tau and the DoTs) build up during the fight, instead of the steady
+   * state. Not used under boss attenuation, whose caps the simulation does not model.
+   */
+  simulate?: boolean;
+  /**
+   * Cheap stand-in for the simulation: Viral, Corrosive and Heat at the stacks the build's own
+   * proc rate keeps up (rate x duration, capped), as if the fight were already under way. Used
+   * to rank many builds before the best few are simulated.
+   */
+  steadyStatus?: boolean;
 }
 
 export interface EnemyHit {
@@ -67,6 +81,10 @@ export interface EnemyHit {
   timeToKill: number | null;
   /** Faction damage multiplier that was applied to this target (1 when none). */
   factionMultiplier: number;
+  /** Hit location against this target: its multiplier and the crit numbers it implies. */
+  hit: HitProfile;
+  /** The fight, step by step, when `simulate` was asked for (null otherwise). */
+  simulation: SimulationResult | null;
   /** Damage over time by status type. */
   dot: DotEntry[];
   /** Sustained DPS including status damage. */
@@ -91,8 +109,10 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   if (!health.length) warnings.push('enemy has no health pool in the dataset; health damage is still reported');
   const shieldType = shields[0]?.type ?? null;
 
-  const crit = Math.max(1, build.critMultiplier);
-  const critMultiplier = 1 + build.critChance * (crit - 1);
+  // Head or body: the location multiplier scales every damage type, and head crits double the
+  // critical multiplier (hit.ts).
+  const hit = hitProfile(build, scaled.enemy.faction);
+  const critMultiplier = hit.averageCrit;
   const totalRaw = build.damage.projectileTotal || 1;
 
   // Faction damage bonus (Bane mods, Roar): multiplicative with everything else and
@@ -103,6 +123,7 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   // Status debuffs the player keeps up on the target.
   // The pool's amount is the level-1 armour, which a base-armour reduction has to be scaled by.
   const debuffs: DotContext = { ...build.debuffs, armorBase: armor?.amount };
+  if (options.steadyStatus) Object.assign(debuffs, steadyStatusDebuffs(build));
   const viral = viralMultiplier(debuffs.viralStacks ?? 0);
   const armorAfterStatus = effectiveArmor(scaled.armor, debuffs);
 
@@ -114,6 +135,7 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   for (const type of DAMAGE_TYPES) {
     const raw = build.damage.perProjectile[type] ?? 0;
     if (raw <= 0) continue;
+    const landed = raw * hit.location;
 
     const healthMod = healthModifier(snapshot, type, healthClass);
     const dr = armor ? armorDamageReduction(armorAfterStatus) : 0;
@@ -123,15 +145,15 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
     // Lancer, where every type would otherwise round to under 1.
     const armorFloor = armor ? 1 : 0;
     // Viral amplifies all damage dealt to health, direct hits included.
-    const toHealth = Math.max(raw * (1 + healthMod) * (1 - dr) * viral, armorFloor);
+    const toHealth = Math.max(landed * (1 + healthMod) * (1 - dr) * viral, armorFloor);
 
     // Overguard is a health class of its own: Void +50%, neutral to everything else, no
     // armour, and not bypassed by Toxin. Magnetic's status amplification is not modelled.
-    perProjectileOverguard += raw * (1 + healthModifier(snapshot, type, 'Overguard'));
+    perProjectileOverguard += landed * (1 + healthModifier(snapshot, type, 'Overguard'));
 
     const shieldMod = healthModifier(snapshot, type, healthClass);
     const bypassesShield = type === 'toxin' && scaled.enemy.toxinBypassesShields;
-    const toShield = shieldType && !bypassesShield ? raw * (1 + shieldMod) : 0;
+    const toShield = shieldType && !bypassesShield ? landed * (1 + shieldMod) : 0;
 
     breakdown.push({
       type,
@@ -240,7 +262,13 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
     shotsToKill = Number.isFinite(seconds) ? seconds * pullsPerSecond : Infinity;
   }
 
-  const timeToKill = Number.isFinite(shotsToKill) && pullsPerSecond > 0 ? shotsToKill / pullsPerSecond : null;
+  let timeToKill = Number.isFinite(shotsToKill) && pullsPerSecond > 0 ? shotsToKill / pullsPerSecond : null;
+  let simulation: SimulationResult | null = null;
+  if (options.simulate && !attenuation) {
+    simulation = simulateKill(snapshot, build, scaled, { factionMultiplier, debuffs, estimate: timeToKill });
+    timeToKill = simulation.timeToKill;
+    shotsToKill = timeToKill === null ? Infinity : simulation.shots;
+  }
 
   // Against this target: the rate that actually removes its pools, Overguard and shields
   // included. With no Overguard or shields this is the old health rate, so the documented
@@ -336,6 +364,8 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
     shotsToKill,
     timeToKill,
     factionMultiplier,
+    hit,
+    simulation,
     dot,
     totalDps,
     bestType,
@@ -350,4 +380,30 @@ export function statusProcs(build: ResolvedBuild): Array<{ type: DamageType; pro
   return (Object.entries(build.damage.perProjectile) as Array<[DamageType, number]>)
     .filter(([, amount]) => amount > 0)
     .map(([type, amount]) => ({ type, procs: perShot * (amount / totalRaw) }));
+}
+
+/**
+ * Status stacks a build keeps up on its own at a steady rate of fire (procs per second x the
+ * status duration, capped), for the `steadyStatus` option. Player-given stacks are a floor.
+ */
+export function steadyStatusDebuffs(build: ResolvedBuild): Pick<DotContext, 'viralStacks' | 'corrosiveStacks' | 'heatStrip'> {
+  const total = build.damage.projectileTotal || 1;
+  const cycle = build.magazineSize / Math.max(0.01, build.fireRate) + build.reloadTime;
+  const pellets = build.multishot * (build.magazineSize / Math.max(0.01, cycle));
+  const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
+  const rate = (type: DamageType): number => {
+    const natural = pellets * build.statusChance * ((build.damage.perProjectile[type] ?? 0) / total);
+    const forced = (build.forcedProcs ?? [])
+      .filter((proc) => proc.type === type)
+      .reduce((sum, proc) => sum + pellets * proc.chance * (proc.requiresCrit ? Math.min(1, build.critChance) : 1), 0);
+    return natural + forced;
+  };
+  const viral = Math.min(10, rate('viral') * 6 * duration);
+  const corrosive = Math.min(10, rate('corrosive') * 8 * duration);
+  const heat = 0.5 * (1 - Math.exp(-rate('heat') * 6 * duration));
+  return {
+    viralStacks: Math.max(viral, build.debuffs?.viralStacks ?? 0),
+    corrosiveStacks: Math.max(corrosive, build.debuffs?.corrosiveStacks ?? 0),
+    heatStrip: heat,
+  };
 }

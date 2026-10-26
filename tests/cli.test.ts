@@ -181,13 +181,15 @@ test('--arcane auto picks an arcane only when its condition is active', () => {
   ]) as { builds: Array<{ arcanes: Array<{ name: string }> }> };
   assert.equal(withStacks.builds[0].arcanes[0]?.name, 'Primary Merciless');
 
-  // Without on-kill stacks every damage arcane is inactive; Fractalized Reset used to win the
-  // tie while contributing nothing. With no improvement over the baseline, no arcane is fitted.
+  // Without on-kill stacks every damage arcane's conditional line is inactive; Fractalized Reset
+  // used to win the tie while contributing nothing. What may still win is a real passive: max-rank
+  // Primary Merciless always gives +30% Reload Speed (DE's text lists it on its own line).
   const without = run([
     'search', 'Haalvu', '--enemy', 'Bombard', '--level', '150', '--armor-strip', '100',
     '--arcane', 'auto', '--objective', 'dps', '--top', '1', '--json',
   ]) as { builds: Array<{ arcanes: Array<{ name: string }> }> };
-  assert.deepEqual(without.builds[0].arcanes, []);
+  assert.ok(!without.builds[0].arcanes.some((arcane) => arcane.name === 'Fractalized Reset'));
+  assert.ok(without.builds[0].arcanes.every((arcane) => arcane.name === 'Primary Merciless'));
 });
 
 test('--eximus adds level-scaled Overguard to the target', () => {

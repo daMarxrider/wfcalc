@@ -57,6 +57,11 @@ export interface SearchRequest {
   overguard?: number;
   /** Steel Path target: health and shields x2.5. `level` stays the enemy's actual level. */
   steelPath?: boolean;
+  /**
+   * Status effects build up over the fight: builds are compared with steady-state stacks and the
+   * returned ones are simulated (see simulate.ts). Default false here; the CLI and API turn it on.
+   */
+  simulate?: boolean;
   /** Boss damage attenuation: a profile id, an explicit profile, or null to disable. */
   attenuation?: string | AttenuationProfile | null;
   /** Everything else that affects the result: buffs, frame, arcanes, riven, debuffs. */
@@ -287,7 +292,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     let hit: ReturnType<typeof hitEnemy>;
     try {
       resolved = resolveBuild(snapshot, build);
-      hit = hitEnemy(snapshot, resolved, scaled, { attenuation: request.attenuation });
+      hit = hitEnemy(snapshot, resolved, scaled, { attenuation: request.attenuation, steadyStatus: request.simulate });
       score = objective === 'ttk'
         ? (hit.timeToKill === null ? -1 : 1 / Math.max(hit.timeToKill, 1e-6))
         // totalDps is the damage against this target including status procs. sustainedDps
@@ -474,7 +479,12 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
 
   const buildFrom = (names: string[]): SearchBuild => {
     if (!scoreCache.get(keyOf(names))) evaluateOrder(names);
-    const scored = scoreCache.get(keyOf(names))!;
+    const cached = scoreCache.get(keyOf(names))!;
+    // What is reported comes from the fight simulation when asked for; the search itself ran on
+    // steady-state stacks.
+    const scored = request.simulate
+      ? { ...cached, hit: hitEnemy(snapshot, cached.resolved, scaled, { attenuation: request.attenuation, simulate: true }) }
+      : cached;
     const fit = fits(names);
     return {
       mods: fit.entries,
