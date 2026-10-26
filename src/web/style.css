@@ -162,8 +162,6 @@ input[type="number"] { padding: 6px 8px; }
   background: transparent; border: 0; padding: 0; font-size: 12.5px; font-weight: 500;
   width: 100%; white-space: normal; line-height: 1.25;
 }
-.slot .rank { width: 100%; opacity: 0; transition: opacity 0.15s; margin-top: auto; }
-.slot:hover .rank, .slot .rank:focus { opacity: 1; }
 .slot .rank-value { font-size: 9.5px; color: var(--muted); letter-spacing: 0.04em; }
 .slot .remove { padding: 0 2px; line-height: 1; font-size: 14px; color: var(--muted); background: transparent; border: 0; }
 .slot .mod-desc { font-size: 10px; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -556,25 +554,29 @@ details > *:not(summary) { margin-top: 8px; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .mcard-text span { display: none; font-size: 10px; color: #b9c0cc; }
-.mcard-compat, .mcard-stars { opacity: 0; transition: opacity .12s ease; }
+.mcard-compat { opacity: 0; transition: opacity .12s ease; }
 .mcard-compat {
   position: absolute; bottom: 12px; left: 0; width: 100%; z-index: 5; text-align: center;
   font-size: 8.5px; text-transform: uppercase; letter-spacing: .08em; color: #cfd6e2;
 }
-.mcard-stars { position: absolute; bottom: 4px; left: 0; width: 100%; z-index: 5; text-align: center; font-size: 6px; letter-spacing: 1px; color: #f3d39b; }
-.mcard-rank {
-  position: absolute; left: 12px; right: 12px; bottom: 8px; z-index: 6;
-  opacity: 0; height: 12px; padding: 0; transition: opacity .12s ease;
+/* rank stars, as on the in-game card: lit up to the current rank, dark above it */
+.mcard-stars {
+  position: absolute; bottom: 1px; left: 0; width: 100%; z-index: 6;
+  display: flex; justify-content: center; gap: 1px;
 }
-.mcard:hover .mcard-rank { opacity: 1; }
+.mcard-stars .star {
+  font-style: normal; font-size: 9px; line-height: 1; padding: 1px; background: none; border: 0;
+  color: #3a3f4a; text-shadow: 0 0 1px #000;
+}
+.mcard-stars .star.lit { color: #f3d39b; text-shadow: 0 0 4px color-mix(in srgb, var(--accent) 70%, transparent); }
+.mcard-stars button.star { cursor: pointer; }
+.mcard-stars button.star:hover { color: #fff; }
 .mcard-badge { position: absolute; bottom: -14px; left: 0; width: 100%; text-align: center; font-size: 8px; color: var(--accent); }
 
 /* hover: grow and reveal everything */
 .mcard:hover { height: calc(var(--card-h) * 2.4); transform: scale(1.04); z-index: 50; }
 .mcard:hover .mcard-image { bottom: 34%; }
 .mcard:hover .mcard-image img { filter: none; }
-/* The rank slider's thumb overhangs its track by a few pixels; without this the last line of
-   a long description sits under it (measured: text bottom 694px, track top 694px). */
 /* The bottom frame plate is 72px tall, so the text has to clear it: measured band top was
    432px with the text ending at 490px, i.e. the name was sitting inside the metal. */
 .mcard:hover .mcard-text {
@@ -586,7 +588,7 @@ details > *:not(summary) { margin-top: 8px; }
    covered the name. Pin it to its compact height while the card is expanded. */
 .mcard:hover::before, .mcard:hover::after { height: 72px; }
 .mcard:hover .mcard-text span { display: block; }
-.mcard:hover .mcard-compat, .mcard:hover .mcard-stars { opacity: 1; }
+.mcard:hover .mcard-compat { opacity: 1; }
 
 /* the slot keeps the card centred; the toolbar stays on top of it */
 .slot { align-items: center; justify-content: center; padding: 0; min-height: 108px; overflow: visible; }

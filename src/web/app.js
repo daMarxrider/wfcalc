@@ -57,7 +57,6 @@ function modCardMarkup(mod, options = {}) {
   const equipped = options.equipped ?? false;
   const showShare = options.showShare ?? false;
   const share = options.share ?? 0;
-  const stars = Math.min((mod.maxRank ?? 0) + 1, 11);
   const rank = options.rank ?? mod.maxRank ?? 0;
   // The slot passes the drain it really pays (halved on a polarity match); the library shows
   // the max-rank cost with no slot to halve it.
@@ -82,11 +81,22 @@ function modCardMarkup(mod, options = {}) {
         ${statLines.slice(1).map((line) => `<span>${line}</span>`).join('')}
       </div>
       <div class="mcard-compat">${(mod.classes ?? [])[0] ?? ''}</div>
-      <div class="mcard-stars">${'★'.repeat(stars)}</div>
-      <input class="rank mcard-rank" type="range" min="0" max="${mod.maxRank ?? 0}" value="${options.rank ?? mod.maxRank ?? 0}"
-             data-index="${options.index ?? ''}" oninput="this.closest('.slot')?.querySelector('.rank-proxy')?.dispatchEvent(new Event('input'))" />
+      <div class="mcard-stars">${rankStars(mod.maxRank ?? 0, rank, options.index)}</div>
       ${equipped ? '<span class="mcard-badge">equipped</span>' : ''}
     </div>`;
+}
+
+/**
+ * One star per rank, lit up to the current rank, like the game's card. In a slot (`index`
+ * given) each star is a button: click star n for rank n, click the top lit star to drop one.
+ */
+function rankStars(maxRank, rank, index) {
+  return Array.from({ length: maxRank }, (_, i) => {
+    const lit = i < rank ? ' lit' : '';
+    return index === undefined
+      ? `<i class="star${lit}">★</i>`
+      : `<button class="star${lit}" data-index="${index}" data-star="${i + 1}" title="rank ${i + 1}" aria-label="set rank ${i + 1}">★</button>`;
+  }).join('');
 }
 
 const emptyState = () => ({
@@ -433,12 +443,11 @@ function renderSlots() {
         <button class="remove" data-index="${index}" title="remove">×</button>
       </div>
       ${info
-        ? modCardMarkup(info, { showShare: true, share: share ?? 0, rank, drain: realDrain })
+        ? modCardMarkup(info, { showShare: true, share: share ?? 0, rank, drain: realDrain, index })
         : `<div class="slot-glyph" style="color:${polarityColor(slotPolarityName)}">${glyph(slotPolarityName) || '·'}</div>`}
       <div class="mod-name${mod.name ? ' sr-only' : ''}" data-index="${index}" tabindex="0" role="button"
            aria-label="edit mod">${mod.name ? mod.name.replace(/</g, '&lt;') : `<span class="placeholder">${exilus ? 'exilus slot' : 'empty slot'}</span>`}</div>
-      ${mod.name && !info?.card ? `<div class="mod-desc">${description}</div>` : ''}
-      <input class="rank" type="range" min="0" max="${maxRank}" value="${mod.rank ?? maxRank}" data-index="${index}" />`;
+      ${mod.name && !info?.card ? `<div class="mod-desc">${description}</div>` : ''}`;
 
     // Drag a filled slot onto another to swap; drag it out of the grid to remove.
     if (mod.name) {
@@ -554,11 +563,14 @@ function renderSlots() {
       }
     });
   });
-  container.querySelectorAll('.rank').forEach((input) => {
-    input.addEventListener('input', (event) => {
-      const index = Number(event.target.dataset.index);
-      state.mods[index].rank = Number(event.target.value);
-      event.target.parentElement.querySelector('.rank-value').textContent = `R${event.target.value}`;
+  container.querySelectorAll('.star[data-star]').forEach((star) => {
+    star.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const mod = state.mods[Number(star.dataset.index)];
+      const picked = Number(star.dataset.star);
+      const current = mod.rank ?? allMods.find((entry) => entry.name === mod.name)?.maxRank ?? 0;
+      mod.rank = picked === current ? picked - 1 : picked;
+      renderSlots();
       recalc();
     });
   });
