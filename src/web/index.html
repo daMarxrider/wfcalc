@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#12141a" />
+<meta name="theme-color" content="#0b0b0d" />
 <title>wfcalc</title>
 <link rel="stylesheet" href="style.css" />
 </head>
@@ -60,8 +60,15 @@
       <datalist id="enemy-list"></datalist>
       <label class="field">
         <span>Level <b id="level-value">100</b></span>
-        <input id="level-input" type="range" min="1" max="200" value="100" />
+        <input id="level-input" type="range" min="1" max="400" value="100" />
       </label>
+      <div id="sp-box" class="steel-path">
+        <label class="switch"><input type="checkbox" id="sp-toggle" /> Steel Path</label>
+        <div class="sub">
+          <label class="switch"><input type="checkbox" id="sp-offset" checked /> <small>level above is the node level (+100)</small></label>
+          <span id="sp-summary" class="meta"></span>
+        </div>
+      </div>
       <div id="enemy-meta" class="meta"></div>
       <div id="target-report"></div>
       <h3>Contribution</h3>
@@ -81,8 +88,12 @@
       <div id="slots" class="slots"></div>
       <div id="mod-arcane" class="arcane-slot">
         <label class="field">
-          <span>Weapon arcane</span>
+          <span id="arcane-label">Weapon arcane</span>
           <input id="arcane-input" list="arcane-list" placeholder="Primary Merciless" autocomplete="off" />
+        </label>
+        <label class="field" id="arcane2-field" hidden>
+          <span>Secondary arcane (Archgun Arcane Adapter)</span>
+          <input id="arcane2-input" list="arcane-list" placeholder="Secondary Merciless" autocomplete="off" />
         </label>
       </div>
       <datalist id="arcane-list"></datalist>
@@ -203,6 +214,15 @@
       <h2>Find a build</h2>
       <button id="find-run" class="primary">search</button>
     </div>
+    <div class="method-row">
+      <div class="segmented" role="radiogroup" aria-label="Search method">
+        <label><input type="radio" name="find-method" value="search" checked /><span>Quick search</span></label>
+        <label><input type="radio" name="find-method" value="bruteforce" /><span>Brute force</span></label>
+      </div>
+      <p class="hint greedy-only">Greedy fill plus local search: fast, usually right.</p>
+      <p class="hint brute-only">Every feasible mod combination, scored on every core. Only mods are searched:
+        arcanes, buffs and Ability Strength below, plus riven and Incarnon from the Build tab, are used as given.</p>
+    </div>
     <p class="hint">Eight slots, capacity and Forma included. Leave weapon empty to use the Build tab's.</p>
     <div class="compare-grid">
       <label class="field"><span>Weapon</span>
@@ -223,14 +243,37 @@
         </select></label>
       <label class="field"><span>Max Forma</span>
         <input id="find-forma" type="number" min="0" max="20" step="1" placeholder="as needed" /></label>
-      <label class="field"><span>Must include</span>
-        <input id="find-must" placeholder="Serration, Split Chamber" autocomplete="off" /></label>
-      <label class="field"><span>Exclude</span>
+      <label class="field"><span id="find-must-label">Must include</span>
+        <input id="find-must" placeholder="Serration, Hunter Munitions:R3" autocomplete="off" /></label>
+      <label class="field"><span>Exclude (mods you don't own)</span>
         <input id="find-exclude" placeholder="Heavy Caliber" autocomplete="off" /></label>
+      <label class="field brute-only"><span>Max combinations</span>
+        <input id="find-max-evals" type="number" min="1000" step="100000" value="2000000" /></label>
     </div>
-    <div class="toggles">
+    <div id="find-sp-box" class="steel-path">
+      <label class="switch"><input type="checkbox" id="find-sp" /> Steel Path</label>
+      <div class="sub">
+        <label class="switch"><input type="checkbox" id="find-sp-offset" checked /> <small>level above is the node level (+100)</small></label>
+        <span class="hint">health &amp; shields ×2.5, armour unchanged</span>
+      </div>
+    </div>
+    <div class="toggles greedy-only">
       <label><input type="checkbox" id="find-incarnon" /> let the search pick Incarnon evolutions</label>
     </div>
+    <section class="fixed-inputs brute-only" aria-label="Fixed inputs">
+      <h3>Your loadout <span class="hint">· always used as given, never brute forced · shared with the Build tab</span></h3>
+      <div class="compare-grid">
+        <label class="field"><span id="find-arcane-label">Weapon arcane</span>
+          <input id="find-arcane" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
+        <label class="field" id="find-arcane2-field" hidden><span>Secondary arcane (arch-gun)</span>
+          <input id="find-arcane2" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
+        <label class="field"><span>Ability strength <b id="find-strength-value">100%</b></span>
+          <input id="find-strength" type="range" min="40" max="500" step="5" value="100" /></label>
+      </div>
+      <datalist id="find-arcane-list"></datalist>
+      <span class="field-label">Warframe buffs <span id="find-buff-count" class="badge"></span></span>
+      <div id="find-buff-list" class="buffs"></div>
+    </section>
     <div id="find-out" class="find-out"></div>
   </section>
 </main>
@@ -250,9 +293,10 @@
         <input id="ability-strength" type="range" min="40" max="500" step="5" value="100" /></label>
       <label class="field"><span>Enemy</span>
         <input id="ability-enemy" list="enemy-list" placeholder="Bombard" autocomplete="off" /></label>
-      <label class="field"><span>Level</span>
+      <label class="field"><span>Level (actual enemy level)</span>
         <input id="ability-level" type="number" min="1" max="9999" value="150" /></label>
     </div>
+    <label class="switch"><input type="checkbox" id="ability-sp" /> Steel Path <small>health &amp; shields ×2.5</small></label>
     <div id="ability-out" class="ability-out"></div>
   </section>
 </main>

@@ -23,6 +23,12 @@ and in-game calibration. On top of it this fork adds:
   (`--incarnon`) are inputs, not searched. Parallel across cores; pruned by capacity, Forma and
   incompatible mods; one evaluation per distinct elemental pairing rather than per slot order.
 - **`--steel-path`** on every command: enemy health and shields ×2.5 (armour unchanged).
+- **Arch-guns take two arcanes**, one Primary and one Secondary (Archgun Arcane Adapter); every
+  other weapon is checked for a single arcane.
+- **Web UI** (`wfcalc serve`): a dark frosted-glass theme with a gold accent; a Steel Path switch
+  on the Build, Find and Abilities tabs (optionally adding the +100 node level); a Brute force
+  mode on the Find tab with fixed mods, a combination budget, and the player's loadout (arcanes,
+  Warframe buffs, Ability Strength) as fixed inputs. `?tab=find` opens a tab directly.
 - **DE Public Export**: `npm run public-export` downloads `ExportWeapons` from DE's official
   endpoint (with a built-in LZMA decoder for the index) and checks or updates every weapon's stat
   block against it.

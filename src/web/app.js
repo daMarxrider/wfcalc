@@ -110,6 +110,10 @@ const emptyState = () => ({
   elementBonus: null,
   enemy: 'Bombard',
   level: 100,
+  // Steel Path: health and shields x2.5; with steelPathNodeLevel the level slider is the
+  // star-chart node's level and the enemy is 100 levels higher.
+  steelPath: false,
+  steelPathNodeLevel: true,
   mode: '',
   conditions: {},
   headshot: false,
@@ -685,23 +689,65 @@ function renderLibrary() {
 
 const renderModList = debounce(() => renderLibrary(), 80);
 
+/** The buff picker exists twice (Build tab, brute force); both edit the same `state.buffs`. */
 function renderBuffList() {
-  $('buff-list').innerHTML = allBuffs
-    .map(
-      (buff) => `<label>
-        <input type="checkbox" value="${buff.id}" ${state.buffs.includes(buff.id) ? 'checked' : ''} />
-        <span>${buff.ability}${buff.augments ? ' †' : buff.subsumable ? ' ‡' : ''} <span class="frame">${buff.frame}</span></span>
-      </label>`,
-    )
-    .join('');
-  $('buff-count').textContent = state.buffs.length ? String(state.buffs.length) : '';
-  $('buff-list').querySelectorAll('input').forEach((input) => {
-    input.addEventListener('change', () => {
-      state.buffs = [...$('buff-list').querySelectorAll('input:checked')].map((element) => element.value);
-      $('buff-count').textContent = state.buffs.length ? String(state.buffs.length) : '';
-      recalc();
+  for (const [listId, countId] of [['buff-list', 'buff-count'], ['find-buff-list', 'find-buff-count']]) {
+    $(listId).innerHTML = allBuffs
+      .map(
+        (buff) => `<label>
+          <input type="checkbox" value="${buff.id}" ${state.buffs.includes(buff.id) ? 'checked' : ''} />
+          <span>${buff.ability}${buff.augments ? ' †' : buff.subsumable ? ' ‡' : ''} <span class="frame">${buff.frame}</span></span>
+        </label>`,
+      )
+      .join('');
+    $(countId).textContent = state.buffs.length ? String(state.buffs.length) : '';
+    $(listId).querySelectorAll('input').forEach((input) => {
+      input.addEventListener('change', () => {
+        state.buffs = [...$(listId).querySelectorAll('input:checked')].map((element) => element.value);
+        renderBuffList();
+        recalc();
+      });
     });
-  });
+  }
+}
+
+/** Arch-guns hold a Primary and a Secondary arcane; every other weapon holds one. */
+const isArchgun = (name) => weaponData.get(name)?.category === 'archgun';
+
+/** Writes the arcane fields of both tabs from state, and shows the second slot on arch-guns. */
+function renderArcaneFields() {
+  const [first, second] = [state.arcanes?.[0]?.name ?? '', state.arcanes?.[1]?.name ?? ''];
+  const buildArch = isArchgun(state.weapon);
+  $('arcane-input').value = first;
+  $('arcane2-input').value = second;
+  $('arcane2-field').hidden = !buildArch;
+  $('arcane-label').textContent = buildArch ? 'Primary arcane (Archgun Arcane Adapter)' : 'Weapon arcane';
+  const findArch = isArchgun($('find-weapon').value.trim() || state.weapon);
+  $('find-arcane').value = first;
+  $('find-arcane2').value = second;
+  $('find-arcane2-field').hidden = !findArch;
+  $('find-arcane-label').textContent = findArch ? 'Primary arcane (arch-gun)' : 'Weapon arcane';
+}
+
+/** Arcanes from a pair of fields: the second only counts on an arch-gun. */
+function setArcanes(first, second, weapon) {
+  const names = isArchgun(weapon) ? [first, second] : [first];
+  state.arcanes = names.map((name) => name.trim()).filter(Boolean).map((name) => ({ name }));
+  renderArcaneFields();
+  recalc();
+}
+
+/** The brute force may target another weapon than the Build tab: list the arcanes that fit it. */
+async function refreshFindArcanes() {
+  const weapon = $('find-weapon').value.trim() || state.weapon;
+  if (!weapon) return;
+  try {
+    const arcanes = await getJson(`/api/arcanes?weapon=${encodeURIComponent(weapon)}`);
+    $('find-arcane-list').innerHTML = arcanes.map((arcane) => `<option value="${arcane.name}">${(arcane.description || '').split('\n')[0].slice(0, 44)}</option>`).join('');
+  } catch {
+    /* the list is a convenience; typing a name still works */
+  }
+  renderArcaneFields();
 }
 
 function renderWeaponMeta(result) {
@@ -834,7 +880,7 @@ function renderResults(result) {
         .map(
           (entry) => `<div class="bar-row" title="${entry.name}${entry.conditional ? ' (conditional: activate its stacks to see its value)' : ''}">
             <span class="bar-label" title="${entry.name}">${entry.name.length > 14 ? `${entry.name.slice(0, 13)}…` : entry.name}</span>
-            <div class="bar"><i style="width:${Math.max(0, Math.min(100, entry.deltaPct * 100)).toFixed(1)}%;background:#6fc3df"></i></div>
+            <div class="bar"><i style="width:${Math.max(0, Math.min(100, entry.deltaPct * 100)).toFixed(1)}%;background:var(--accent)"></i></div>
             <span class="bar-value">${entry.deltaPct > 0 ? `+${pct(entry.deltaPct)}` : entry.conditional ? 'conditional' : pct(entry.deltaPct)}</span>
           </div>`,
         )
@@ -896,9 +942,20 @@ function renderResults(result) {
 
 /** ---------- calculation ---------- */
 
+/** The enemy's actual level: the Steel Path adds 100 to a node's level. */
+const effectiveLevel = (level, steelPath, nodeLevel) => Number(level) + (steelPath && nodeLevel ? 100 : 0);
+
+function renderSteelPath() {
+  $('sp-box').classList.toggle('on', Boolean(state.steelPath));
+  $('sp-summary').innerHTML = state.steelPath
+    ? `<span class="chip sp">lv ${effectiveLevel(state.level, true, state.steelPathNodeLevel)}</span><span class="chip">health &amp; shields ×2.5</span>`
+    : '';
+}
+
 function buildPayload(extra = {}) {
   return {
     ...state,
+    level: effectiveLevel(state.level, state.steelPath, state.steelPathNodeLevel),
     mods: state.mods.filter((mod) => mod.name),
     riven: state.riven ? { ...state.riven, roll: state.rivenRoll, rank: state.rivenRank } : null,
     ...extra,
@@ -926,10 +983,10 @@ async function recalc() {
   if (id !== calculationId) return; // a newer request is in flight
   renderWeaponMeta(result);
   renderResults(result);
-  if (result.target) {
-    $('enemy-meta').innerHTML = `<span class="chip">${fmt(result.target.health)} hp</span>
-      <span class="chip">${fmt(result.target.armor)} armor</span>${result.target.shield ? `<span class="chip">${fmt(result.target.shield)} shields</span>` : ''}`;
-  }
+  // The target report below lists hp, armour and health types; this line only flags the mode.
+  $('enemy-meta').innerHTML = result.target && state.steelPath
+    ? `<span class="chip sp">Steel Path · lv ${result.target.level ?? effectiveLevel(state.level, true, state.steelPathNodeLevel)}</span>`
+    : '';
 }
 
 /** ---------- compare ---------- */
@@ -982,12 +1039,29 @@ function ratioCell(b, a) {
 
 /** ---------- find a build ---------- */
 
+const findMethod = () => document.querySelector('input[name="find-method"]:checked')?.value ?? 'search';
+
+function renderFindMethod() {
+  const brute = findMethod() === 'bruteforce';
+  $('tab-find').classList.toggle('find-brute', brute);
+  $('find-must-label').textContent = brute ? 'Fixed mods (always kept, :R3 for a rank)' : 'Must include';
+  $('find-run').textContent = brute ? 'brute force' : 'search';
+  $('find-sp-box').classList.toggle('on', $('find-sp').checked);
+}
+
+/** "Serration, Hunter Munitions:R3" -> [{ name, rank? }] */
+const parseFixed = (text) => text.split(',').map((entry) => entry.trim()).filter(Boolean).map((entry) => {
+  const match = /^(.*?)[\s:]+R(\d+)$/i.exec(entry);
+  return match ? { name: match[1].trim(), rank: Number(match[2]) } : { name: entry };
+});
+
 async function runFind() {
   const weapon = $('find-weapon').value.trim() || state.weapon;
   if (!weapon) {
     $('find-out').innerHTML = '<p class="hint">Pick a weapon in Build first, or type one above.</p>';
     return;
   }
+  if (findMethod() === 'bruteforce') return runBruteForce(weapon);
   const chooseIncarnon = $('find-incarnon').checked;
   const base = buildPayload({ contributions: false });
   // The search chooses the mods (and, if asked, the evolutions): do not pin them here.
@@ -998,7 +1072,8 @@ async function runFind() {
     weapon,
     objective: $('find-objective').value,
     enemy: $('find-enemy').value.trim() || 'Bombard',
-    level: Number($('find-level').value) || 150,
+    level: findLevel(),
+    steelPath: $('find-sp').checked,
     capacity: Number($('find-capacity').value) || 60,
     maxForma: $('find-forma').value === '' ? null : Number($('find-forma').value),
     mustInclude: names($('find-must').value),
@@ -1020,10 +1095,71 @@ async function runFind() {
   renderFind(result);
 }
 
+const findLevel = () => effectiveLevel(Number($('find-level').value) || 150, $('find-sp').checked, $('find-sp-offset').checked);
+
+async function runBruteForce(weapon) {
+  const base = buildPayload({ contributions: false });
+  // Mods are searched; everything else on the Build tab (buffs, strength, Incarnon, arcane,
+  // riven, debuffs) is the player's input and goes in as it stands.
+  delete base.mods;
+  delete base.level;
+  delete base.steelPath;
+  const payload = {
+    weapon,
+    objective: $('find-objective').value,
+    enemy: $('find-enemy').value.trim() || 'Bombard',
+    level: findLevel(),
+    steelPath: $('find-sp').checked,
+    capacity: Number($('find-capacity').value) || 60,
+    maxForma: $('find-forma').value === '' ? null : Number($('find-forma').value),
+    fixed: parseFixed($('find-must').value),
+    exclude: $('find-exclude').value.split(',').map((name) => name.trim()).filter(Boolean),
+    maxEvaluations: Number($('find-max-evals').value) || undefined,
+    base,
+  };
+  const started = performance.now();
+  const button = $('find-run');
+  button.disabled = true;
+  $('find-out').innerHTML = `<div class="working">Enumerating every combination on every core… <span id="find-clock">0s</span></div>`;
+  const clock = setInterval(() => {
+    const el = $('find-clock');
+    if (el) el.textContent = `${((performance.now() - started) / 1000).toFixed(0)}s`;
+  }, 500);
+  try {
+    const response = await fetch('/api/bruteforce', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (result.error) {
+      $('find-out').innerHTML = `<p class="error">${result.error}</p>`;
+      return;
+    }
+    renderFind(result);
+  } catch (error) {
+    $('find-out').innerHTML = `<p class="error">${String(error.message ?? error)}</p>`;
+  } finally {
+    clearInterval(clock);
+    button.disabled = false;
+  }
+}
+
 function renderFind(result) {
   const builds = result.builds ?? [];
+  const target = `${result.weapon} vs ${result.enemy} level ${result.level}${result.steelPath ? ' <span class="chip sp">Steel Path</span>' : ''}`;
+  const brute = result.combinations !== undefined;
   $('find-out').innerHTML = `
-    <p class="hint">${result.evaluated} builds tried in ${result.elapsedMs} ms · ${result.weapon} vs ${result.enemy} level ${result.level}</p>
+    ${brute
+      ? `<div class="stat-line">
+          <span class="chip">${fmt(result.combinations, 0)} combinations</span>
+          <span class="chip">${fmt(result.evaluated, 0)} builds scored</span>
+          <span class="chip">${result.workers} threads</span>
+          <span class="chip">${(result.elapsedMs / 1000).toFixed(1)}s</span>
+          <span class="chip${result.exhaustive ? ' fixed' : ''}">${result.exhaustive ? `exhaustive: all ${result.candidates.length} mods` : `shortlist of ${result.candidates.length} mods`}</span>
+        </div>
+        <p class="hint">${target} · ${fmt(result.health, 0)} hp · ${fmt(result.shield, 0)} shields · ${fmt(result.armor, 0)} armor</p>`
+      : `<p class="hint">${result.evaluated} builds tried in ${result.elapsedMs} ms · ${target}</p>`}
     ${builds
       .map((build, index) => `<div class="build-card">
         <div class="build-head">
@@ -1042,15 +1178,16 @@ function renderFind(result) {
           <button class="ghost" data-find-load="${index}">load</button>
         </div>
         <div class="build-mods">${build.mods
-          .map((mod) => `<span class="chip">${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}</span>`)
-          .join('')}</div>
+          .map((mod) => `<span class="chip${mod.fixed ? ' fixed' : ''}" ${mod.fixed ? 'title="fixed mod"' : ''}>${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}</span>`)
+          .join('')}${build.exilus ? `<span class="chip fixed">${build.exilus.name} R${build.exilus.rank} · exilus</span>` : ''}</div>
         ${build.incarnonNames?.length ? `<div class="meta">${build.incarnonNames.map((name) => `<span class="chip subtle">${name}</span>`).join('')}</div>` : ''}
         ${build.partialMods?.length ? `<p class="hint">lower bound: ${build.partialMods.join(', ')}</p>` : ''}
         ${build.warnings?.length ? `<p class="hint">${build.warnings.join(' · ')}</p>` : ''}
       </div>`)
       .join('') || '<p class="hint">No build fits those limits.</p>'}
     ${(result.assumptions ?? []).map((line) => `<p class="hint">· ${line}</p>`).join('')}
-    ${(result.notes ?? []).map((line) => `<p class="hint">· ${line}</p>`).join('')}`;
+    ${(result.notes ?? []).map((line) => `<p class="hint">· ${line}</p>`).join('')}
+    ${brute && !result.exhaustive && result.leftOut?.length ? `<p class="hint">· Left out: ${result.leftOut.join(', ')}</p>` : ''}`;
 
   for (const button of $('find-out').querySelectorAll('[data-find-load]')) {
     button.onclick = async () => {
@@ -1065,11 +1202,17 @@ function renderFind(result) {
         ...state,
         weapon: result.weapon,
         enemy: result.enemy,
-        level: result.level,
+        // The answer carries the enemy's actual level; keep the Build tab's node-level reading.
+        level: result.steelPath && state.steelPathNodeLevel ? result.level - 100 : result.level,
+        steelPath: Boolean(result.steelPath),
         reactor: result.capacity >= 60,
         slotPolarities,
-        mods: build.mods.map((mod) => ({ name: mod.name, rank: mod.rank })),
-        incarnon: [...(build.incarnon ?? [])],
+        mods: [
+          ...build.mods.map((mod) => ({ name: mod.name, rank: mod.rank })),
+          ...(build.exilus ? [{ name: build.exilus.name, rank: build.exilus.rank }] : []),
+        ],
+        // The brute force takes the Incarnon evolutions as input, so it returns none.
+        incarnon: build.incarnon ? [...build.incarnon] : state.incarnon,
       };
       await loadModsForWeapon();
       syncInputs();
@@ -1092,6 +1235,7 @@ async function runAbility() {
     strength: $('ability-strength').value,
     enemy: $('ability-enemy').value.trim() || 'Bombard',
     level: $('ability-level').value || '150',
+    ...($('ability-sp').checked ? { steelPath: '1' } : {}),
   });
   try {
     renderAbility(await getJson(`/api/ability?${params}`));
@@ -1184,8 +1328,10 @@ function syncInputs() {
   $('viral').value = String(state.debuffs?.viralStacks ?? 0);
   $('corrosive').value = String(state.debuffs?.corrosiveStacks ?? 0);
   $('covenant-damage').value = state.conditions.covenantDamage ? String(state.conditions.covenantDamage) : '';
-  $('arcane-input').value = state.arcanes?.[0]?.name ?? '';
+  renderArcaneFields();
   $('strength-input').value = String(state.abilityStrength ?? 100);
+  $('find-strength').value = String(state.abilityStrength ?? 100);
+  $('find-strength-value').textContent = `${state.abilityStrength ?? 100}%`;
   $('strength-value').textContent = `${state.abilityStrength ?? 100}%`;
   $('framemods-input').value = (state.frameMods ?? []).map((mod) => mod.name).join(', ');
   $('framearcane-input').value = (state.warframeArcanes ?? []).map((mod) => mod.name).join(', ');
@@ -1210,6 +1356,12 @@ function syncInputs() {
   $('find-weapon').value = '';
   $('find-enemy').value = state.enemy ?? 'Bombard';
   $('find-level').value = String(state.level ?? 150);
+  $('sp-toggle').checked = Boolean(state.steelPath);
+  $('sp-offset').checked = state.steelPathNodeLevel !== false;
+  $('find-sp').checked = Boolean(state.steelPath);
+  $('find-sp-offset').checked = state.steelPathNodeLevel !== false;
+  renderSteelPath();
+  renderFindMethod();
   renderBuffList();
 }
 
@@ -1252,8 +1404,24 @@ function bindEvents() {
   $('level-input').addEventListener('input', (event) => {
     state.level = Number(event.target.value);
     $('level-value').textContent = state.level;
+    renderSteelPath();
     recalc();
   });
+  $('sp-toggle').addEventListener('change', (event) => {
+    state.steelPath = event.target.checked;
+    $('find-sp').checked = state.steelPath;
+    renderSteelPath();
+    renderFindMethod();
+    recalc();
+  });
+  $('sp-offset').addEventListener('change', (event) => {
+    state.steelPathNodeLevel = event.target.checked;
+    $('find-sp-offset').checked = event.target.checked;
+    renderSteelPath();
+    recalc();
+  });
+  for (const radio of document.querySelectorAll('input[name="find-method"]')) radio.addEventListener('change', renderFindMethod);
+  $('find-sp').addEventListener('change', renderFindMethod);
   $('headshot').addEventListener('change', (event) => {
     state.headshot = event.target.checked;
     recalc();
@@ -1281,11 +1449,14 @@ function bindEvents() {
   debuffInput('viral', 'viralStacks');
   debuffInput('corrosive', 'corrosiveStacks');
 
-  $('strength-input').addEventListener('input', (event) => {
-    state.abilityStrength = Number(event.target.value);
-    $('strength-value').textContent = `${state.abilityStrength}%`;
-    recalc();
-  });
+  for (const id of ['strength-input', 'find-strength']) {
+    $(id).addEventListener('input', (event) => {
+      state.abilityStrength = Number(event.target.value);
+      $('strength-input').value = $('find-strength').value = String(state.abilityStrength);
+      $('strength-value').textContent = $('find-strength-value').textContent = `${state.abilityStrength}%`;
+      recalc();
+    });
+  }
   $('framemods-input').addEventListener('change', (event) => {
     state.frameMods = parseNameList(event.target.value);
     recalc();
@@ -1298,11 +1469,13 @@ function bindEvents() {
     state.frame = event.target.value.trim();
     recalc();
   });
-  $('arcane-input').addEventListener('change', (event) => {
-    const name = event.target.value.trim();
-    state.arcanes = name ? [{ name }] : [];
-    recalc();
-  });
+  for (const id of ['arcane-input', 'arcane2-input']) {
+    $(id).addEventListener('change', () => setArcanes($('arcane-input').value, $('arcane2-input').value, state.weapon));
+  }
+  for (const id of ['find-arcane', 'find-arcane2']) {
+    $(id).addEventListener('change', () => setArcanes($('find-arcane').value, $('find-arcane2').value, $('find-weapon').value.trim() || state.weapon));
+  }
+  $('find-weapon').addEventListener('change', refreshFindArcanes);
   $('riven-input').addEventListener('change', (event) => {
     state.riven = parseRivenInput(event.target.value);
     recalc();
@@ -1441,6 +1614,9 @@ async function loadModsForWeapon() {
   $('filter-type').innerHTML = '<option value="">All types</option>' + types.map((type) => `<option value="${type.toLowerCase()}">${type}</option>`).join('');
   renderModList('');
   $('arcane-list').innerHTML = arcanes.map((arcane) => `<option value="${arcane.name}">${(arcane.description || '').split('\n')[0].slice(0, 44)}</option>`).join('');
+  // A non-arch-gun keeps only its first arcane.
+  if (!isArchgun(state.weapon) && (state.arcanes?.length ?? 0) > 1) state.arcanes = state.arcanes.slice(0, 1);
+  refreshFindArcanes();
 }
 
 /**
@@ -1466,6 +1642,9 @@ async function main() {
     dedupeMods();
     await loadStaticLists();
     bindEvents();
+    // ?tab=find opens a tab directly, so a link can point at the brute force.
+    const startTab = new URLSearchParams(location.search).get('tab');
+    if (startTab && $(`tab-${startTab}`)) showTab(startTab);
     syncInputs();
     renderSaved();
     if (state.weapon) await loadModsForWeapon();
