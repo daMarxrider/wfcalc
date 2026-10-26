@@ -31,6 +31,7 @@ import {
 } from '../types.ts';
 import { normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
+import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
 import { InputError } from '../errors.ts';
 
@@ -115,6 +116,8 @@ export interface Build {
   stackMode?: StackMode;
   /** Stacks per source (mod, arcane or buff name), over the mode: 0 turns that source's conditions off. */
   sourceStacks?: Record<string, number>;
+  /** Archon Shards on the Warframe (up to 5). */
+  shards?: ShardSpec[];
 }
 
 export interface ResolvedDamage {
@@ -177,6 +180,10 @@ export interface ResolvedBuild {
   statusDamageBonus: number;
   /** Total Status Duration bonus (Continuous Misery): stretches status timers. */
   statusDurationBonus: number;
+  /** Extra damage of Toxin status ticks only (Emerald Archon Shard). */
+  toxinStatusDamageBonus: number;
+  /** Corrosion stacks allowed above the usual 10 (Emerald Archon Shard). */
+  corrosiveCapBonus: number;
   /**
    * Elemental bonus per base element (e.g. Heat 0.9 for Hellfire). The DoT layer needs it
    * to separate the seed from the elemental multiplier, which is what the wiki's worked
@@ -416,7 +423,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     incompatible: string[];
     set?: string | null;
     /** Where the bonus comes from: a melee form treats them differently. */
-    kind: 'mod' | 'weaponArcane' | 'incarnon' | 'riven' | 'warframeArcane' | 'buff';
+    kind: 'mod' | 'weaponArcane' | 'incarnon' | 'riven' | 'warframeArcane' | 'buff' | 'shard';
   }
   const sources: Source[] = [];
   if (aoeWarning) collected.warnings.push(aoeWarning);
@@ -535,7 +542,14 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     ? abilityStrengthFromMods(snapshot, build.frameMods ?? [], build.warframeArcanes ?? [], conditions)
     : null;
   if (frameStrength) for (const warning of frameStrength.warnings) collected.warnings.push(`frame: ${warning}`);
-  const abilityStrength = frameStrength ? frameStrength.strength : build.abilityStrength ?? 100;
+  // Archon Shards: weapon bonuses join the mod pools below; Crimson strength only adds to a
+  // strength derived from frame mods (a typed-in strength is the frame's final figure).
+  const shards = shardEffects(build.shards, weapon.category);
+  for (const warning of shards.warnings) collected.warnings.push(warning);
+  const abilityStrength = frameStrength ? frameStrength.strength + shards.abilityStrength : build.abilityStrength ?? 100;
+  if (shards.effects.length) {
+    sources.push({ name: 'Archon Shards', maxRank: 0, effects: shards.effects, partial: false, incompatible: [], kind: 'shard' });
+  }
 
   // Warframe arcanes also buff the weapon directly (Arcane Avenger: +45% crit chance).
   for (const entry of build.warframeArcanes ?? []) {
@@ -770,7 +784,9 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
 
   for (const element of BASE_ELEMENTS) {
-    const innate = (stats[element] ?? 0) * (1 - convertedShare);
+    // Violet shard Electricity is added like an innate element: last in the hierarchy, HCET order.
+    const fromShards = element === 'electricity' ? baseTotal * shards.electricity : 0;
+    const innate = (stats[element] ?? 0) * (1 - convertedShare) + fromShards;
     if (innate > 0) innateContributions.push({ element, amount: innate * damageBonus });
   }
   for (const conversion of conversions) {
@@ -942,6 +958,8 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     weakPointOverride,
     statusDamageBonus: bonus('statusDamage'),
     statusDurationBonus: bonus('statusDuration'),
+    toxinStatusDamageBonus: shards.toxinStatusDamage,
+    corrosiveCapBonus: shards.corrosiveStacks,
     elementBonuses: collected.elementBonuses.reduce<Partial<Record<BaseElement, number>>>((acc, entry) => {
       acc[entry.element] = (acc[entry.element] ?? 0) + entry.amount;
       return acc;

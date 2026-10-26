@@ -134,6 +134,9 @@ let allMods = [];
 /** Weapon metadata by name, for capacity and polarity matching. */
 const weaponData = new Map();
 let allBuffs = [];
+/** Archon Shard bonuses by colour, from /api/shards. */
+let shardCatalog = {};
+const SHARD_COLORS = { crimson: '#d9474b', amber: '#e8a33c', azure: '#4fa3e0', violet: '#a565e0', topaz: '#e2b04a', emerald: '#4fc28a' };
 let allAbilities = [];
 let calculationId = 0;
 /** Mod name -> share of burst DPS, refreshed on every calculation. */
@@ -713,6 +716,44 @@ function renderBuffList() {
       });
     });
   }
+}
+
+/**
+ * Five Archon Shard slots: one select lists every colour's bonuses ("Violet · +30% Primary
+ * Electricity…"), plus a Tauforged box. Empty slots are allowed.
+ */
+function renderShards() {
+  const shards = state.shards ?? [];
+  const options = Object.entries(shardCatalog).flatMap(([color, bonuses]) =>
+    Object.entries(bonuses).map(([bonus, text]) => ({ value: `${color}:${bonus}`, label: `${color[0].toUpperCase()}${color.slice(1)} · ${text}` })));
+  $('shard-slots').innerHTML = [0, 1, 2, 3, 4].map((index) => {
+    const shard = shards[index];
+    const value = shard ? `${shard.color}:${shard.bonus}` : '';
+    return `<div class="shard-slot">
+      <i class="gem" style="color:${SHARD_COLORS[shard?.color] ?? 'transparent'};background:${SHARD_COLORS[shard?.color] ?? 'var(--panel-3)'}"></i>
+      <select data-shard="${index}" aria-label="Archon Shard ${index + 1}">
+        <option value="">empty slot</option>
+        ${options.map((option) => `<option value="${option.value}" ${option.value === value ? 'selected' : ''}>${option.label}</option>`).join('')}
+      </select>
+      <label><input type="checkbox" data-tau="${index}" ${shard?.tauforged ? 'checked' : ''} ${shard ? '' : 'disabled'} /> tau</label>
+    </div>`;
+  }).join('');
+  const filled = shards.filter(Boolean);
+  $('shard-count').textContent = filled.length ? String(filled.length) : '';
+  $('find-shards').textContent = filled.length
+    ? `Archon Shards (Build tab): ${filled.map((shard) => `${shard.tauforged ? 'tau ' : ''}${shard.color} ${shard.bonus}`).join(', ')}`
+    : '';
+  const read = () => {
+    const next = [0, 1, 2, 3, 4].map((index) => {
+      const [color, bonus] = ($('shard-slots').querySelector(`[data-shard="${index}"]`).value || ':').split(':');
+      if (!color) return null;
+      return { color, bonus, tauforged: $('shard-slots').querySelector(`[data-tau="${index}"]`).checked };
+    });
+    state.shards = next.filter(Boolean);
+    renderShards();
+    recalc();
+  };
+  for (const element of $('shard-slots').querySelectorAll('select, input')) element.addEventListener('change', read);
 }
 
 /** Arch-guns hold a Primary and a Secondary arcane; every other weapon holds one. */
@@ -1446,6 +1487,7 @@ function syncInputs() {
   renderSteelPath();
   renderFindMethod();
   renderBuffList();
+  renderShards();
 }
 
 let eventsBound = false;
@@ -1659,14 +1701,16 @@ function bindEvents() {
 /** ---------- boot ---------- */
 
 async function loadStaticLists() {
-  const [weapons, enemies, buffs, arcanes, warframes, abilities] = await Promise.all([
+  const [weapons, enemies, buffs, arcanes, warframes, abilities, shards] = await Promise.all([
     getJson('/api/weapons'),
     getJson('/api/enemies'),
     getJson('/api/buffs'),
     getJson('/api/arcanes'),
     getJson('/api/warframes'),
     getJson('/api/abilities'),
+    getJson('/api/shards'),
   ]);
+  shardCatalog = shards;
   $('frame-list').innerHTML = warframes.map((frame) => `<option value="${frame.name}"></option>`).join('');
   weaponData.clear();
   for (const weapon of weapons) weaponData.set(weapon.name, weapon);

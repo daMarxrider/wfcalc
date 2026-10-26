@@ -20,6 +20,7 @@ import { hitEnemy, statusProcs } from './engine/damage.ts';
 import { availableBuffs } from './engine/buffs.ts';
 import { search } from './engine/search.ts';
 import { bruteForce } from './engine/bruteforce.ts';
+import { SHARD_BONUSES } from './engine/shards.ts';
 import { abilityCast } from './engine/ability.ts';
 import { buildFromJson } from './request.ts';
 import { InputError } from './errors.ts';
@@ -336,6 +337,7 @@ const server = createServer(async (req, res) => {
       });
       return json(res, 200, result);
     }
+    if (url.pathname === '/api/shards') return json(res, 200, SHARD_BONUSES);
     if (url.pathname === '/api/bruteforce' && req.method === 'POST') {
       const body = await readBody(req);
       const { item: weapon, suggestions } = findWeapon(snapshot, body.weapon ?? '');
