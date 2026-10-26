@@ -67,6 +67,9 @@ cd wfcalc
 ./bin/wfcalc serve            # UI at http://127.0.0.1:7777
 ```
 
+The rest of this README writes `wfcalc` for `./bin/wfcalc`; run `npm link` once to put it on
+your PATH.
+
 `npm run update` refreshes the data from WFCD and the wiki (~12 MB); `npm run sync` only does
 it when an upstream changed. `npm install` is only needed for `npm run check` (TypeScript).
 
