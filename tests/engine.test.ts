@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { falloffFactor, resolveBuild as resolveQuantized, type Build } from '../src/engine/build.ts';
 import { armorDamageReduction, eximusBaseHealth, overguardForLevel, scaleEnemy } from '../src/engine/enemy.ts';
 import { elementalOrders } from '../src/engine/bruteforce.ts';
+import { hitProfile, weakPointBase } from '../src/engine/hit.ts';
 import { hitEnemy } from '../src/engine/damage.ts';
 import { parseModEffects } from '../src/mods/parse.ts';
 import { buffEffects, buffById, abilityStrengthFromMods } from '../src/engine/buffs.ts';
@@ -389,10 +390,11 @@ test('Sonar raises the weak-point multiplier', () => {
   });
   const withoutBuff = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], headshot: true });
   const withSonar = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], headshot: true, buffs: ['sonar'] });
-  // Base weak point x2, crit expectation x1.2 (20% cc, x2 cd) -> 240.
-  close(withoutBuff.averageShotDamage, 240);
-  // Sonar replaces the x2 weak-point multiplier with x5: 100 x 5 x 1.2 = 600.
-  close(withSonar.averageShotDamage, 600);
+  // Head weak point x3 (wiki: Enemy Body Parts); head crits double the crit multiplier:
+  // 1 + 0.2 x (2 x 2 - 1) = 1.6 -> 100 x 3 x 1.6 = 480.
+  close(withoutBuff.averageShotDamage, 480);
+  // Sonar replaces the x3 weak-point multiplier with x5: 100 x 5 x 1.6 = 800.
+  close(withSonar.averageShotDamage, 800);
 });
 
 test('weapon arcanes apply with their stack condition', () => {
@@ -1025,4 +1027,85 @@ test('Techrot health uses its own curve (wiki: 1 + 15.0998 q^0.7 above the trans
   const techrot: EnemyData = { ...bombard, faction: 'techrot', armor: 0, pools: [{ type: 'Flesh', category: 'health', amount: 300 }] };
   const snap = snapshot([weapon({ impact: 100 })], [], [techrot]);
   close(scaleEnemy(snap, techrot, 101).health, 300 * (1 + 15.0998 * Math.pow(100, 0.7)), 1e-5);
+});
+
+// ------------------------------------------------------------------ hit location and stacks
+
+test('headshot model follows the wiki worked example: (3 + 1.5 x (3.5 + 0.75)) x (1 + 0.3 + 0.4)', () => {
+  const acuity = mod('Primary Acuity', 5, ['+350% Weak Point Damage', '+350% Weak Point Critical Chance']);
+  const deadhead = mod('Deadhead Test', 5, ['+30% to Headshot Multiplier']);
+  const prowl = mod('Prowl Test', 5, ['+40% to Headshot Multiplier']);
+  const seek = mod('Seek Test', 5, ['+75% Weak Point Damage']);
+  const snap = snapshot([weapon({ impact: 100, critChance: 0 })], [acuity, deadhead, prowl, seek], [bombard]);
+  const resolved = build(snap, ['Primary Acuity', 'Deadhead Test', 'Prowl Test', 'Seek Test'], { hit: 'head' });
+  close(hitProfile(resolved, 'grineer').location, 15.9375);
+  close(weakPointBase('techrot'), 1.5);
+  // Bodyshots ignore all of it; Meticulous Aim's malus applies there instead.
+  const meticulous = mod('Meticulous Aim', 5, ['+105% Headshot Damage', '-45% Bodyshot Damage']);
+  const body = build(snapshot([weapon({ impact: 100 })], [meticulous]), ['Meticulous Aim'], { hit: 'body' });
+  close(hitProfile(body, 'grineer').location, 0.55);
+});
+
+test('head crits double the critical multiplier; weak point crit chance only counts on heads', () => {
+  const acuity = mod('Primary Acuity', 5, ['+350% Weak Point Critical Chance']);
+  const snap = snapshot([weapon({ impact: 100, critChance: 0.2, critMultiplier: 2 })], [acuity]);
+  const head = hitProfile(build(snap, ['Primary Acuity'], { hit: 'head' }), 'grineer');
+  close(head.critChance, 0.2 * 4.5);
+  close(head.averageCrit, 1 + 0.9 * (2 * 2 - 1));
+  const body = hitProfile(build(snap, ['Primary Acuity'], { hit: 'body' }), 'grineer');
+  close(body.critChance, 0.2);
+  close(body.averageCrit, 1.2);
+});
+
+test('stack modes: none turns conditions off, max uses each cap, a non-stacking effect counts once', () => {
+  const merciless = arcane('Primary Merciless', 'primary', 5, ['On Kill:', '+30% Damage for 4s. Stacks up to 12x.']);
+  const bladed = mod('Bladed Rounds', 5, ['On Kill:', '+120% Critical Damage when Aiming for 9s']);
+  const snap = snapshot([weapon({ impact: 100, critChance: 1 })], [bladed], [], { arcanes: [merciless] });
+  const base = { arcanes: ['Primary Merciless'] };
+  close(build(snap, [], { ...base, stackMode: 'none' }).damage.projectileTotal, 100);
+  close(build(snap, [], { ...base, stackMode: 'max' }).damage.projectileTotal, 100 * (1 + 0.3 * 12));
+  // onKill=12 drives Merciless to 12, but Bladed Rounds has no stack cap: it counts once, not 12x.
+  const custom = build(snap, ['Bladed Rounds'], { ...base, conditions: { onKill: 12, aiming: true } });
+  close(custom.critMultiplier, 2 * (1 + 1.2));
+  // A per-source override wins over the mode.
+  close(build(snap, [], { ...base, stackMode: 'max', sourceStacks: { 'Primary Merciless': 3 } }).damage.projectileTotal, 100 * 1.9);
+});
+
+test('max stacks leave weak-point conditions off on body shots', () => {
+  const deadhead = arcane('Primary Deadhead', 'primary', 5, ['On Weak Point Kill:', '+120% Damage for 24s. Stacks up to 3x.']);
+  const snap = snapshot([weapon({ impact: 100 })], [], [], { arcanes: [deadhead] });
+  close(build(snap, [], { arcanes: ['Primary Deadhead'], stackMode: 'max', hit: 'body' }).damage.projectileTotal, 100);
+  close(build(snap, [], { arcanes: ['Primary Deadhead'], stackMode: 'max', hit: 'head' }).damage.projectileTotal, 100 * (1 + 1.2 * 3));
+});
+
+test('simulation: Viral stacks build up and shorten the kill versus a fight with none', () => {
+  const viralWeapon = weapon({ viral: 100, statusChance: 1, fireRate: 10, magazineSize: 100, critChance: 0 });
+  const snap = snapshot([viralWeapon], [], [bombard]);
+  const resolved = build(snap, []);
+  const scaled = scaleEnemy(snap, bombard, 100);
+  const plain = hitEnemy(snap, resolved, scaled);
+  const simulated = hitEnemy(snap, resolved, scaled, { simulate: true });
+  assert.ok(simulated.simulation);
+  assert.ok((simulated.timeToKill ?? Infinity) < (plain.timeToKill ?? Infinity));
+  // 10 procs a second for 6 s saturates Viral at its cap of 10.
+  close(simulated.simulation!.atEnd.viral, 10);
+});
+
+test('simulation: Corrosive and Heat strip armour during the fight, Heat multiplicatively', () => {
+  const corrosiveHeat = weapon({ corrosive: 50, heat: 50, statusChance: 2, fireRate: 10, magazineSize: 200, critChance: 0 });
+  const snap = snapshot([corrosiveHeat], [], [bombard]);
+  const scaled = scaleEnemy(snap, bombard, 200);
+  const simulated = hitEnemy(snap, build(snap, []), scaled, { simulate: true });
+  const end = simulated.simulation!.atEnd;
+  assert.ok(end.corrosive > 9.9);
+  assert.ok(end.heatStrip > 0.45);
+  close(end.armor, scaled.armor * 0.2 * (1 - end.heatStrip), 1e-6);
+});
+
+test('simulation: no status procs while Overguard is up', () => {
+  const viralWeapon = weapon({ viral: 100, statusChance: 1, fireRate: 10, magazineSize: 100 });
+  const snap = snapshot([viralWeapon], [], [bombard]);
+  const scaled = scaleEnemy(snap, bombard, 50, { overguard: 1e9 });
+  const simulated = hitEnemy(snap, build(snap, []), scaled, { simulate: true });
+  assert.equal(simulated.simulation!.atEnd.viral, 0);
 });

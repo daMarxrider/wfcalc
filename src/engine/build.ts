@@ -40,6 +40,16 @@ export interface BuildMod {
   rank?: number;
 }
 
+export type HitZone = 'head' | 'body';
+export type StackMode = 'custom' | 'none' | 'max';
+
+/** Head or body, from either spelling of the option. */
+export const hitZoneOf = (build: Pick<Build, 'hit' | 'headshot'>): HitZone =>
+  build.hit ?? (build.headshot ? 'head' : 'body');
+
+/** Conditions that only a weak-point or headshot hit can trigger. */
+const WEAK_POINT_CONDITION = /weakpoint|weak_point|headshot/i;
+
 /** Buff/condition toggles: `{ onKill: 5 }` means the on-kill effect has 5 stacks. */
 export type Conditions = Record<string, number | boolean>;
 
@@ -92,8 +102,19 @@ export interface Build {
   mode?: string;
   /** Active conditions for conditional mods. */
   conditions?: Conditions;
-  /** Assume weak-point (headshot) hits. */
+  /** Assume weak-point (headshot) hits. Same as `hit: 'head'`. */
   headshot?: boolean;
+  /** Where the shots land: `head` (weak point, headshot, head crits) or `body` (default). */
+  hit?: HitZone;
+  /**
+   * How conditional effects (on kill, on weak point hit, while aiming...) are counted:
+   *   custom  `conditions` decides, condition by condition (default)
+   *   none    every conditional effect is off
+   *   max     every conditional effect is on at its cap; weak-point ones only on head hits
+   */
+  stackMode?: StackMode;
+  /** Stacks per source (mod, arcane or buff name), over the mode: 0 turns that source's conditions off. */
+  sourceStacks?: Record<string, number>;
 }
 
 export interface ResolvedDamage {
@@ -140,8 +161,22 @@ export interface ResolvedBuild {
   punchThrough: number;
   /** Per-shot crit spread, useful for shotguns where the average hides a wide range. */
   critVariance: { pellets: number; expectedCrits: number; atLeastOneCrit: number };
+  /** Hit location and its bonuses; hit.ts turns them into a multiplier for a given enemy. */
+  hitZone: HitZone;
+  /** Σ "weak point damage" (Primary Acuity), added to the weak-point multiplier at 1.5x on heads. */
+  weakPointDamageBonus: number;
+  /** Σ "headshot multiplier" (Deadhead, Meticulous Aim), multiplying the weak-point multiplier. */
+  headshotMultiplierBonus: number;
+  /** Σ "bodyshot damage" (Meticulous Aim -45%), on body hits only. */
+  bodyshotMultiplierBonus: number;
+  /** Crit chance added on weak points: base crit x Σ "weak point critical chance". */
+  weakPointCritChance: number;
+  /** A replacement weak-point multiplier (Sonar), 0 when none. */
+  weakPointOverride: number;
   /** Total Status Damage bonus (multiplies DoT ticks). */
   statusDamageBonus: number;
+  /** Total Status Duration bonus (Continuous Misery): stretches status timers. */
+  statusDurationBonus: number;
   /**
    * Elemental bonus per base element (e.g. Heat 0.9 for Hellfire). The DoT layer needs it
    * to separate the seed from the elemental multiplier, which is what the wiki's worked
@@ -174,18 +209,39 @@ export interface ResolvedBuild {
  * the stackable one carries a count: aiming is a boolean (1), onWeakPointKill can be 3.
  * Taking the minimum would silently cap the stacks at 1.
  */
-function conditionStacks(effect: Effect, conditions: Conditions): number {
+export interface StackContext {
+  mode: StackMode;
+  /** Stacks the player set for this effect's source, if any. */
+  override?: number;
+  hit: HitZone;
+}
+
+function conditionStacks(effect: Effect, conditions: Conditions, context: StackContext = { mode: 'custom', hit: 'body' }): number {
   let stacks = 1;
+  // An effect whose text gives no "Stacks up to Nx" does not stack: it refreshes. DE's export
+  // states a cap for every effect that has one (checked by tools/public-export.ts), so a missing
+  // cap means 1, not "as many as the condition counter says".
+  const cap = effect.maxStacks ?? 1;
   // Condition Overload has no condition of its own: it scales with the statuses on the
   // target, so it must reach the perStatusType step below instead of returning early.
   if (effect.condition) {
-    for (const part of effect.condition.split('+')) {
-      const raw = conditions[part];
-      if (!raw) return 0; // undefined, false or 0 -> effect inactive
-      if (typeof raw === 'number' && raw > stacks) stacks = raw;
+    if (context.override !== undefined) {
+      stacks = context.override;
+    } else if (context.mode === 'none') {
+      stacks = 0;
+    } else if (context.mode === 'max') {
+      stacks = WEAK_POINT_CONDITION.test(effect.condition) && context.hit !== 'head' ? 0 : cap;
+    } else {
+      for (const part of effect.condition.split('+')) {
+        // A ramping buff the player picked counts as fully built unless they say otherwise.
+        const raw = part === 'buffRamp' ? (conditions[part] ?? 1) : conditions[part];
+        if (!raw) return 0; // undefined, false or 0 -> effect inactive
+        if (typeof raw === 'number' && raw > stacks) stacks = raw;
+      }
     }
+    if (stacks <= 0) return 0;
   }
-  if (effect.maxStacks) stacks = Math.min(stacks, effect.maxStacks);
+  stacks = Math.min(stacks, cap);
   if (effect.perStatusType) stacks *= Math.max(1, Number(conditions.statusTypes ?? 1));
   return Number.isFinite(stacks) ? stacks : 1;
 }
@@ -521,7 +577,8 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
       continue;
     }
     activeBuffs.push(definition.ability);
-    sources.push({ name: definition.ability, maxRank: 0, effects, partial: false, incompatible: [], kind: 'buff' });
+    const gated = definition.ramps ? effects.map((effect) => ({ ...effect, condition: effect.condition ?? 'buffRamp' })) : effects;
+    sources.push({ name: definition.ability, maxRank: 0, effects: gated, partial: false, incompatible: [], kind: 'buff' });
   }
 
   // Set Mods: count equipped pieces per set. Sets whose bonus "enhances the mods in this
@@ -546,7 +603,11 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   for (const source of sources) {
     if (source.partial) collected.unsupported.push(source.name);
     for (const effect of source.effects) {
-      const stacks = conditionStacks(effect, conditions);
+      const stacks = conditionStacks(effect, conditions, {
+        mode: build.stackMode ?? 'custom',
+        override: build.sourceStacks?.[source.name],
+        hit: hitZoneOf(build),
+      });
       if (stacks === 0) {
         collected.inactive.push(`${source.name}: ${effect.raw}`);
         continue;
@@ -768,16 +829,23 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   const averageCritMultiplier = critChance >= 1
     ? 1 + critChance * (crit - 1)
     : (1 - effectiveCritChance) * (1 + nonCritBonus) + effectiveCritChance * crit;
-  // Weak-point multiplier: x2 by default. Sonar-style effects replace it (its x5 is a
-  // total, not a x10), while "+weak point damage" mods multiply on top. Only counts on
-  // weak-point hits.
+  // Hit location (wiki: Enemy Body Parts). The arsenal figure assumes the usual 3x head; the
+  // target's own faction multiplier is applied in hit.ts.
+  const hitZone = hitZoneOf(build);
   const weakPointOverride = collected.byTarget.get('weakPointOverride') ?? 0;
-  const headshotMultiplier = build.headshot ? Math.max(2, weakPointOverride) * (1 + bonus('headshotMultiplier')) : 1;
+  const weakPointCritChance = (stats.critChance ?? 0) * bonus('weakPointCritChance');
+  const headshotMultiplier = hitZone === 'head'
+    ? ((weakPointOverride || 3) + 1.5 * bonus('weakPointDamage')) * (1 + bonus('headshotMultiplier'))
+    : Math.max(0, 1 + bonus('bodyshotMultiplier'));
 
   // Heavy attacks spend the combo counter for a damage multiplier (wiki: Melee Combo).
   const heavyMultiplier = build.heavyAttack && !spectralForm ? comboMultiplier : 1;
   const shotDamage = projectileTotal * multishot * headshotMultiplier * heavyMultiplier;
-  const averageShotDamage = shotDamage * averageCritMultiplier;
+  // Head crits double the critical multiplier (wiki: Critical Headshots), weak point crit chance included.
+  const shownCritMultiplier = hitZone === 'head'
+    ? 1 + (critChance + weakPointCritChance) * (2 * crit - 1)
+    : averageCritMultiplier;
+  const averageShotDamage = shotDamage * shownCritMultiplier;
 
   // How many of the pellets crit: with 10 pellets at 35% you get ~3.5 crits, and the
   // chance of a shot with no crit at all is (1 - 0.35)^10 ≈ 1.3%.
@@ -821,7 +889,14 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     comboMultiplier,
     punchThrough: bonus('punchThrough'),
     critVariance,
+    hitZone,
+    weakPointDamageBonus: bonus('weakPointDamage'),
+    headshotMultiplierBonus: bonus('headshotMultiplier'),
+    bodyshotMultiplierBonus: bonus('bodyshotMultiplier'),
+    weakPointCritChance,
+    weakPointOverride,
     statusDamageBonus: bonus('statusDamage'),
+    statusDurationBonus: bonus('statusDuration'),
     elementBonuses: collected.elementBonuses.reduce<Partial<Record<BaseElement, number>>>((acc, entry) => {
       acc[entry.element] = (acc[entry.element] ?? 0) + entry.amount;
       return acc;
