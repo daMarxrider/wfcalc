@@ -70,6 +70,19 @@
         </div>
       </div>
       <div id="enemy-meta" class="meta"></div>
+      <div class="fight-box">
+        <label class="switch"><input type="checkbox" id="hit-head" /> Headshots <small>off: bodyshots</small></label>
+        <div class="stack-row">
+          <span class="field-label">Conditional effects</span>
+          <div class="segmented small" role="radiogroup" aria-label="Stack mode">
+            <label><input type="radio" name="stack-mode" value="none" /><span>none</span></label>
+            <label><input type="radio" name="stack-mode" value="custom" checked /><span>custom</span></label>
+            <label><input type="radio" name="stack-mode" value="max" /><span>all</span></label>
+          </div>
+        </div>
+        <div id="stack-list" class="stack-list"></div>
+        <label class="switch"><input type="checkbox" id="simulate" checked /> Simulate status build-up <small>Viral, Corrosive, Heat… over the fight</small></label>
+      </div>
       <div id="target-report"></div>
       <h3>Contribution</h3>
       <div id="contributions" class="bars"></div>
@@ -135,7 +148,6 @@
     <details>
       <summary>Conditions &amp; stacks</summary>
       <div class="toggles">
-        <label><input type="checkbox" id="headshot" /> weak point hit</label>
         <label><input type="checkbox" id="aiming" /> aiming</label>
         <label class="stack">On-kill <input type="number" id="onkill" min="0" max="10" value="0" /></label>
         <label class="stack">Status types <input type="number" id="status-types" min="1" max="12" value="1" /></label>
@@ -270,6 +282,20 @@
         <label class="field"><span>Ability strength <b id="find-strength-value">100%</b></span>
           <input id="find-strength" type="range" min="40" max="500" step="5" value="100" /></label>
       </div>
+      <div class="loadout-row">
+        <label class="switch"><input type="checkbox" id="find-hit-head" /> Headshots <small>off: bodyshots</small></label>
+        <div class="stack-row">
+          <span class="field-label">Conditional effects</span>
+          <div class="segmented small" role="radiogroup" aria-label="Stack mode for the search">
+            <label><input type="radio" name="find-stack-mode" value="none" /><span>none</span></label>
+            <label><input type="radio" name="find-stack-mode" value="custom" checked /><span>custom</span></label>
+            <label><input type="radio" name="find-stack-mode" value="max" /><span>all</span></label>
+          </div>
+        </div>
+        <label class="switch"><input type="checkbox" id="find-simulate" checked /> Simulate status build-up</label>
+      </div>
+      <p class="hint" id="find-stack-hint">“all”: every on-kill, on-hit and aiming effect at its cap (DE's “Stacks up to”). Weak-point effects need headshots.
+        Per-mod stack counts set on the Build tab apply here too.</p>
       <datalist id="find-arcane-list"></datalist>
       <span class="field-label">Warframe buffs <span id="find-buff-count" class="badge"></span></span>
       <div id="find-buff-list" class="buffs"></div>

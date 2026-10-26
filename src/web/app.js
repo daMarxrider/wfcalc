@@ -116,7 +116,11 @@ const emptyState = () => ({
   steelPathNodeLevel: true,
   mode: '',
   conditions: {},
-  headshot: false,
+  // Where shots land, and how conditional effects (on kill, on hit, aiming) are counted.
+  hit: 'body',
+  stackMode: 'custom',
+  sourceStacks: {}, // name -> stacks, overriding the mode for that mod/arcane/buff
+  simulate: true, // status effects build up over a simulated fight
   // Armour strip brought by the squad, the weapon or an ability.
   corrosiveProjections: 0,
   armorStripPercent: 0,
@@ -919,9 +923,11 @@ function renderResults(result) {
               <td>${fmt(entry.dps, 0)}</td></tr>`,
           )
           .join('')}</tbody></table>` : ''}`;
+    $('target-report').innerHTML += renderFight(target.simulation);
   } else {
     $('target-report').innerHTML = '';
   }
+  renderStackList(result.conditionalSources ?? []);
 
   const notes = [...result.warnings];
   if (result.unsupportedMods.length) notes.push(`Unknown mod effects (lower bound): ${result.unsupportedMods.join(', ')}`);
@@ -938,6 +944,68 @@ function renderResults(result) {
     if (conflict) notes.push(conflict);
   }
   $('notes').innerHTML = notes.map((note) => `<p>· ${note}</p>`).join('');
+}
+
+/** ---------- conditional stacks and the fight ---------- */
+
+const SOURCE_KIND = { mod: 'mod', weaponArcane: 'arcane', warframeArcane: 'frame arcane', buff: 'ability', incarnon: 'incarnon', riven: 'riven' };
+
+/**
+ * One row per conditional mod, arcane or ability in the build: an empty box follows the stack
+ * mode, a number pins that source (0 turns it off). The cap is DE's "Stacks up to Nx".
+ */
+function renderStackList(sources) {
+  $('stack-list').innerHTML = sources
+    .map((source) => {
+      const pinned = state.sourceStacks?.[source.name];
+      return `<label class="stack-item">
+        <span class="name" title="${source.name}: ${source.conditions.join(', ')}">${source.name} <small>${SOURCE_KIND[source.kind] ?? source.kind}</small></span>
+        <input type="number" min="0" max="${source.cap}" step="1" data-source="${source.name}"
+          value="${pinned ?? ''}" placeholder="${source.stacks}" title="empty: follow the mode" />
+        <span class="cap">/ ${source.cap}</span>
+      </label>`;
+    })
+    .join('');
+  for (const input of $('stack-list').querySelectorAll('input[data-source]')) {
+    input.addEventListener('change', () => {
+      const name = input.dataset.source;
+      const sourceStacks = { ...(state.sourceStacks ?? {}) };
+      if (input.value === '') delete sourceStacks[name];
+      else sourceStacks[name] = Math.max(0, Math.min(Number(input.max), Number(input.value)));
+      state.sourceStacks = sourceStacks;
+      recalc();
+    });
+  }
+}
+
+/** The simulated fight: health falling, Viral and Corrosive stacks rising, as one small chart. */
+function renderFight(simulation) {
+  if (!simulation?.timeline?.length) return '';
+  const points = simulation.timeline;
+  const end = points[points.length - 1].t || 1;
+  const startPool = Math.max(1, points[0].health + points[0].shield + points[0].overguard);
+  const x = (t) => ((t / end) * 300).toFixed(1);
+  const line = (value) => points.map((p) => `${x(p.t)},${(80 - value(p) * 76).toFixed(1)}`).join(' ');
+  const atEnd = simulation.atEnd;
+  const dealt = Object.entries(simulation.damageBySource ?? {}).filter(([, value]) => value > 0);
+  const total = dealt.reduce((sum, [, value]) => sum + value, 0) || 1;
+  return `<div class="fight">
+    <h3>Fight (simulated)</h3>
+    <svg viewBox="0 0 300 84" preserveAspectRatio="none" role="img" aria-label="Target pools and status stacks over the fight">
+      <polyline fill="none" stroke="var(--accent)" stroke-width="1.6" points="${line((p) => (p.health + p.shield + p.overguard) / startPool)}" />
+      <polyline fill="none" stroke="${ELEMENT_COLORS.viral}" stroke-width="1.2" points="${line((p) => p.viral / 10)}" />
+      <polyline fill="none" stroke="${ELEMENT_COLORS.corrosive}" stroke-width="1.2" stroke-dasharray="3 2" points="${line((p) => p.corrosive / 10)}" />
+      <polyline fill="none" stroke="${ELEMENT_COLORS.heat}" stroke-width="1.2" stroke-dasharray="1 2" points="${line((p) => p.heatStrip / 0.5)}" />
+    </svg>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>target pools</span>
+      <span><i style="background:${ELEMENT_COLORS.viral}"></i>viral ${fmt(atEnd.viral, 1)}</span>
+      <span><i style="background:${ELEMENT_COLORS.corrosive}"></i>corrosive ${fmt(atEnd.corrosive, 1)}</span>
+      <span><i style="background:${ELEMENT_COLORS.heat}"></i>heat strip ${pct(atEnd.heatStrip)}</span>
+      <span>${fmt(end, 1)}s</span>
+    </div>
+    <div class="meta">${dealt.sort((a, b) => b[1] - a[1]).map(([source, value]) => `<span class="chip">${source} ${pct(value / total)}</span>`).join('')}</div>
+  </div>`;
 }
 
 /** ---------- calculation ---------- */
@@ -1079,6 +1147,7 @@ async function runFind() {
     mustInclude: names($('find-must').value),
     exclude: names($('find-exclude').value),
     chooseIncarnon,
+    simulate: state.simulate !== false,
     base,
   };
   $('find-out').innerHTML = '<p class="hint">searching…</p>';
@@ -1115,6 +1184,7 @@ async function runBruteForce(weapon) {
     fixed: parseFixed($('find-must').value),
     exclude: $('find-exclude').value.split(',').map((name) => name.trim()).filter(Boolean),
     maxEvaluations: Number($('find-max-evals').value) || undefined,
+    simulate: state.simulate !== false,
     base,
   };
   const started = performance.now();
@@ -1180,6 +1250,13 @@ function renderFind(result) {
         <div class="build-mods">${build.mods
           .map((mod) => `<span class="chip${mod.fixed ? ' fixed' : ''}" ${mod.fixed ? 'title="fixed mod"' : ''}>${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}</span>`)
           .join('')}${build.exilus ? `<span class="chip fixed">${build.exilus.name} R${build.exilus.rank} · exilus</span>` : ''}</div>
+        ${build.statusAtKill ? `<div class="meta">${[
+          ['viral', build.statusAtKill.viral], ['corrosive', build.statusAtKill.corrosive],
+          ['magnetic', build.statusAtKill.magnetic], ['cold', build.statusAtKill.cold],
+        ].filter(([, value]) => value > 0.05).map(([name, value]) => `<span class="chip subtle">${name} ${fmt(value, 1)} at kill</span>`).join('')}${
+          build.statusAtKill.heatStrip > 0.01 ? `<span class="chip subtle">heat strip ${pct(build.statusAtKill.heatStrip)}</span>` : ''}${
+          build.damageBySource ? Object.entries(build.damageBySource).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 3)
+            .map(([source, value]) => `<span class="chip subtle">${source} ${pct(value / Object.values(build.damageBySource).reduce((a, b) => a + b, 0))}</span>`).join('') : ''}</div>` : ''}
         ${build.incarnonNames?.length ? `<div class="meta">${build.incarnonNames.map((name) => `<span class="chip subtle">${name}</span>`).join('')}</div>` : ''}
         ${build.partialMods?.length ? `<p class="hint">lower bound: ${build.partialMods.join(', ')}</p>` : ''}
         ${build.warnings?.length ? `<p class="hint">${build.warnings.join(' · ')}</p>` : ''}
@@ -1321,7 +1398,13 @@ function syncInputs() {
   $('enemy-input').value = state.enemy;
   $('level-input').value = String(state.level);
   $('level-value').textContent = String(state.level);
-  $('headshot').checked = Boolean(state.headshot);
+  // Links from before the hit switch carried `headshot: true`.
+  if (state.headshot) { state.hit = 'head'; delete state.headshot; }
+  $('hit-head').checked = $('find-hit-head').checked = state.hit === 'head';
+  for (const radio of document.querySelectorAll('input[name="stack-mode"], input[name="find-stack-mode"]')) {
+    radio.checked = radio.value === (state.stackMode ?? 'custom');
+  }
+  $('simulate').checked = $('find-simulate').checked = state.simulate !== false;
   $('onkill').value = String(state.conditions.onKill ?? 0);
   $('status-types').value = String(state.conditions.statusTypes ?? 1);
   $('aiming').checked = Boolean(state.conditions.aiming);
@@ -1422,11 +1505,27 @@ function bindEvents() {
   });
   for (const radio of document.querySelectorAll('input[name="find-method"]')) radio.addEventListener('change', renderFindMethod);
   $('find-sp').addEventListener('change', renderFindMethod);
-  $('headshot').addEventListener('change', (event) => {
-    state.headshot = event.target.checked;
-    recalc();
-  });
-
+  for (const id of ['hit-head', 'find-hit-head']) {
+    $(id).addEventListener('change', (event) => {
+      state.hit = event.target.checked ? 'head' : 'body';
+      $('hit-head').checked = $('find-hit-head').checked = state.hit === 'head';
+      recalc();
+    });
+  }
+  for (const radio of document.querySelectorAll('input[name="stack-mode"], input[name="find-stack-mode"]')) {
+    radio.addEventListener('change', () => {
+      state.stackMode = radio.value;
+      for (const other of document.querySelectorAll('input[name="stack-mode"], input[name="find-stack-mode"]')) other.checked = other.value === state.stackMode;
+      recalc();
+    });
+  }
+  for (const id of ['simulate', 'find-simulate']) {
+    $(id).addEventListener('change', (event) => {
+      state.simulate = event.target.checked;
+      $('simulate').checked = $('find-simulate').checked = state.simulate;
+      recalc();
+    });
+  }
   const conditionInput = (id, key, numeric) => {
     $(id).addEventListener('change', (event) => {
       const value = numeric ? Number(event.target.value) : event.target.checked;

@@ -294,7 +294,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
       resolved = resolveBuild(snapshot, build);
       hit = hitEnemy(snapshot, resolved, scaled, { attenuation: request.attenuation, steadyStatus: request.simulate });
       score = objective === 'ttk'
-        ? (hit.timeToKill === null ? -1 : 1 / Math.max(hit.timeToKill, 1e-6))
+        ? (hit.timeToKill === null ? -1 : (1 / Math.max(hit.timeToKill, 1e-6)) * (1 + 1e-4 * Math.min(1, Math.log10(1 + hit.damagePerShotHealth) / 10)))
         // totalDps is the damage against this target including status procs. sustainedDps
         // alone ignores them, which made the dps objective blind to Weeping Wounds and to
         // every slash or heat build: identical score for 33.6k and 17.9k real damage.
