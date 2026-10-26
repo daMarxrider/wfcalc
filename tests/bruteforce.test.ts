@@ -179,3 +179,30 @@ test('real weapon: Steel Path makes the same target take longer to kill', async 
   assert.ok(Math.abs(steel.health - normal.health * 2.5) < 1e-6 * steel.health);
   assert.ok((steel.builds[0].timeToKill ?? 0) > (normal.builds[0].timeToKill ?? Infinity));
 });
+
+test('an arch-gun takes a Primary and a Secondary arcane at once (wiki: Archgun Arcane Adapter)', () => {
+  const scaled = scaleEnemy(snapshot, snapshot.enemies['Bombard'], 100);
+  const one = resolveBuild(snapshot, { weapon: 'Fluctus', mods: [], arcanes: ['Primary Merciless'], conditions: { onKill: 12 } });
+  const two = resolveBuild(snapshot, {
+    weapon: 'Fluctus', mods: [], arcanes: ['Primary Merciless', 'Secondary Merciless'], conditions: { onKill: 12 },
+  });
+  assert.deepEqual(two.warnings.filter((warning) => /arcane/i.test(warning)), []);
+  assert.ok(hitEnemy(snapshot, two, scaled).totalDps > hitEnemy(snapshot, one, scaled).totalDps * 1.5);
+  // Two of the same type still collide on an arch-gun.
+  const doubled = resolveBuild(snapshot, { weapon: 'Fluctus', mods: [], arcanes: ['Primary Merciless', 'Primary Deadhead'] });
+  assert.ok(doubled.warnings.some((warning) => warning.includes('one primary arcane')));
+});
+
+test('every other weapon holds a single arcane', () => {
+  const resolved = resolveBuild(snapshot, { weapon: 'Soma Prime', mods: [], arcanes: ['Primary Merciless', 'Primary Deadhead'] });
+  assert.ok(resolved.warnings.some((warning) => warning.includes('a weapon holds one arcane')));
+});
+
+test('brute force keeps the player arcanes and buffs on every build', async () => {
+  const result = await bruteForce(snapshot, {
+    weapon: 'Fluctus', enemy: 'Bombard', level: 150, maxEvaluations: 5_000, limit: 2,
+    base: { arcanes: [{ name: 'Primary Merciless' }, { name: 'Secondary Merciless' }], buffs: ['roar'], abilityStrength: 180 },
+  });
+  assert.ok(result.assumptions.some((line) => line.includes('Primary Merciless') && line.includes('Secondary Merciless')));
+  assert.ok(result.assumptions.some((line) => line.includes('roar') && line.includes('180%')));
+});

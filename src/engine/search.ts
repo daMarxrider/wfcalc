@@ -11,7 +11,7 @@
  * and a mod marked `partial` makes the result a lower bound.
  */
 import type { Build, BuildMod } from './build.ts';
-import { resolveBuild } from './build.ts';
+import { ARCANE_SLOTS, resolveBuild } from './build.ts';
 import { hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
@@ -624,14 +624,7 @@ export function search(snapshot: Snapshot, request: SearchRequest): SearchResult
   // An explicit arcane is a decision, not a suggestion: respect it.
   if (request.base?.arcanes?.length) return searchOnce(snapshot, { ...request, chooseArcane: false });
 
-  const slots: Record<string, string[]> = {
-    primary: ['primary', 'bow', 'shotgun'],
-    secondary: ['secondary'],
-    melee: ['melee'],
-    archgun: ['primary'],
-    archmelee: ['melee'],
-  };
-  const allowed = slots[weapon.category] ?? [];
+  const allowed = ARCANE_SLOTS[weapon.category] ?? [];
   const relevant = new Set([
     'baseDamage', 'multishot', 'critChance', 'critDamage', 'statusChance', 'fireRate',
     'element', 'directDamage', 'factionDamage', 'headshotMultiplier', 'reloadSpeed',

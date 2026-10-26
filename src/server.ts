@@ -14,7 +14,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { loadSnapshot, findEnemy, findWeapon, modsForWeapon } from './data.ts';
-import { resolveBuild, type Build } from './engine/build.ts';
+import { ARCANE_SLOTS, resolveBuild, type Build } from './engine/build.ts';
 import { scaleEnemy } from './engine/enemy.ts';
 import { hitEnemy, statusProcs } from './engine/damage.ts';
 import { availableBuffs } from './engine/buffs.ts';
@@ -282,14 +282,7 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/api/arcanes') {
       const weaponName = url.searchParams.get('weapon') ?? '';
       const { item } = findWeapon(snapshot, weaponName);
-      const slots: Record<string, string[]> = {
-        primary: ['primary', 'bow', 'shotgun'],
-        secondary: ['secondary'],
-        melee: ['melee'],
-        archgun: ['primary'],
-        archmelee: ['melee'],
-      };
-      const allowed = item ? (slots[item.category] ?? []) : ['primary', 'secondary', 'melee', 'bow', 'shotgun'];
+      const allowed = item ? (ARCANE_SLOTS[item.category] ?? []) : ['primary', 'secondary', 'melee', 'bow', 'shotgun'];
       const list = Object.values(snapshot.arcanes)
         .filter((arcane) => arcane.slot && allowed.includes(arcane.slot))
         .map((arcane) => ({ name: arcane.name, slot: arcane.slot, maxRank: arcane.maxRank, description: arcane.description }))
@@ -406,6 +399,7 @@ const server = createServer(async (req, res) => {
           level: level ? Number(level) : undefined,
           eximus: eximus === '1' || eximus === 'true',
           overguard: overguard ? Number(overguard) : undefined,
+          steelPath: ['1', 'true'].includes(url.searchParams.get('steelPath') ?? ''),
           viralStacks: url.searchParams.get('viral') ? Number(url.searchParams.get('viral')) : undefined,
           targets: url.searchParams.get('targets') ? Number(url.searchParams.get('targets')) : undefined,
           mode: url.searchParams.get('mode') ?? undefined,
