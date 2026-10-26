@@ -61,7 +61,7 @@ Node ≥ 23 and nothing else (no runtime dependencies). The snapshot ships with 
 a clone works without downloading the game data:
 
 ```sh
-git clone https://github.com/asphyksia/wfcalc.git
+git clone https://github.com/daMarxrider/wfcalc.git
 cd wfcalc
 ./bin/wfcalc calc "Torid" --mod Serration --enemy Bombard --level 150
 ./bin/wfcalc serve            # UI at http://127.0.0.1:7777
