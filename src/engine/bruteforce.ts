@@ -450,7 +450,10 @@ function makeScorer(
       const resolved = resolveBuild(snapshot, { ...base, weapon, mods: exilus ? [...mods, exilus] : mods });
       const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate' });
       if (objective === 'dps') return hit.totalDps;
-      return hit.timeToKill === null ? -Infinity : 1 / Math.max(hit.timeToKill, 1e-9);
+      if (hit.timeToKill === null) return -Infinity;
+      // Builds that one-shot all share a kill time; the harder hit wins the tie (at most a 1e-4
+      // relative nudge, so it never reorders builds whose times really differ).
+      return (1 / Math.max(hit.timeToKill, 1e-9)) * (1 + 1e-4 * Math.min(1, Math.log10(1 + hit.damagePerShotHealth) / 10));
     } catch {
       return -Infinity;
     }

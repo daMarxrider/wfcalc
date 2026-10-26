@@ -198,6 +198,11 @@ export interface ResolvedBuild {
   unsupportedMods: string[];
   /** Conditional effects that were not active and therefore ignored. */
   inactiveConditions: string[];
+  /**
+   * Every source in the build with conditional effects, its stack cap (DE's "Stacks up to Nx",
+   * 1 when it does not stack) and the stacks counted now: what a stack picker needs.
+   */
+  conditionalSources: Array<{ name: string; kind: string; cap: number; stacks: number; conditions: string[] }>;
   /** Non-fatal problems (mod does not fit, incompatible pair, rank out of range). */
   warnings: string[];
 }
@@ -602,14 +607,25 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     return targets[modName] ?? targets['*'] ?? 0;
   };
 
+  const conditional = new Map<string, { name: string; kind: string; cap: number; stacks: number; conditions: Set<string> }>();
   for (const source of sources) {
     if (source.partial) collected.unsupported.push(source.name);
     for (const effect of source.effects) {
+      if (effect.condition) {
+        const entry = conditional.get(source.name) ?? { name: source.name, kind: source.kind, cap: 1, stacks: 0, conditions: new Set<string>() };
+        entry.cap = Math.max(entry.cap, effect.maxStacks ?? 1);
+        entry.conditions.add(effect.condition);
+        conditional.set(source.name, entry);
+      }
       const stacks = conditionStacks(effect, conditions, {
         mode: build.stackMode ?? 'custom',
         override: build.sourceStacks?.[source.name],
         hit: hitZoneOf(build),
       });
+      if (effect.condition) {
+        const entry = conditional.get(source.name)!;
+        entry.stacks = Math.max(entry.stacks, effect.perStatusType ? stacks / Math.max(1, Number(conditions.statusTypes ?? 1)) : stacks);
+      }
       if (stacks === 0) {
         collected.inactive.push(`${source.name}: ${effect.raw}`);
         continue;
@@ -936,6 +952,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     elements,
     unsupportedMods: collected.unsupported,
     inactiveConditions: collected.inactive,
+    conditionalSources: [...conditional.values()].map((entry) => ({ ...entry, conditions: [...entry.conditions] })),
     warnings: collected.warnings,
   };
 }

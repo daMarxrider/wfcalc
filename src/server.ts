@@ -213,6 +213,8 @@ function calculate(body: any) {
     warnings: [...resolved.warnings, ...hitWarnings],
     unsupportedMods: resolved.unsupportedMods,
     inactiveConditions: resolved.inactiveConditions,
+    conditionalSources: resolved.conditionalSources,
+    hitZone: resolved.hitZone,
     target,
   };
 }
