@@ -494,9 +494,10 @@ export function runShard(
   const fixedEntries = plan.fixed.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? 0 }));
 
   // Every worker walks the whole tree, so feasibility must be cheap. A set's drain lies between
-  // the sum of halved costs (every slot polarised) and the sum of full costs (none): below the
-  // lower sum it fits for free, above it nothing fits, and with unlimited Forma the lower sum
-  // decides alone. Only a Forma budget in between needs the exact placement.
+  // the sum of halved costs (every slot matched) and the sum of mismatched costs (+25%, rounded
+  // up): under the upper bound it fits with no Forma, over the lower bound nothing fits, and with
+  // unlimited Forma the lower bound decides alone. Only a Forma budget in between needs the exact
+  // placement (fitMods).
   const capacity = plan.capacity - exilusDrain;
   const fullCost = mods.map((mod) => (mod.baseDrain ?? 0) + mod.maxRank);
   const halfCost = fullCost.map((cost) => Math.ceil(cost / 2));
@@ -504,7 +505,8 @@ export function runShard(
   const fixedHalf = fixedEntries.reduce((sum, entry) => sum + Math.ceil(((entry.mod.baseDrain ?? 0) + entry.rank) / 2), 0);
   const sumOf = (chosen: number[], costs: number[], start: number): number => chosen.reduce((sum, i) => sum + costs[i], start);
   const fits = (chosen: number[]): boolean => {
-    if (sumOf(chosen, fullCost, fixedFull) <= capacity) return true;
+    // Full cost plus the 25% mismatch penalty everywhere is an upper bound on the drain.
+    if (sumOf(chosen, fullCost, fixedFull) * 1.25 + chosen.length + fixedEntries.length <= capacity) return true;
     if (sumOf(chosen, halfCost, fixedHalf) > capacity) return false;
     if (plan.maxForma === null) return true;
     const entries = [...fixedEntries, ...chosen.map((i) => ({ mod: mods[i], rank: mods[i].maxRank }))];

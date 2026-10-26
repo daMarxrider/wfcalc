@@ -35,6 +35,7 @@ import { scaleEnemy } from './engine/enemy.ts';
 import { hitEnemy } from './engine/damage.ts';
 import { BUFFS, availableBuffs } from './engine/buffs.ts';
 import { RIVEN_ATTRIBUTES, type RivenSpec } from './engine/riven.ts';
+import { SHARD_BONUSES, type ShardColor, type ShardSpec } from './engine/shards.ts';
 import type { Snapshot } from './types.ts';
 
 interface Args {
@@ -138,6 +139,20 @@ function parseSourceStacks(snapshot: Snapshot, args: Args): Record<string, numbe
   return out;
 }
 
+/** `--shards "crimson:primaryStatus,violet:primaryElectricity:tau"`: Archon Shards, up to five. */
+function parseShards(args: Args): ShardSpec[] | undefined {
+  const entries = flagAll(args, 'shards').flatMap((entry) => entry.split(',')).map((entry) => entry.trim()).filter(Boolean);
+  if (!entries.length) return undefined;
+  return entries.map((entry) => {
+    const [color, bonus = 'other', tau] = entry.split(':').map((part) => part.trim());
+    const colour = color.toLowerCase() as ShardColor;
+    const known = SHARD_BONUSES[colour];
+    if (!known) throw new CliError(`unknown shard colour: ${color} (${Object.keys(SHARD_BONUSES).join(', ')})`, 'invalid_argument');
+    if (!(bonus in known)) throw new CliError(`unknown ${colour} shard bonus: ${bonus} (${Object.keys(known).join(', ')})`, 'invalid_argument');
+    return { color: colour, bonus, tauforged: /^(tau|tauforged)$/i.test(tau ?? '') };
+  });
+}
+
 /** `--hit head|body`, or the `--headshot` / `--bodyshot` shorthands. */
 function parseHitZone(args: Args): HitZone {
   const raw = flag(args, 'hit')?.toLowerCase();
@@ -228,6 +243,7 @@ function buildFromArgs(snapshot: Snapshot, args: Args, mods: string[]): Build {
     hit: parseHitZone(args),
     stackMode: parseStackMode(args),
     sourceStacks: parseSourceStacks(snapshot, args),
+    shards: parseShards(args),
   };
 }
 
@@ -1214,6 +1230,7 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
                                       "Stacks up to Nx"; weak-point ones only with --hit head)
          --source-stacks "Primary Merciless=6,Galvanized Chamber=max"   per mod/arcane/buff
          --hit head|body              where shots land (default body); --headshot, --bodyshot
+         --shards "crimson:primaryStatus,violet:primaryElectricity:tau"   Archon Shards (up to 5)
          --no-sim                     steady-state statuses instead of the fight simulation
          --brief one line per result        --brief=answer answer only
          --json machine-readable output      --debug stack trace on failure

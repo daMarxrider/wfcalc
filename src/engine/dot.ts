@@ -115,7 +115,8 @@ export function viralMultiplier(stacks: number): number {
 /** Armour multiplier after Corrosive stacks (wiki: 26%, then 6% each, capped at 80%). */
 export function corrosiveArmorMultiplier(stacks: number): number {
   if (stacks <= 0) return 1;
-  const strip = Math.min(0.8, 0.26 + 0.06 * (stacks - 1));
+  // 80% at the usual 10 stacks; Emerald shards allow more, up to all of it at 14 (wiki).
+  const strip = Math.min(1, 0.26 + 0.06 * (stacks - 1));
   return 1 - strip;
 }
 
@@ -207,7 +208,8 @@ export function computeDot(
     const seed = elementalBonus > 0 ? component / (1 + elementalBonus) : component;
     // Faction damage scales the seed itself and is then applied again, exactly as the wiki's
     // worked examples do it: ((seed x faction) + 1) x C x (1 + element bonus) x status x faction.
-    const rawTick = ((seed * factionMultiplier) + 1) * coefficient * (1 + elementalBonus) * statusDamageBonus * factionMultiplier;
+    const typeBonus = type === 'toxin' ? 1 + (build.toxinStatusDamageBonus ?? 0) : 1;
+    const rawTick = ((seed * factionMultiplier) + 1) * coefficient * (1 + elementalBonus) * statusDamageBonus * typeBonus * factionMultiplier;
     const dr = dotType === 'true' ? 0 : armorDamageReduction(armor);
     const healthMod = dotType === 'true' ? 0 : healthModifier(snapshot, dotType, healthClass);
     const tickDamage = rawTick * hit.location * (1 + healthMod) * (1 - dr) * viral;

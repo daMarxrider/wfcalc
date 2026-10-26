@@ -1109,3 +1109,47 @@ test('simulation: no status procs while Overguard is up', () => {
   const simulated = hitEnemy(snap, build(snap, []), scaled, { simulate: true });
   assert.equal(simulated.simulation!.atEnd.viral, 0);
 });
+
+// ------------------------------------------------------------------ Archon Shards
+
+test('Violet shard: +30% Primary Electricity, +10% per Crimson/Azure/Violet shard, combined last like innate', () => {
+  const snap = snapshot([weapon({ impact: 100 })], [hellfire, cryoRounds]);
+  const shards = [
+    { color: 'violet', bonus: 'primaryElectricity' },
+    { color: 'crimson', bonus: 'other' },
+    { color: 'azure', bonus: 'other' },
+  ] as const;
+  const alone = build(snap, [], { shards: [...shards] });
+  // 3 counted shards: 30% + 3 x 10% = 60% of the 100 base.
+  close(alone.damage.perProjectile.electricity ?? 0, 60);
+  // Mods first: Heat + Cold pair into Blast; the shard's Electricity stays on its own.
+  const withMods = build(snap, ['Hellfire', 'Cryo Rounds'], { shards: [...shards] });
+  close(withMods.damage.perProjectile.blast ?? 0, 180);
+  close(withMods.damage.perProjectile.electricity ?? 0, 60);
+  // Tauforged: 1.5x (the wiki's Violet examples, 45% + 15% per shard).
+  const tau = build(snap, [], { shards: [{ color: 'violet', bonus: 'primaryElectricity', tauforged: true }] });
+  close(tau.damage.perProjectile.electricity ?? 0, 60);
+});
+
+test('Crimson shard bonuses only touch their weapon class; Tauforged is 1.5x', () => {
+  const snap = snapshot([weapon({ impact: 100, statusChance: 0.2 })], []);
+  const primary = build(snap, [], { shards: [{ color: 'crimson', bonus: 'primaryStatus' }, { color: 'crimson', bonus: 'primaryStatus', tauforged: true }] });
+  close(primary.statusChance, 0.2 * (1 + 0.25 + 0.375));
+  const wrongClass = build(snap, [], { shards: [{ color: 'crimson', bonus: 'secondaryCrit' }] });
+  close(wrongClass.critChance, 0.2);
+});
+
+test('Emerald shards raise the Corrosion cap and Toxin status damage', () => {
+  const corrosiveWeapon = weapon({ corrosive: 100, statusChance: 3, fireRate: 10, magazineSize: 200, critChance: 0 });
+  const snap = snapshot([corrosiveWeapon], [], [bombard]);
+  const scaled = scaleEnemy(snap, bombard, 200);
+  const plain = hitEnemy(snap, build(snap, []), scaled, { simulate: true });
+  const emerald = hitEnemy(snap, build(snap, [], { shards: [{ color: 'emerald', bonus: 'corrosionStacks' }] }), scaled, { simulate: true });
+  close(plain.simulation!.atEnd.corrosive, 10);
+  close(emerald.simulation!.atEnd.corrosive, 12);
+  close(corrosiveArmorMultiplier(12), 1 - 0.92);
+  const toxin = snapshot([weapon({ toxin: 100, statusChance: 1 })], [], [bombard]);
+  const base = hitEnemy(toxin, build(toxin, []), scaleEnemy(toxin, bombard, 50));
+  const boosted = hitEnemy(toxin, build(toxin, [], { shards: [{ color: 'emerald', bonus: 'toxinStatusDamage' }] }), scaleEnemy(toxin, bombard, 50));
+  close(boosted.dot.find((e) => e.type === 'toxin')!.tickDamage, base.dot.find((e) => e.type === 'toxin')!.tickDamage * 1.3);
+});

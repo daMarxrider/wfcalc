@@ -146,51 +146,66 @@ function slotPolarity(weapon: WeaponData, index: number): string | null {
 /**
  * Minimum Forma needed for a set of mods to fit, and the drain once spent.
  *
- * A mod costs `baseDrain + rank`, halved (rounded up, as the game does) when the slot's
- * polarity matches. Slots the weapon already polarised half one mod each for free; every other
- * match costs one Forma, and they are spent where they save the most drain.
+ * Slot rules (wiki: Polarity): a mod costs `baseDrain + rank`, halved (rounded up) in a slot of
+ * its polarity, and 25% more (rounded up) in a slot of another polarity. The weapon's polarised
+ * slots are filled with matching mods first, then the unpolarised slots; whatever is left has to
+ * sit in a mismatched slot. Forma re-polarises one slot each and is spent where it saves the most
+ * drain until the capacity fits.
  */
 export function fitMods(
   mods: Array<{ mod: ModData; rank: number }>,
   weapon: WeaponData,
   capacity: number,
+  slots = SEARCH_SLOTS,
 ): { drain: number; formaNeeded: number; entries: SearchBuild['mods'] } {
   const free = [...weapon.polarities];
-  const entries: SearchBuild['mods'] = [];
-  const pending: Array<{ mod: ModData; rank: number; full: number; saving: number; halved: boolean }> = [];
+  const neutralSlots = Math.max(0, slots - weapon.polarities.length);
+  type Pending = { mod: ModData; rank: number; full: number; state: 'matched' | 'neutral' | 'mismatched'; formaed: boolean };
+  const pending: Pending[] = [];
 
   for (const { mod, rank } of mods) {
     const full = (mod.baseDrain ?? 0) + rank;
-    const matching = free.indexOf(mod.polarity ?? '');
-    // A free slot is one the weapon already has the right polarity on.
-    if (mod.polarity && matching !== -1) {
+    const matching = mod.polarity ? free.indexOf(mod.polarity) : -1;
+    // A slot the weapon already has the right polarity on halves the cost for free.
+    if (matching !== -1) {
       free.splice(matching, 1);
-      pending.push({ mod, rank, full, saving: full - Math.ceil(full / 2), halved: true });
+      pending.push({ mod, rank, full, state: 'matched', formaed: false });
     } else {
-      pending.push({ mod, rank, full, saving: full - Math.ceil(full / 2), halved: false });
+      pending.push({ mod, rank, full, state: 'neutral', formaed: false });
     }
   }
+  // More unmatched mods than unpolarised slots: the cheapest-to-penalise ones take the leftover
+  // polarised slots. A mod without a polarity pays no mismatch.
+  const unmatched = pending.filter((entry) => entry.state === 'neutral');
+  const overflow = Math.max(0, unmatched.length - neutralSlots);
+  const penalty = (entry: Pending): number => (entry.mod.polarity ? Math.ceil(entry.full * 1.25) - entry.full : 0);
+  for (const entry of [...unmatched].sort((a, b) => penalty(a) - penalty(b)).slice(0, overflow)) entry.state = 'mismatched';
 
-  let drain = pending.reduce((sum, entry) => sum + (entry.halved ? Math.ceil(entry.full / 2) : entry.full), 0);
+  const cost = (entry: Pending): number => {
+    if (entry.state === 'matched' || entry.formaed) return Math.ceil(entry.full / 2);
+    if (entry.state === 'mismatched' && entry.mod.polarity) return Math.ceil(entry.full * 1.25);
+    return entry.full;
+  };
+  let drain = pending.reduce((sum, entry) => sum + cost(entry), 0);
   let formaNeeded = 0;
   // Spend Forma on the remaining mods, biggest saving first, until the capacity fits.
-  for (const entry of pending.filter((e) => !e.halved).sort((a, b) => b.saving - a.saving)) {
+  const candidates = pending
+    .filter((entry) => entry.state !== 'matched' && entry.mod.polarity)
+    .sort((a, b) => (cost(b) - Math.ceil(b.full / 2)) - (cost(a) - Math.ceil(a.full / 2)));
+  for (const entry of candidates) {
     if (drain <= capacity) break;
-    drain -= entry.saving;
-    entry.halved = true;
+    drain -= cost(entry) - Math.ceil(entry.full / 2);
+    entry.formaed = true;
     formaNeeded++;
   }
 
-  for (const entry of pending) {
-    const paid = entry.halved ? Math.ceil(entry.full / 2) : entry.full;
-    entries.push({
-      name: entry.mod.name,
-      rank: entry.rank,
-      drain: paid,
-      polarity: entry.mod.polarity,
-      halvedByPolarity: entry.halved,
-    });
-  }
+  const entries: SearchBuild['mods'] = pending.map((entry) => ({
+    name: entry.mod.name,
+    rank: entry.rank,
+    drain: cost(entry),
+    polarity: entry.mod.polarity,
+    halvedByPolarity: entry.state === 'matched' || entry.formaed,
+  }));
   return { drain, formaNeeded, entries };
 }
 

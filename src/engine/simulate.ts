@@ -65,7 +65,6 @@ const BLAST_DELAY = 1.5;
 
 /** +100% at the first stack, +25% per further stack, to +325% (Viral and Magnetic). */
 const amplifier = (stacks: number): number => (stacks <= 0 ? 1 : 1 + Math.min(3.25, 1 + 0.25 * (stacks - 1)));
-const corrosiveStrip = (stacks: number): number => (stacks <= 0 ? 0 : Math.min(0.8, 0.26 + 0.06 * (stacks - 1)));
 const coldCritBonus = (stacks: number): number => (stacks <= 0 ? 0 : Math.min(0.5, 0.1 + 0.05 * (stacks - 1)));
 const punctureCritBonus = (stacks: number): number => Math.min(0.25, 0.05 * Math.max(0, stacks));
 const tauStatusBonus = (stacks: number): number => Math.min(1, 0.1 * Math.max(0, stacks));
@@ -161,14 +160,16 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const component = type === 'slash' ? total : perProjectile[type as DamageType] ?? 0;
     const bonus = elementBonus(type);
     const seed = bonus > 0 ? component / (1 + bonus) : component;
-    return ((seed * faction) + 1) * coefficient * (1 + bonus) * statusDamage * faction * hit.location;
+    const typeBonus = type === 'toxin' ? 1 + (build.toxinStatusDamageBonus ?? 0) : 1;
+    return ((seed * faction) + 1) * coefficient * (1 + bonus) * statusDamage * typeBonus * faction * hit.location;
   };
 
   // Statuses by index: stacking ones, ticking ones, heat and blast.
   const STACK_TYPES = Object.keys(STACKING);
   const stackIndex = new Map(STACK_TYPES.map((type, i) => [type, i]));
   const stackWindows = STACK_TYPES.map((type) => new Window(slots(STACKING[type].duration)));
-  const stackCaps = STACK_TYPES.map((type) => STACKING[type].cap);
+  // Emerald shards raise the Corrosion cap above 10.
+  const stackCaps = STACK_TYPES.map((type) => STACKING[type].cap + (type === 'corrosive' ? build.corrosiveCapBonus ?? 0 : 0));
   const tickWindows = TICKING.map(() => new Window(slots(DOT_DURATION)));
   const tickIndex = new Map<string, number>(TICKING.map((type, i) => [type, i]));
   const tickSeeds = TICKING.map((type) => tickSeed(type, TICK_COEFFICIENT[type] ?? 0.5));

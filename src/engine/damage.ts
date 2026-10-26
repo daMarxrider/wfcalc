@@ -404,7 +404,7 @@ export function steadyStatusDebuffs(build: ResolvedBuild): Pick<DotContext, 'vir
     return natural + forced;
   };
   const viral = Math.min(10, rate('viral') * 6 * duration);
-  const corrosive = Math.min(10, rate('corrosive') * 8 * duration);
+  const corrosive = Math.min(10 + (build.corrosiveCapBonus ?? 0), rate('corrosive') * 8 * duration);
   const heat = 0.5 * (1 - Math.exp(-rate('heat') * 6 * duration));
   return {
     viralStacks: Math.max(viral, build.debuffs?.viralStacks ?? 0),
