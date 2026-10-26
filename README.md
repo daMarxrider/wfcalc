@@ -25,6 +25,15 @@ and in-game calibration. On top of it this fork adds:
 - **`--steel-path`** on every command: enemy health and shields ×2.5 (armour unchanged).
 - **Arch-guns take two arcanes**, one Primary and one Secondary (Archgun Arcane Adapter); every
   other weapon is checked for a single arcane.
+- **Fight simulation**: Viral, Corrosive, Heat (refresh and ramped strip), Magnetic, Cold,
+  Puncture, Tau, Blast and the DoTs build up during the fight and feed back into damage until
+  the target dies; beams ramp up. Searches rank on steady-state stacks and simulate the best.
+- **Hit location**: `--hit head|body` with the wiki's weak-point model (3x, 1.5x weak point
+  damage on heads, headshot multipliers, weak point crit chance, head crits).
+- **Stacks**: `--stacks none|max` or per source (`--source-stacks "Primary Merciless=6"`); caps
+  come from DE's own effect text, effects without a cap count once.
+- **Primary Compression**, **Archon Shards** (`--shards`), **sniper zoom and Shot Combo**
+  (`--zoom`, `--sniper-combo`) and the **mismatched-polarity** drain penalty.
 - **Web UI** (`wfcalc serve`): a dark frosted-glass theme with a gold accent; a Steel Path switch
   on the Build, Find and Abilities tabs (optionally adding the +100 node level); a Brute force
   mode on the Find tab with fixed mods, a combination budget, and the player's loadout (arcanes,
