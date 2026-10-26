@@ -199,15 +199,27 @@ const saveLibrary = (builds) => localStorage.setItem(STORAGE_KEY, JSON.stringify
 
 /** ---------- parsing helpers ---------- */
 
+/** "crit-chance=142.3,multishot,-zoom=40.1": ids with the card's values where given. */
 const parseRivenInput = (text) => {
   const stats = [];
   let malus = null;
+  const values = {};
   for (const token of text.split(',').map((part) => part.trim()).filter(Boolean)) {
-    if (token.startsWith('-')) malus = token.slice(1);
-    else stats.push(token);
+    const negative = token.startsWith('-');
+    const [id, raw] = (negative ? token.slice(1) : token).split('=').map((part) => part.trim());
+    if (negative) malus = id;
+    else stats.push(id);
+    const value = raw === undefined ? NaN : Number(raw.replace(/^[x+]/i, '').replace(/%$/, ''));
+    if (Number.isFinite(value)) values[id] = value;
   }
-  return stats.length ? { stats, malus } : null;
+  return stats.length ? { stats, malus, ...(Object.keys(values).length ? { values } : {}) } : null;
 };
+
+/** The riven back as text, values included. */
+const rivenText = (riven) => (riven
+  ? [...riven.stats.map((id) => (riven.values?.[id] !== undefined ? `${id}=${riven.values[id]}` : id)),
+    ...(riven.malus ? [`-${riven.malus}${riven.values?.[riven.malus] !== undefined ? `=${riven.values[riven.malus]}` : ''}`] : [])].join(',')
+  : '');
 
 const parseElementBonus = (text) => {
   const [type, raw] = text.split(':');
@@ -1082,7 +1094,15 @@ function buildPayload(extra = {}) {
     ...state,
     level: effectiveLevel(state.level, state.steelPath, state.steelPathNodeLevel),
     mods: state.mods.filter((mod) => mod.name),
-    riven: state.riven ? { ...state.riven, roll: state.rivenRoll, rank: state.rivenRank } : null,
+    riven: state.riven
+      ? {
+          ...state.riven,
+          roll: state.rivenRoll,
+          rank: state.rivenRank,
+          ...(state.rivenDrain !== undefined && state.rivenDrain !== null ? { drain: state.rivenDrain } : {}),
+          ...(state.rivenPolarity ? { polarity: state.rivenPolarity } : {}),
+        }
+      : null,
     ...extra,
   };
 }
@@ -1305,7 +1325,9 @@ function renderFind(result) {
           <button class="ghost" data-find-load="${index}">load</button>
         </div>
         <div class="build-mods">${build.mods
-          .map((mod) => `<span class="chip${mod.fixed ? ' fixed' : ''}" ${mod.fixed ? 'title="fixed mod"' : ''}>${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}</span>`)
+          .map((mod) => (mod.name === 'Riven'
+            ? `<span class="chip fixed" title="riven, kept in its slot">Riven: ${(build.riven ?? []).join(', ')}</span>`
+            : `<span class="chip${mod.fixed ? ' fixed' : ''}" ${mod.fixed ? 'title="fixed mod"' : ''}>${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}</span>`))
           .join('')}${build.exilus ? `<span class="chip fixed">${build.exilus.name} R${build.exilus.rank} · exilus</span>` : ''}</div>
         ${build.statusAtKill ? `<div class="meta">${[
           ['viral', build.statusAtKill.viral], ['corrosive', build.statusAtKill.corrosive],
@@ -1330,7 +1352,7 @@ function renderFind(result) {
       // The search counted capacity with the Forma it decided to spend; put those on the
       // matching slots, or the loaded build would show as over capacity.
       const innate = weaponData.get(result.weapon)?.polarities ?? [];
-      const slotPolarities = build.mods.map((mod, index) =>
+      const slotPolarities = build.mods.filter((mod) => mod.name !== 'Riven').map((mod, index) =>
         mod.halvedByPolarity && innate[index] !== mod.polarity ? mod.polarity : null);
       state = {
         ...state,
@@ -1341,8 +1363,9 @@ function renderFind(result) {
         steelPath: Boolean(result.steelPath),
         reactor: result.capacity >= 60,
         slotPolarities,
+        // The riven is not a mod in the board; it stays in state.riven.
         mods: [
-          ...build.mods.map((mod) => ({ name: mod.name, rank: mod.rank })),
+          ...build.mods.filter((mod) => mod.name !== 'Riven').map((mod) => ({ name: mod.name, rank: mod.rank })),
           ...(build.exilus ? [{ name: build.exilus.name, rank: build.exilus.rank }] : []),
         ],
         // The brute force takes the Incarnon evolutions as input, so it returns none.
@@ -1448,6 +1471,14 @@ function renderSaved() {
   }
 }
 
+/** Build-tab fields and their copies on the brute-force tab. */
+const MIRRORED_FIELDS = [
+  ['aiming', 'find-aiming'], ['onkill', 'find-onkill'], ['status-types', 'find-status-types'],
+  ['viral', 'find-viral'], ['corrosive', 'find-corrosive'], ['cp-input', 'find-cp-input'],
+  ['strip-input', 'find-strip-input'], ['shattering-input', 'find-shattering-input'], ['strip-from', 'find-strip-from'],
+  ['riven-input', 'find-riven-input'], ['riven-drain', 'find-riven-drain'], ['riven-polarity', 'find-riven-polarity'],
+];
+
 /** ---------- inputs ---------- */
 
 function syncInputs() {
@@ -1461,6 +1492,7 @@ function syncInputs() {
   for (const radio of document.querySelectorAll('input[name="stack-mode"], input[name="find-stack-mode"]')) {
     radio.checked = radio.value === (state.stackMode ?? 'custom');
   }
+  document.querySelector('.fight-box').classList.toggle('custom', (state.stackMode ?? 'custom') === 'custom');
   $('simulate').checked = $('find-simulate').checked = state.simulate !== false;
   $('onkill').value = String(state.conditions.onKill ?? 0);
   $('status-types').value = String(state.conditions.statusTypes ?? 1);
@@ -1476,7 +1508,9 @@ function syncInputs() {
   $('framemods-input').value = (state.frameMods ?? []).map((mod) => mod.name).join(', ');
   $('framearcane-input').value = (state.warframeArcanes ?? []).map((mod) => mod.name).join(', ');
   $('frame-input').value = state.frame ?? '';
-  $('riven-input').value = state.riven ? [...state.riven.stats, state.riven.malus ? `-${state.riven.malus}` : ''].filter(Boolean).join(',') : '';
+  $('riven-input').value = rivenText(state.riven);
+  $('riven-drain').value = state.rivenDrain ?? '';
+  $('riven-polarity').value = state.rivenPolarity ?? '';
   $('riven-roll').value = String(state.rivenRoll ?? 1);
   $('roll-value').textContent = Number(state.rivenRoll ?? 1).toFixed(2);
   $('riven-rank').value = String(state.rivenRank ?? 8);
@@ -1505,6 +1539,10 @@ function syncInputs() {
   renderBuffList();
   renderShards();
   renderSniperFields();
+  for (const [main, copy] of MIRRORED_FIELDS) {
+    if ($(main).type === 'checkbox') $(copy).checked = $(main).checked;
+    else $(copy).value = $(main).value;
+  }
 }
 
 let eventsBound = false;
@@ -1575,6 +1613,7 @@ function bindEvents() {
     radio.addEventListener('change', () => {
       state.stackMode = radio.value;
       for (const other of document.querySelectorAll('input[name="stack-mode"], input[name="find-stack-mode"]')) other.checked = other.value === state.stackMode;
+      document.querySelector('.fight-box').classList.toggle('custom', state.stackMode === 'custom');
       recalc();
     });
   }
@@ -1647,6 +1686,34 @@ function bindEvents() {
     state.riven = parseRivenInput(event.target.value);
     recalc();
   });
+  $('riven-drain').addEventListener('change', (event) => {
+    state.rivenDrain = event.target.value === '' ? null : Math.max(0, Number(event.target.value));
+    recalc();
+  });
+  $('riven-polarity').addEventListener('change', (event) => {
+    state.rivenPolarity = event.target.value || null;
+    recalc();
+  });
+  // "custom" reads the Conditions & stacks panel: the link opens it and scrolls there.
+  $('edit-conditions').addEventListener('click', () => {
+    const panel = $('aiming').closest('details');
+    panel.open = true;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // The brute-force tab repeats the riven and the custom conditions. Each copy feeds its Build tab
+  // twin, whose handler owns the logic, so both tabs always show one state.
+  const copyField = (from, to) => {
+    if (from.type === 'checkbox') to.checked = from.checked;
+    else to.value = from.value;
+  };
+  for (const [main, copy] of MIRRORED_FIELDS) {
+    $(copy).addEventListener('change', () => {
+      copyField($(copy), $(main));
+      $(main).dispatchEvent(new Event('change'));
+    });
+    $(main).addEventListener('change', () => copyField($(main), $(copy)));
+  }
   $('riven-roll').addEventListener('input', (event) => {
     state.rivenRoll = Number(event.target.value);
     $('roll-value').textContent = state.rivenRoll.toFixed(2);
@@ -1770,6 +1837,8 @@ function renderAbilityLists() {
       .map((ability) => `<option value="${ability.ability}">${ability.frame} — ${ability.ability}</option>`)
       .join('');
     strip.value = state.stripFrom ?? '';
+    $('find-strip-from').innerHTML = strip.innerHTML;
+    $('find-strip-from').value = strip.value;
   }
 }
 

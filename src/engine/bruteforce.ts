@@ -32,6 +32,7 @@ import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
 import type { AttenuationProfile } from './attenuation.ts';
 import { fitMods, search, searchableMods } from './search.ts';
 import { InputError } from '../errors.ts';
+import { rivenAsMod } from './riven.ts';
 import { loadSnapshot, modsForWeapon } from '../data.ts';
 import { BASE_ELEMENTS, ELEMENT_COMBINATIONS, type BaseElement, type DamageType, type ModData, type Snapshot, type WeaponData } from '../types.ts';
 
@@ -146,6 +147,8 @@ export interface BruteForceBuild {
   multishot: number;
   /** Damage composition per projectile, largest first. */
   elements: Array<{ type: DamageType; share: number }>;
+  /** The riven's stat lines, when the build has one. */
+  riven: string[];
   /** From the fight simulation: status stacks on the target when it died, and damage by source. */
   statusAtKill: SimulationResult['atEnd'] | null;
   damageBySource: Record<string, number> | null;
@@ -314,9 +317,14 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   const rivenSlot = base.riven ? 1 : 0;
   const freeSlots = STANDARD_SLOTS - fixed.length - rivenSlot;
   if (freeSlots < 0) throw new InputError(`too many fixed mods: ${fixed.length} (+${rivenSlot} riven) for ${STANDARD_SLOTS} slots`, 'too_many_mods');
-  if (rivenSlot) notes.push('The riven takes one standard slot; its drain is not counted against capacity.');
+  const rivenMod = base.riven ? rivenAsMod(base.riven) : null;
+  if (rivenSlot && !rivenMod) notes.push('The riven takes one standard slot; give its drain (and polarity) to count it against capacity.');
+  if (rivenMod) assumptions.push(`Riven in one slot: drain ${rivenMod.baseDrain}${rivenMod.polarity ? `, ${rivenMod.polarity}` : ''}`);
 
-  const fixedFit = fitMods(fixed.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? 0 })), weapon, capacity);
+  const fixedFit = fitMods([
+    ...fixed.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? 0 })),
+    ...(rivenMod ? [{ mod: rivenMod, rank: 0 }] : []),
+  ], weapon, capacity);
   const exilusDrain = exilusCost(snapshot, weapon, exilus);
   if (fixedFit.drain + exilusDrain > capacity || (maxForma !== null && fixedFit.formaNeeded > maxForma)) {
     throw new InputError(`the fixed mods alone do not fit in ${capacity} capacity${maxForma !== null ? ` with ${maxForma} Forma` : ''}`, 'does_not_fit');
@@ -491,7 +499,12 @@ export function runShard(
   // Incompatibility as index pairs, so the inner loop does not compare strings.
   const index = new Map(plan.candidates.map((name, i) => [name, i]));
   const clashes = mods.map((mod) => new Set(mod.incompatible.map((name) => index.get(name)).filter((i): i is number => i !== undefined)));
-  const fixedEntries = plan.fixed.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? 0 }));
+  // The riven fits like a fixed mod: its card drain in its slot.
+  const rivenMod = plan.base.riven ? rivenAsMod(plan.base.riven) : null;
+  const fixedEntries = [
+    ...plan.fixed.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? 0 })),
+    ...(rivenMod ? [{ mod: rivenMod, rank: 0 }] : []),
+  ];
 
   // Every worker walks the whole tree, so feasibility must be cheap. A set's drain lies between
   // the sum of halved costs (every slot matched) and the sum of mismatched costs (+25%, rounded
@@ -572,12 +585,17 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
   const fixedNames = new Set(plan.fixed.map((mod) => mod.name));
   const resolved = resolveBuild(snapshot, { ...plan.base, weapon: weapon.name, mods: plan.exilus ? [...combination.mods, plan.exilus] : combination.mods });
   const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation, simulate: plan.simulate });
-  const entries = combination.mods.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? snapshot.mods[mod.name].maxRank }));
+  const rivenMod = plan.base.riven ? rivenAsMod(plan.base.riven) : null;
+  const entries = [
+    ...combination.mods.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? snapshot.mods[mod.name].maxRank })),
+    ...(rivenMod ? [{ mod: rivenMod, rank: 0 }] : []),
+  ];
   const exilusDrain = exilusCost(snapshot, weapon, plan.exilus);
   const fit = fitMods(entries, weapon, plan.capacity - exilusDrain);
   const total = resolved.damage.projectileTotal || 1;
   return {
-    mods: fit.entries.map((entry) => ({ ...entry, fixed: fixedNames.has(entry.name) })),
+    mods: fit.entries.map((entry) => ({ ...entry, fixed: fixedNames.has(entry.name) || entry.name === 'Riven' })),
+    riven: resolved.rivenLines,
     exilus: plan.exilus ? { name: plan.exilus.name, rank: plan.exilus.rank ?? 0 } : null,
     capacityUsed: fit.drain + exilusDrain,
     capacity: plan.capacity,
