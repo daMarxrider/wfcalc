@@ -115,7 +115,13 @@ const TARGET_RULES: Array<[RegExp, Mapped]> = [
   [/^throw damage$/, { target: 'throwDamage', op: 'add' }],
   [/^beam range$/, { target: 'beamRange', op: 'add' }],
   [/^status chance on lifted enemies$/, { target: 'statusChance', op: 'add' }],
-  [/^(?:weak point damage|headshot damage|to headshot multiplier|weak point critical chance)$/, { target: 'headshotMultiplier', op: 'add' }],
+  // Hit location (wiki: Enemy Body Parts) is three separate stats, not one: weak point damage
+  // adds to the weak-point multiplier, headshot multiplier bonuses multiply it, and weak point
+  // critical chance is a crit chance bonus that only counts on weak points.
+  [/^weak point damage$/, { target: 'weakPointDamage', op: 'add' }],
+  [/^(?:headshot damage|(?:to )?headshot multiplier)$/, { target: 'headshotMultiplier', op: 'add' }],
+  [/^(?:weak point|headshot) critical chance$/, { target: 'weakPointCritChance', op: 'add' }],
+  [/^bodyshot (?:damage|multiplier)$/, { target: 'bodyshotMultiplier', op: 'add' }],
   [/^finisher damage$/, { target: 'finisherDamage', op: 'add' }],
   [/^(?:slam attack damage|heavy attack damage)$/, { target: 'heavyAttackDamage', op: 'add' }],
   [/^range$/, { target: 'range', op: 'add' }],
@@ -399,15 +405,30 @@ export function parseModEffects(ranks: string[][]): ParsedStats {
   const effects: Effect[] = [];
   const unmatched: string[] = [];
   const outOfScope: string[] = [];
-  const top = splitStatLines(ranks[ranks.length - 1] ?? []);
+  // DE repeats a max-rank passive (Primary Merciless "+30% Reload Speed", Primary Deadhead
+  // "+30% Headshot Multiplier") twice: as the last line under the condition, and as a stat of
+  // its own. The standalone copy is the passive; read under the header it became a conditional
+  // effect, counted twice.
+  const topStats = ranks[ranks.length - 1] ?? [];
+  const perStat = topStats.map((stat) => splitStatLines([stat]));
+  const standalone = new Set(perStat.filter((lines) => lines.length === 1).map((lines) => lines[0]));
+  const passives = new Set(perStat.filter((lines) => lines.length > 1).flat().filter((line) => standalone.has(line)));
+  const top = perStat.flatMap((lines) => lines.map((line) => ({
+    line,
+    // The copy inside a multi-line stat is dropped; the standalone copy is read with no header.
+    skip: lines.length > 1 && passives.has(line),
+    passive: lines.length === 1 && passives.has(line),
+  })));
 
   let header: ConditionInfo | null = null;
-  for (const line of top) {
+  for (const { line, skip, passive } of top) {
+    if (skip) continue;
     const nextHeader = readConditionHeader(line);
     if (nextHeader) {
       header = nextHeader;
       continue;
     }
+    const headerHere = passive ? null : header;
     if (isNoise(line)) continue;
 
     const num = readNumber(line);
@@ -432,7 +453,7 @@ export function parseModEffects(ranks: string[][]): ParsedStats {
     // Both can apply: "On Kill:\n+120% Critical Damage when Aiming" needs both toggles.
     const inline = /\bwhen (aiming|sliding|holstered)\b|\bwhile (aiming|sliding)\b/i.exec(num.rest);
     const inlineKey = inline ? (inline[1] ?? inline[2] ?? '').toLowerCase() : undefined;
-    let condition = header?.key;
+    let condition = headerHere?.key;
     if (inlineKey) condition = condition ? `${condition}+${inlineKey}` : inlineKey;
     if (!condition && /^damage on first shot/i.test(num.rest)) condition = 'firstShot';
     const perStatusType = /\bper (?:status type|status|unique status|status effect)/i.test(num.rest);
@@ -449,7 +470,7 @@ export function parseModEffects(ranks: string[][]): ParsedStats {
       raw: line,
     };
     if (condition) effect.condition = condition;
-    if (header?.maxStacks) effect.maxStacks = header.maxStacks;
+    if (headerHere?.maxStacks) effect.maxStacks = headerHere.maxStacks;
     if (maxStacks !== undefined) effect.maxStacks = maxStacks;
     if (/combo multiplier|combo count/i.test(num.rest)) effect.scalesWithCombo = true;
     // "(x2 for Bows)": fire rate and similar stats double on bows.
