@@ -48,6 +48,29 @@ function headline(mod, rank) {
   return match ? match[1] : '';
 }
 
+// Element names for the colour tags that stand alone ("apply <DT_SLASH_COLOR> on Critical").
+const DT_NAMES = { SLASH: 'Slash', PUNCTURE: 'Puncture', FIRE: 'Heat', POISON: 'Toxin', ELECTRICITY: 'Electricity', GAS: 'Gas', RADIANT: 'Void' };
+
+/**
+ * Every stat line of a mod at a given rank. The description only holds max-rank values, so
+ * each line's first number is scaled the way the engine scales effects; the first line takes
+ * its number from `levels` when that has one.
+ */
+function statLines(mod, rank) {
+  const maxRank = mod.maxRank ?? 0;
+  const fraction = rank === undefined || maxRank <= 0 ? 1 : (rank + 1) / (maxRank + 1);
+  const number = /[+-]?\d+(?:\.\d+)?/;
+  return (mod.description ?? '')
+    .replace(/<DT_(\w+?)_COLOR>(?![A-Z])/g, (_, key) => DT_NAMES[key] ?? '')
+    .replace(/<[^>]*>/g, '')
+    .split('\n').filter(Boolean)
+    .map((line, i) => {
+      const fromLevels = i === 0 ? number.exec(mod.levels?.[rank ?? maxRank] ?? '')?.[0] : undefined;
+      return line.replace(number, (n) => fromLevels
+        ?? `${n.startsWith('+') ? '+' : ''}${Number((Number(n) * fraction).toFixed(1))}`);
+    });
+}
+
 /**
  * One mod card: artwork, rarity frame, headline stat, drain, name, stats, compatibility and
  * rank stars — the game's mod card, whose frame is CSS rather than a baked image, so
@@ -61,7 +84,6 @@ function modCardMarkup(mod, options = {}) {
   // The slot passes the drain it really pays (halved on a polarity match); the library shows
   // the max-rank cost with no slot to halve it.
   const drain = options.drain ?? (mod.baseDrain ?? 0) + rank;
-  const statLines = (mod.description ?? '').split('\n').filter(Boolean);
   // The frame is coloured by rarity, with a distinct one for Galvanized mods.
   const rarity = /galvan/i.test(mod.name)
     ? 'galvanized'
@@ -78,7 +100,7 @@ function modCardMarkup(mod, options = {}) {
       </figure>
       <div class="mcard-text">
         <b>${mod.name}</b>
-        ${statLines.slice(1).map((line) => `<span>${line}</span>`).join('')}
+        <div class="mcard-lines">${statLines(mod, rank).map((line) => `<span>${line}</span>`).join('')}</div>
       </div>
       <div class="mcard-compat">${(mod.classes ?? [])[0] ?? ''}</div>
       <div class="mcard-stars">${rankStars(mod.maxRank ?? 0, rank, options.index)}</div>
