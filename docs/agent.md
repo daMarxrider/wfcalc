@@ -183,7 +183,7 @@ State these when they matter instead of guessing:
 - **Conditional mods default to inactive.** Galvanized stacks, on-kill effects and "while
   aiming" need `--stacks onKill=5` or similar; otherwise the build is scored lower than it
   plays. Say which conditions your answer assumes.
-- **`--status-types auto`** infers the count from the build's own damage types (Tau + Viral = 2)
+- **Status types** are counted per build by default (its own proc types, e.g. Tau + Viral = 2), plus `--extra-status-types N` from other sources; `--status-types N` fixes the total.
   and iterates the search until it is self-consistent. It is still an assumption: the target may
   carry more statuses from the squad.
 - **One target by default, average damage.** No spread, no enemy AI; time to kill is a model of

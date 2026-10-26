@@ -1471,6 +1471,103 @@ function renderSaved() {
   }
 }
 
+/**
+ * Hover help for every control. A field shared with the brute-force tab gets the same text on its
+ * `find-` copy; the label carries it too, so hovering the words works.
+ */
+const TIPS = {
+  'weapon-input': 'The weapon to build. Type to search all weapons.',
+  'mode-select': 'Fire mode: the arsenal profile, an alt-fire, a charged shot or the Incarnon form.',
+  'enemy-input': 'The target. Its faction decides health type, armour, shields and the weak-point multiplier.',
+  'level-input': 'Enemy level. With Steel Path and "node level" on, 100 is added to this.',
+  'sp-toggle': 'Steel Path: enemy health and shields x2.5. Armour is not multiplied.',
+  'sp-offset': 'On: the level you set is the star-chart node level and the enemy is 100 higher. Off: the level you set is the enemy\'s actual level.',
+  'hit-head': 'On: every shot is a headshot (3x weak point, 1.5x for Murmur/Techrot, head crits double the crit multiplier, weak-point mods and arcanes work). Off: bodyshots.',
+  'simulate': 'Simulate the fight shot by shot: Viral, Corrosive, Heat, Magnetic, Cold and the damage-over-time statuses build up from zero and expire. Off: statuses are counted at their long-run average.',
+  'edit-conditions': 'Open the Conditions & stacks panel, which "custom" reads.',
+  'reactor': 'Orokin Catalyst/Reactor: 60 mod capacity instead of 30.',
+  'arcane-input': 'Weapon arcane. Arch-guns hold a Primary and a Secondary one.',
+  'arcane2-input': 'Arch-guns only: the Secondary arcane (needs an Archgun Arcane Adapter).',
+  'mod-filter': 'Search the mods that fit this weapon.',
+  'filter-polarity': 'Show only mods of this polarity.',
+  'filter-type': 'Show only mods of this class (Rifle, Primary...).',
+  'filter-rarity': 'Show only mods of this rarity.',
+  'filter-sort': 'Sort the library by name, or by how much each mod adds to this build.',
+  'find-run': 'Run the search with the settings above.',
+  'ability-run': 'Price one cast of the ability against the target.',
+  'compare-run': 'Compare build A (the Build tab) with B.',
+  'aiming': 'Aiming / scoped: turns on "when aiming" effects (Bladed Rounds, Argon Scope, Primary Compression).',
+  'onkill': 'On-kill stacks you keep up (Merciless, Galvanized mods). Each effect stops at its own cap: Merciless 12, Galvanized Chamber 5; effects that do not stack count once.',
+  'status-types': 'Status types OTHER sources keep on the target (an ally\'s Toxin, an ability\'s Cold). Each build adds the types it procs itself. Feeds Galvanized Aptitude, Galvanized Savvy and Condition Overload.',
+  'viral': 'Viral STACKS (0-10) other sources keep on the target: 1 stack +100% damage to health, each more +25%, 10 = +325%. With the simulation on, your own Viral procs are added on top; this is the minimum.',
+  'corrosive': 'Corrosive STACKS (0-10, more with Emerald shards) other sources keep on the target: 1 stack -26% armour, each more -6%, 10 = -80%. With the simulation on, this is the minimum.',
+  'zoom-select': 'Sniper zoom level and the bonus it gives while scoped.',
+  'sniper-combo': 'Sniper Shot Combo: hits in a row while scoped. 1.5x at the weapon\'s minimum combo, +0.5x every 3x more hits.',
+  'cp-input': 'Corrosive Projection auras in the squad: -18% armour each, adding with other % strips.',
+  'strip-input': 'Armour removed by other sources, in percent; adds with Corrosive Projection.',
+  'shattering-input': 'Shattering Impact hits landed: each removes armour points from the base armour.',
+  'strip-from': 'Take the armour strip of a Warframe ability, at the Ability Strength set below.',
+  'frame-input': 'Your Warframe: checks that it can use the chosen buffs (Helminth).',
+  'strength-input': 'Ability Strength in percent: scales Roar, Eclipse and the other buffs.',
+  'framemods-input': 'Warframe mods that change Ability Strength (Intensify, Blind Rage); overrides the slider.',
+  'framearcane-input': 'Warframe arcanes: Arcane Avenger crit, Molt Augmented strength...',
+  'covenant-damage': 'Harrow\'s Covenant: damage prevented during it, which sets its crit bonus.',
+  'shard-slots': 'Archon Shards on your Warframe: up to five, one bonus each; Tauforged gives 1.5x.',
+  'riven-input': 'Your riven, as on the card: crit-chance=142.3,multishot=110.2,-zoom=40.1 (minus = the malus; faction stats as the multiplier, faction-grineer=1.24). A stat without a value is estimated from disposition.',
+  'riven-drain': 'The riven\'s drain shown on the card: counts against capacity in its slot. Empty: not counted.',
+  'riven-polarity': 'The riven\'s polarity: half drain in a matching slot, +25% in a mismatched one.',
+  'riven-roll': 'For stats without a value: the random roll, 0.9 (worst) to 1.1 (best).',
+  'riven-rank': 'For stats without a value: the riven\'s rank, 8 = full value.',
+  'incarnon-input': 'Incarnon evolutions as TIER:option, e.g. EVO2:0,EVO4:1. Turns on the Incarnon form.',
+  'combo-input': 'Melee combo counter hits.',
+  'heavy': 'Count a heavy attack (spends the combo for its multiplier).',
+  'aoe-input': 'Distance from the blast centre, for explosion falloff.',
+  'element-bonus': 'Kuva/Tenet weapon element bonus, e.g. heat:60.',
+  'save-build': 'Save this build in the browser (Saved tab).',
+  share: 'Copy a link that opens exactly this build.',
+  'find-weapon': 'Weapon to search; empty uses the Build tab\'s.',
+  'find-objective': 'Fastest kill of this target, or highest damage per second against it.',
+  'find-enemy': 'Target to optimise against.',
+  'find-level': 'Enemy level (node level when Steel Path adds 100).',
+  'find-capacity': 'Mod capacity: 60 with an Orokin Catalyst.',
+  'find-forma': 'Most Forma you will spend; empty = as many as needed.',
+  'find-must': 'Mods every build keeps (brute force: fixed). Add :R3 for a lower rank.',
+  'find-exclude': 'Mods you do not own; they are never used.',
+  'find-max-evals': 'How many combinations the brute force may try. Bigger = more candidate mods, slower.',
+  'find-incarnon': 'Let the quick search also pick Incarnon evolutions.',
+  'find-arcane': 'Weapon arcane, used as given (arch-guns: the Primary one).',
+  'find-arcane2': 'Arch-guns only: the Secondary arcane.',
+  'find-strength': 'Ability Strength for the buffs below.',
+  'ability-select': 'Warframe ability to price.',
+  'ability-strength': 'Ability Strength in percent.',
+  'ability-enemy': 'Target for the ability.',
+  'ability-level': 'The enemy\'s actual level.',
+  'ability-sp': 'Steel Path: enemy health and shields x2.5.',
+  'b-weapon': 'Build B: another weapon, or empty for the same.',
+  'b-mods': 'Build B: its mods in slot order.',
+  'b-element': 'Build B: Kuva/Tenet element bonus.',
+  'b-arcane': 'Build B: its arcane.',
+};
+const SHARED_TIPS = { 'find-sp': 'sp-toggle', 'find-sp-offset': 'sp-offset', 'find-hit-head': 'hit-head', 'find-simulate': 'simulate' };
+
+function applyTips() {
+  const tip = (id, text) => {
+    const element = $(id);
+    if (!element || !text) return;
+    element.title = text;
+    element.closest('label')?.setAttribute('title', text);
+  };
+  for (const [id, text] of Object.entries(TIPS)) {
+    tip(id, text);
+    tip(`find-${id}`, text);
+  }
+  for (const [id, source] of Object.entries(SHARED_TIPS)) tip(id, TIPS[source]);
+  const modes = 'none: every conditional effect off. custom: the values in Conditions (aiming, on-kill...). all: every conditional effect at its cap; weak-point ones need headshots.';
+  for (const group of document.querySelectorAll('.segmented[aria-label^="Stack mode"]')) group.title = modes;
+  const method = 'Quick search: greedy, fast, usually right. Brute force: every combination of the candidate mods, on every core.';
+  document.querySelector('.segmented[aria-label="Search method"]')?.setAttribute('title', method);
+}
+
 /** Build-tab fields and their copies on the brute-force tab. */
 const MIRRORED_FIELDS = [
   ['aiming', 'find-aiming'], ['onkill', 'find-onkill'], ['status-types', 'find-status-types'],
@@ -1495,7 +1592,9 @@ function syncInputs() {
   document.querySelector('.fight-box').classList.toggle('custom', (state.stackMode ?? 'custom') === 'custom');
   $('simulate').checked = $('find-simulate').checked = state.simulate !== false;
   $('onkill').value = String(state.conditions.onKill ?? 0);
-  $('status-types').value = String(state.conditions.statusTypes ?? 1);
+  // Older links fixed a total; each build now counts its own types and this is the extra.
+  delete state.conditions.statusTypes;
+  $('status-types').value = String(state.extraStatusTypes ?? 0);
   $('aiming').checked = Boolean(state.conditions.aiming);
   $('viral').value = String(state.debuffs?.viralStacks ?? 0);
   $('corrosive').value = String(state.debuffs?.corrosiveStacks ?? 0);
@@ -1633,7 +1732,10 @@ function bindEvents() {
     });
   };
   conditionInput('onkill', 'onKill', true);
-  conditionInput('status-types', 'statusTypes', true);
+  $('status-types').addEventListener('change', (event) => {
+    state.extraStatusTypes = Math.max(0, Number(event.target.value) || 0);
+    recalc();
+  });
   conditionInput('aiming', 'aiming', false);
   conditionInput('covenant-damage', 'covenantDamage', true);
 
@@ -1882,6 +1984,7 @@ async function main() {
     dedupeMods();
     await loadStaticLists();
     bindEvents();
+    applyTips();
     // ?tab=find opens a tab directly, so a link can point at the brute force.
     const startTab = new URLSearchParams(location.search).get('tab');
     if (startTab && $(`tab-${startTab}`)) showTab(startTab);

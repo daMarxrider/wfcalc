@@ -118,6 +118,8 @@ export interface Build {
   sourceStacks?: Record<string, number>;
   /** Archon Shards on the Warframe (up to 5). */
   shards?: ShardSpec[];
+  /** Status types other sources keep on the target, added to the build's own for per-status-type bonuses. */
+  extraStatusTypes?: number;
   /** Sniper rifles: zoom level while scoped (1 = first step, 0 = unscoped) and its buff. */
   zoom?: number;
   /** Sniper rifles: the Shot Combo Counter (hits in a row while scoped). */
@@ -184,6 +186,9 @@ export interface ResolvedBuild {
   statusDamageBonus: number;
   /** Total Status Duration bonus (Continuous Misery): stretches status timers. */
   statusDurationBonus: number;
+  /** Status types counted for per-status-type bonuses, and whether any such bonus was active. */
+  statusTypes: number;
+  usesStatusTypes: boolean;
   /** Sniper Shot Combo multiplier in effect (1 when none). */
   sniperComboMultiplier: number;
   /** Extra damage of Toxin status ticks only (Emerald Archon Shard). */
@@ -316,7 +321,32 @@ export function statsForMode(weapon: WeaponData, modeName?: string): { stats: We
   return { stats: weapon.stats, mode: null };
 }
 
+/** Status types this build itself puts on a target: the types it procs, forced procs included. */
+function ownStatusTypes(resolved: ResolvedBuild): number {
+  const types = new Set(resolved.statusChance > 0
+    ? Object.entries(resolved.damage.perProjectile).filter(([type, amount]) => amount > 0 && type !== 'true').map(([type]) => type)
+    : []);
+  for (const proc of resolved.forcedProcs ?? []) types.add(proc.type);
+  return types.size;
+}
+
+/**
+ * Resolves a build. "Per status type" bonuses (Galvanized Aptitude, Condition Overload) count
+ * the status types on the target: unless the caller gives that total (`conditions.statusTypes`),
+ * it is the build's own types plus `extraStatusTypes` from other sources, so every build in a
+ * search is valued with its own elements. A second pass runs only when such a bonus is active.
+ */
 export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
+  if (build.conditions?.statusTypes !== undefined) return resolveOnce(snapshot, build);
+  const extra = Math.max(0, Number(build.extraStatusTypes ?? 0));
+  const withCount = (count: number): Build => ({ ...build, conditions: { ...(build.conditions ?? {}), statusTypes: Math.max(1, count) } });
+  const first = resolveOnce(snapshot, withCount(1 + extra));
+  if (!first.usesStatusTypes) return first;
+  const total = ownStatusTypes(first) + extra;
+  return total === first.statusTypes ? first : resolveOnce(snapshot, withCount(total));
+}
+
+function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const weapon = snapshot.weapons[build.weapon];
   if (!weapon) throw new InputError(`unknown weapon: ${build.weapon}`, 'unknown_weapon');
 
@@ -635,6 +665,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   };
 
   const conditional = new Map<string, { name: string; kind: string; cap: number; stacks: number; conditions: Set<string> }>();
+  let usesStatusTypes = false;
   for (const source of sources) {
     if (source.partial) collected.unsupported.push(source.name);
     for (const effect of source.effects) {
@@ -657,6 +688,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
         collected.inactive.push(`${source.name}: ${effect.raw}`);
         continue;
       }
+      if (effect.perStatusType) usesStatusTypes = true;
       // A melee Incarnon form fires spectral projectiles, and the wiki states those hits take
       // no melee damage bonus: Pressure Point, Arcane Fury, the stance and the combo
       // multiplier do nothing. Elemental, faction, crit, status and Condition Overload still
@@ -983,6 +1015,8 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
     statusDamageBonus: bonus('statusDamage'),
     statusDurationBonus: bonus('statusDuration'),
     sniperComboMultiplier,
+    statusTypes: Math.max(1, Number(conditions.statusTypes ?? 1)),
+    usesStatusTypes,
     toxinStatusDamageBonus: shards.toxinStatusDamage,
     corrosiveCapBonus: shards.corrosiveStacks,
     elementBonuses: collected.elementBonuses.reduce<Partial<Record<BaseElement, number>>>((acc, entry) => {

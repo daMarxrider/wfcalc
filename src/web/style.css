@@ -731,3 +731,7 @@ button.link:hover { text-decoration: underline; }
 .fixed-inputs h3 { margin: 14px 0 8px; }
 .fixed-inputs .wide-field { grid-column: span 2; }
 @media (max-width: 600px) { .fixed-inputs .wide-field { grid-column: auto; } }
+
+/* Hover help: labels with a tooltip show it. */
+label[title], .segmented[title], button.link[title] { cursor: help; }
+label[title] > span:first-child, label.stack[title], .toggles label[title] { text-decoration: underline dotted color-mix(in srgb, var(--muted) 60%, transparent); text-underline-offset: 3px; }
