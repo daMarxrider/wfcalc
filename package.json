@@ -12,7 +12,9 @@
     "node": ">=23"
   },
   "scripts": {
-    "update": "node tools/fetch.ts && node tools/fetch-abilities.ts && node tools/fetch-damage-abilities.ts && node tools/fetch-incarnon.ts && node tools/build-data.ts",
+    "update": "node tools/fetch.ts && node tools/fetch-abilities.ts && node tools/fetch-damage-abilities.ts && node tools/fetch-incarnon.ts && node tools/build-data.ts && node tools/public-export.ts",
+    "public-export": "node tools/public-export.ts",
+    "public-export:check": "node tools/public-export.ts --check",
     "serve": "node src/server.ts",
     "calc": "node src/cli.ts",
     "check": "tsc --noEmit",
