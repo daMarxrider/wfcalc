@@ -23,6 +23,8 @@ export interface AbilityCastOptions {
   eximus?: boolean;
   /** Explicit Overguard amount instead of the Eximus formula. */
   overguard?: number;
+  /** Steel Path target: health and shields x2.5. */
+  steelPath?: boolean;
   /** Viral stacks already on the target (the ability may add its own). */
   viralStacks?: number;
   /** Enemies hit by one cast, all inside the radius (default 1). */
@@ -183,6 +185,7 @@ export function abilityCast(snapshot: Snapshot, abilityName: string, options: Ab
     const scaled: ScaledEnemy = scaleEnemy(snapshot, enemy, level, {
       eximus: options.eximus,
       overguard: options.overguard,
+      steelPath: options.steelPath,
     });
     // A pool's `amount` is its level-1 value: the scaled totals live on the enemy itself.
     const armor = scaled.pools.find((pool) => pool.category === 'armor');

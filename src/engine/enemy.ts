@@ -29,6 +29,8 @@ const HEALTH_CURVES: Record<string, Curve> = {
   infested: { c1: 0.0225, e1: 2.12, c2: 16.0998, e2: 0.72 },
   corrupted: { c1: 0.015, e1: 2.1, c2: 10.7332, e2: 0.685 },
   orokin: { c1: 0.015, e1: 2.1, c2: 10.7332, e2: 0.685 },
+  anarchs: { c1: 0.015, e1: 2.1, c2: 10.7332, e2: 0.685 },
+  techrot: { c1: 0.02, e1: 2.12, c2: 15.0998, e2: 0.7 },
   murmur: { c1: 0.015, e1: 2.0, c2: 10.7332, e2: 0.5 },
   sentient: { c1: 0.015, e1: 2.0, c2: 10.7332, e2: 0.5 },
   neutral: { c1: 0.015, e1: 2.0, c2: 10.7332, e2: 0.5 },
@@ -37,9 +39,10 @@ const HEALTH_CURVES: Record<string, Curve> = {
 
 const SHIELD_CURVES: Record<string, Curve> = {
   corpus: { c1: 0.02, e1: 1.76, c2: 2, e2: 0.76 },
-  techrot: { c1: 0.02, e1: 1.76, c2: 2, e2: 0.76 },
+  techrot: { c1: 0.02, e1: 1.76, c2: 3.5, e2: 0.76 },
   corrupted: { c1: 0.02, e1: 1.75, c2: 2, e2: 0.75 },
   orokin: { c1: 0.02, e1: 1.75, c2: 2, e2: 0.75 },
+  anarchs: { c1: 0.02, e1: 1.75, c2: 2, e2: 0.75 },
   default: { c1: 0.02, e1: 1.75, c2: 1.6, e2: 0.75 },
 };
 
@@ -72,6 +75,8 @@ export interface ScaledEnemy {
   armor: number;
   /** Overguard at this level: 0 unless the caller asked for an Eximus or a custom amount. */
   overguard: number;
+  /** Steel Path multipliers are applied to health and shields. */
+  steelPath: boolean;
   /** Armor after damage-type and status effects, per incoming damage type. */
   pools: ScaledPool[];
 }
@@ -81,6 +86,38 @@ export interface ScaleOptions {
   eximus?: boolean;
   /** Explicit Overguard amount, used as-is (bosses, Deep Archimedea, a known value). */
   overguard?: number;
+  /**
+   * The Steel Path: health and shields x2.5 (wiki: The_Steel_Path). Armour is not multiplied
+   * since Update 29.10. The +100 level is not added here: `level` is the enemy's actual level.
+   */
+  steelPath?: boolean;
+}
+
+/** Health and shield multiplier on the Steel Path. */
+export const STEEL_PATH_MULTIPLIER = 2.5;
+
+/** Level steps shared by the Eximus base health and base shield increase (wiki: Enemy_Level_Scaling). */
+function eximusStep(level: number): number {
+  if (level <= 15) return 1;
+  if (level <= 25) return 1 + 0.025 * (level - 15);
+  if (level <= 35) return 1.25 + 0.125 * (level - 25);
+  if (level <= 50) return 2.5 + (2 / 15) * (level - 35);
+  if (level <= 100) return 4.5 + 0.03 * (level - 50);
+  return 6;
+}
+
+/**
+ * Eximus base health, before faction level scaling.
+ * Units with shields or armour take 0.25 × (base + 900) per step, the others 0.375.
+ */
+export function eximusBaseHealth(baseHealth: number, level: number, hasShieldOrArmor: boolean): number {
+  const factor = hasShieldOrArmor ? 0.25 : 0.375;
+  return Math.max(baseHealth * 1.1, factor * (baseHealth + 900) * eximusStep(level));
+}
+
+/** Eximus base shields, before faction level scaling. */
+export function eximusBaseShield(baseShield: number, level: number): number {
+  return Math.max(baseShield * 1.1, baseShield * eximusStep(level));
 }
 
 /**
@@ -112,8 +149,12 @@ export function scaleEnemy(
   const healthCurve = HEALTH_CURVES[faction] ?? HEALTH_CURVES.neutral;
   const shieldCurve = SHIELD_CURVES[faction] ?? SHIELD_CURVES.default;
 
-  const health = enemy.health * curveMultiplier(healthCurve, q);
-  const shield = enemy.shield * curveMultiplier(shieldCurve, q);
+  // An Eximus raises its base health/shields before the faction curve scales them.
+  const baseHealth = options.eximus ? eximusBaseHealth(enemy.health, level, enemy.shield > 0 || enemy.armor > 0) : enemy.health;
+  const baseShield = options.eximus ? eximusBaseShield(enemy.shield, level) : enemy.shield;
+  const steelPath = options.steelPath ? STEEL_PATH_MULTIPLIER : 1;
+  const health = baseHealth * curveMultiplier(healthCurve, q) * steelPath;
+  const shield = baseShield * curveMultiplier(shieldCurve, q) * steelPath;
   // Level scaling clamps enemy armor to the 200..2700 band (wiki: Armor).
   const armorFromLevel = enemy.armor * curveMultiplier(ARMOR_CURVE, q);
   const armor = armorFromLevel > 0 ? Math.min(2700, Math.max(200, armorFromLevel)) : 0;
@@ -130,7 +171,7 @@ export function scaleEnemy(
     current: pool.amount * (pool.category === 'shield' ? shield / Math.max(1, enemy.shield) : health / Math.max(1, enemy.health)),
   }));
 
-  return { enemy, level, health, shield, armor, overguard, pools };
+  return { enemy, level, health, shield, armor, overguard, pools, steelPath: Boolean(options.steelPath) };
   void snapshot;
 }
 

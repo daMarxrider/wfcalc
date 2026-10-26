@@ -19,11 +19,13 @@ const BIN = fileURLToPath(new URL('../bin/wfcalc', import.meta.url));
 const GOLDEN = {
   // Damage 3.0 (Update 36): Grineer takes +50% Impact/Corrosive and nothing from the old
   // Alloy Armor table, so the best build is now a Slash/status one, not the Viral one.
-  somaSearchTtk: '30.2s',
-  somaSearchDps: '3,923.3 dps',
-  brammaTotal: 'total 208.4 dps with status',
-  brammaTtk: 'ttk 568.55s',
-  somaStrippedTtk: 'ttk 167.86s',
+  // Since Hunter Munitions is searchable (category-wide "Primary" mods) and status ticks inherit
+  // the crit multiplier (wiki: Damage_over_Time), crit-fed Bleed dominates against 2700 armour.
+  somaSearchTtk: '3.77s',
+  somaSearchDps: '31,408.2 dps',
+  brammaTotal: 'total 213.5 dps with status',
+  brammaTtk: 'ttk 554.84s',
+  somaStrippedTtk: 'ttk 161.22s',
   avalancheCast: '3,000 at 200%',
   ceramicIncarnonHit: 1540,
   eximusOverguard: '281,865',
@@ -64,7 +66,7 @@ const cases: Case[] = [
       contains(result.stdout, `1. ${GOLDEN.somaSearchTtk}`);
       contains(result.stdout, GOLDEN.somaSearchDps);
       contains(result.stdout, 'Serration R10');
-      contains(result.stdout, 'Fanged Fusillade R5');
+      contains(result.stdout, 'Hunter Munitions R5');
       contains(result.stdout, 'assumptions:');
       // The token promise: the whole answer is cheaper than one JSON dump.
       check(result.stdout.length < 1600, `brief search is ${result.stdout.length} chars, expected < 1600`);
@@ -223,7 +225,7 @@ const cases: Case[] = [
       check(result.status === 0, `exit ${result.status}: ${result.stderr}`);
       const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
       check(lines.length === 3, `expected 3 lines, got ${lines.length}`);
-      check(lines[0].label === 'bramma' && lines[0].totalDps === 208.4, `bad bramma line: ${JSON.stringify(lines[0])}`);
+      check(lines[0].label === 'bramma' && lines[0].totalDps === 213.5, `bad bramma line: ${JSON.stringify(lines[0])}`);
       check(lines[1].armor === 2700 && typeof lines[1].timeToKill === 'number', `bad dagger line: ${JSON.stringify(lines[1])}`);
       check(lines[2].ability === 'Avalanche' && lines[2].armorStrip.fraction === 1, `bad ability line: ${JSON.stringify(lines[2])}`);
     },

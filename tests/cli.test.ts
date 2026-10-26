@@ -208,8 +208,9 @@ test('an ability cast has to break Overguard before health', () => {
   assert.equal(result.target.overguard, 281865);
   assert.equal(result.target.overguardPerCast, 3000); // Cold is neutral to Overguard
   // ceil(281865/3000) overguard casts, then the health pool. Cold has no Grineer modifier in
-  // Damage 3.0, so the health phase takes more casts than it did under the Damage 2.0 table.
-  assert.equal(result.target.castsToKill, 489);
+  // Damage 3.0. An Eximus Bombard also has 6x base health above level 100 (wiki: 0.25 x
+  // (300 + 900) x 6 = 1800 vs 300), so the health phase takes six times the casts.
+  assert.equal(result.target.castsToKill, 2464);
 });
 
 test('attenuation is opt-in for Archons and automatic for Eidolons', () => {
@@ -371,13 +372,14 @@ test('a duplicate mod is a bad request, not a doubled bonus', () => {
 
 test('the answer states the damage per pull that actually lands on the target', () => {
   // The arsenal number (31.8) is before the target. Against a level 150 Bombard, 2700 armour
-  // cuts 90% and the per-type floor applies, so a pull removes 6.18 from health.
+  // cuts 90% and the per-type floor applies, so a pull removes 6.21 from health. Quantization
+  // (1/32 of 12) makes the split 1.125 / 4.875 / 6 rather than 1.2 / 4.8 / 6.
   const result = run(['calc', 'Soma Prime', '--mod', 'Serration', '--enemy', 'Bombard', '--level', '150', '--json']) as {
     projectileTotal: number; averageShotDamage: number;
     damagePerShotHealth: number; damagePerShotShield: number;
   };
   assert.equal(result.projectileTotal.toFixed(2), '31.80');
-  assert.equal(result.damagePerShotHealth.toFixed(4), '6.1792');
+  assert.equal(result.damagePerShotHealth.toFixed(4), '6.2110');
   assert.equal(result.damagePerShotShield, 0);
   assert.ok(result.damagePerShotHealth < result.averageShotDamage / 8, 'armour must show up in the per-shot number');
 

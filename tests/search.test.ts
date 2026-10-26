@@ -170,6 +170,9 @@ test('search names the mods whose value is conditional', () => {
 test('equal-damage ties prefer the mod without an unmodelled accuracy penalty', () => {
   const result = search(snapshot, {
     weapon: 'Haalvu', enemy: 'Bombard', level: 150, objective: 'dps', limit: 1,
+    // With crit-scaled bleed, Rifle Elementalist outranks both damage mods; leaving it out keeps
+    // the Serration / Heavy Caliber tie this test is about.
+    exclude: ['Rifle Elementalist'],
     base: { conditions: { onKill: 12, statusTypes: 2 }, arcanes: [{ name: 'Primary Merciless', rank: 5 }] },
   });
   const names = result.builds[0].mods.map((mod) => mod.name);

@@ -8,6 +8,7 @@
  *   seed = the modded damage of that type from the hit (total damage for Bleed)
  *   C    = 0.35 for Slash, 0.5 for Heat / Electricity / Toxin / Gas
  *   M    = status damage bonuses × faction damage, applied a second time
+ *          × the critical multiplier of the hit that applied it (wiki: "DoT Damage Scaling")
  *
  * Tick counts over the effect's duration:
  *
@@ -151,11 +152,23 @@ export function computeDot(
 
   const entries: DotEntry[] = [];
 
+  // A tick inherits the crit multiplier of the hit that applied it. A status roll is independent
+  // of the crit roll, so ordinary procs carry the average multiplier; a proc that only happens on
+  // a crit (Hunter Munitions) carries the multiplier of a critical hit, orange/red tiers included.
+  const critChance = Math.max(0, build.critChance);
+  const averageCrit = 1 + critChance * (Math.max(1, build.critMultiplier) - 1);
+  const pCrit = Math.min(1, critChance);
+  const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : Math.max(1, build.critMultiplier);
+
   // Forced procs (Hunter Munitions): extra proc rate of a type, sometimes gated on crits.
+  // Kept as damage-weighted rates: `forced` counts procs, `forcedWeight` procs x crit multiplier.
   const forced = new Map<DamageType, number>();
+  const forcedWeight = new Map<DamageType, number>();
   for (const proc of build.forcedProcs ?? []) {
-    const rate = build.multishot * pullsPerSecond * proc.chance * (proc.requiresCrit ? build.critChance : 1);
-    if (rate > 0) forced.set(proc.type, (forced.get(proc.type) ?? 0) + rate);
+    const rate = build.multishot * pullsPerSecond * proc.chance * (proc.requiresCrit ? pCrit : 1);
+    if (rate <= 0) continue;
+    forced.set(proc.type, (forced.get(proc.type) ?? 0) + rate);
+    forcedWeight.set(proc.type, (forcedWeight.get(proc.type) ?? 0) + rate * (proc.requiresCrit ? critOnCrit : averageCrit));
   }
 
   for (const type of DOT_TYPES) {
@@ -175,8 +188,10 @@ export function computeDot(
     if (share <= 0 && (forced.get(type) ?? 0) <= 0) continue;
 
     const procsPerProjectile = statusPerProjectile * share;
-    const procsPerSecond =
-      procsPerProjectile * build.multishot * pullsPerSecond + (forced.get(type) ?? 0);
+    const naturalPerSecond = procsPerProjectile * build.multishot * pullsPerSecond;
+    const procsPerSecond = naturalPerSecond + (forced.get(type) ?? 0);
+    // Procs per second weighted by the crit multiplier each one carries.
+    const critWeighted = naturalPerSecond * averageCrit + (forcedWeight.get(type) ?? 0);
 
     // The wiki separates the seed (damage before the elemental bonus) from the elemental
     // multiplier: (seed + 1) × C × (1 + element bonus) × … Combined types (Gas, Blast) are
@@ -192,14 +207,15 @@ export function computeDot(
     const healthMod = dotType === 'true' ? 0 : healthModifier(snapshot, dotType, healthClass);
     const tickDamage = rawTick * (1 + healthMod) * (1 - dr) * viral;
 
-    const damagePerProc = tickDamage * ticks;
+    const dps = critWeighted * tickDamage * ticks;
     entries.push({
       type,
       procsPerSecond,
       tickDamage,
       ticks,
-      damagePerProc,
-      dps: procsPerSecond * damagePerProc,
+      // Average over this type's procs, crits included.
+      damagePerProc: procsPerSecond > 0 ? dps / procsPerSecond : tickDamage * ticks,
+      dps,
     });
   }
 
