@@ -179,7 +179,8 @@ test('--arcane auto picks an arcane only when its condition is active', () => {
     '--stacks', 'onKill=12', '--status-types', '2', '--arcane', 'auto',
     '--objective', 'dps', '--top', '1', '--json',
   ]) as { builds: Array<{ arcanes: Array<{ name: string }> }> };
-  assert.equal(withStacks.builds[0].arcanes[0]?.name, 'Primary Merciless');
+  // Merciless (+30% x 12) and Dexterity (+60% x 6) are the same +360% at full on-kill stacks.
+  assert.ok(['Primary Merciless', 'Primary Dexterity'].includes(withStacks.builds[0].arcanes[0]?.name ?? ''));
 
   // Without on-kill stacks every damage arcane's conditional line is inactive; Fractalized Reset
   // used to win the tie while contributing nothing. What may still win is a real passive: max-rank

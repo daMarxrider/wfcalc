@@ -438,9 +438,24 @@ export interface Snapshot {
   damageAbilities?: Record<string, DamageAbilityData>;
   /** Set Mod bonuses, keyed by set name. */
   setBonuses: Record<string, SetBonus>;
+  /**
+   * Primary Compression per weapon attack (wiki table: radius, how well the arcane reads it, and
+   * whether its bonus multiplies or adds to other damage bonuses). Optional: older snapshots lack it.
+   */
+  compression?: Record<string, CompressionEntry[]>;
   enemies: Record<string, EnemyData>;
   /** damage type -> health class -> percentage points */
   modifiers: ModifierTable;
   /** Pool type -> category, so enemies can reference types without repeating them. */
   healthTypes: Record<string, 'health' | 'armor' | 'shield' | 'object'>;
+}
+
+export interface CompressionEntry {
+  attack: string;
+  /** Share of the radius loss the arcane actually credits (1 = as intended). */
+  effectiveness: number;
+  /** How the bonus combines with other damage bonuses. */
+  stacking: 'multiplies' | 'adds';
+  /** Base explosion radius in metres. */
+  radius: number;
 }

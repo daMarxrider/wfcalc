@@ -218,3 +218,15 @@ test('the simulated re-rank reports the fight: stacks at the kill and damage by 
   assert.ok((top.damageBySource!.direct ?? 0) > 0);
   assert.ok(result.notes.some((note) => note.includes('simulated')));
 });
+
+test('Primary Compression matches the wiki table: Kuva Bramma +664%, +956.16% with Primed Firestorm', () => {
+  const base = { weapon: 'Kuva Bramma', arcanes: ['Primary Compression'] };
+  const plain = resolveBuild(snapshot, { ...base, mods: [], quantize: false });
+  const none = resolveBuild(snapshot, { weapon: 'Kuva Bramma', mods: [], quantize: false });
+  // Not aiming: the arcane does nothing.
+  assert.equal(plain.damage.projectileTotal, none.damage.projectileTotal);
+  const aiming = resolveBuild(snapshot, { ...base, mods: [], conditions: { aiming: 1 }, quantize: false });
+  assert.ok(Math.abs(aiming.damage.projectileTotal / none.damage.projectileTotal - 7.64) < 1e-9);
+  const firestorm = resolveBuild(snapshot, { ...base, mods: ['Primed Firestorm'], stackMode: 'max', quantize: false });
+  assert.ok(Math.abs(firestorm.damage.projectileTotal / none.damage.projectileTotal - 10.5616) < 1e-9);
+});

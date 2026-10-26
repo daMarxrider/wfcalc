@@ -266,8 +266,13 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   let simulation: SimulationResult | null = null;
   if (options.simulate && !attenuation) {
     simulation = simulateKill(snapshot, build, scaled, { factionMultiplier, debuffs, estimate: timeToKill });
-    timeToKill = simulation.timeToKill;
-    shotsToKill = timeToKill === null ? Infinity : simulation.shots;
+    if (simulation.timeToKill !== null) {
+      timeToKill = simulation.timeToKill;
+      shotsToKill = simulation.shots;
+    } else if (timeToKill !== null) {
+      // Killable, but slower than the simulation's horizon: keep the steady-state estimate.
+      warnings.push(`fight longer than the simulation horizon; time to kill is the steady-state estimate`);
+    }
   }
 
   // Against this target: the rate that actually removes its pools, Overguard and shields

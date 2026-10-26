@@ -140,6 +140,7 @@ function calculate(body: any) {
     const hit = hitEnemy(snapshot, resolved, scaled, {
       attenuation,
       targets: body.targets !== undefined ? Number(body.targets) : undefined,
+      simulate: body.simulate !== false,
     });
     hitWarnings = hit.warnings;
     target = { name: enemy.name, faction: enemy.faction, pools: scaled.pools, ...hit };
@@ -323,6 +324,7 @@ const server = createServer(async (req, res) => {
         eximus: Boolean(body.eximus),
         overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
         steelPath: Boolean(body.steelPath),
+        simulate: body.simulate !== false,
         attenuation: body.attenuation !== undefined
           ? body.attenuation
           : (body.mdpt !== undefined || body.mdps !== undefined
@@ -360,6 +362,7 @@ const server = createServer(async (req, res) => {
           exclude: asList(body.exclude),
           pool: body.pool !== undefined ? Number(body.pool) : undefined,
           maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
+          simulate: body.simulate !== false,
           limit: body.limit !== undefined ? Number(body.limit) : 5,
           base,
         });
