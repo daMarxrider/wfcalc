@@ -29,6 +29,9 @@
  *     lands through the target's state at that moment (armour, Viral, health class)
  *   - layers fall in order: Overguard, shields, health; Toxin goes straight to health.
  *
+ * Continuous (beam) weapons ramp from 20% damage to full over 0.6 s on target and decay after
+ * 0.8 s off it (wiki: Continuous Weapon).
+ *
  * Electricity's chain to nearby enemies, Gas's cloud on others and Magnetic's burst when shields
  * break are not modelled: this is the single target's time to kill.
  */
@@ -61,6 +64,22 @@ const HEAT_FIRST_TICK = 1;
 const HEAT_RAMP_UP = [0.15, 0.3, 0.4, 0.5];
 const HEAT_RAMP_DOWN = [0.4, 0.3, 0.15, 0];
 const BLAST_COEFFICIENT = 0.3;
+
+/**
+ * Continuous weapons ramp up (wiki: Continuous Weapon): damage starts at 20% and reaches 100%
+ * after 0.6 s on target; 0.8 s after the beam stops, it decays back over 2 s. A few beams start
+ * higher.
+ */
+const BEAM_RAMP_TIME = 0.6;
+const BEAM_DECAY_DELAY = 0.8;
+const BEAM_DECAY_TIME = 2;
+const BEAM_START: Record<string, number> = { Phage: 0.7, Embolist: 0.3, Convectrix: 0.6, 'Convectrix Alt-Fire': 0.8 };
+function beamStart(build: ResolvedBuild): number | null {
+  if (build.weapon.trigger !== 'Held') return null;
+  const base = build.weapon.name.replace(/ (Prime|Prisma|Wraith|Vandal)$/, '');
+  if (build.mode && /alt/i.test(build.mode.name) && BEAM_START[`${base} Alt-Fire`] !== undefined) return BEAM_START[`${base} Alt-Fire`];
+  return BEAM_START[base] ?? 0.2;
+}
 const BLAST_DELAY = 1.5;
 
 /** +100% at the first stack, +25% per further stack, to +325% (Viral and Magnetic). */
@@ -244,6 +263,11 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     return 0;
   };
 
+  // Beam ramp: the share of full damage the beam is at, and how long it has been off target.
+  const rampStart = beamStart(build);
+  let ramp = rampStart ?? 1;
+  let idle = 0;
+
   let t = 0;
   let step = 0;
   let shots = 0;
@@ -276,8 +300,18 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;
 
     // ---- direct damage this step, per layer
-    const pulls = firing(t, t + dt) * build.fireRate;
+    const firingSeconds = firing(t, t + dt);
+    const pulls = firingSeconds * build.fireRate;
     shots += pulls;
+    if (rampStart !== null) {
+      if (firingSeconds > 0) {
+        idle = 0;
+        ramp = Math.min(1, ramp + ((1 - rampStart) * firingSeconds) / BEAM_RAMP_TIME);
+      } else {
+        idle += dt;
+        if (idle > BEAM_DECAY_DELAY) ramp = Math.max(rampStart, ramp - ((1 - rampStart) * dt) / BEAM_DECAY_TIME);
+      }
+    }
     let toHealth = 0;
     let toxinHealth = 0;
     let toShield = 0;
@@ -291,7 +325,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
       }
       toOverguard += landed[i] * overguardMod[i] * magneticMultiplier;
     }
-    const volley = pulls * build.multishot * averageCrit * faction;
+    const volley = pulls * build.multishot * averageCrit * faction * ramp;
 
     // ---- procs this step (none while Overguard is up: status immunity)
     stackProcs.fill(0);
@@ -308,8 +342,9 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
         if (target.heat) { heatProcs += procs; heatWeight += procs * crit; }
         if (target.blast) blastWeight += procs * crit;
       };
-      for (let i = 0; i < types.length; i++) add(typeTargets[i], pellets * statusChance * shares[i], averageCrit);
-      for (const proc of forced) add(proc, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1), proc.requiresCrit ? critOnCrit : averageCrit);
+      // A proc's ticks scale with its hit's damage, so a ramping beam's early procs are weaker.
+      for (let i = 0; i < types.length; i++) add(typeTargets[i], pellets * statusChance * shares[i], averageCrit * ramp);
+      for (const proc of forced) add(proc, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1), (proc.requiresCrit ? critOnCrit : averageCrit) * ramp);
     }
 
     // ---- damage over time this step, through the current target state (per second x dt)

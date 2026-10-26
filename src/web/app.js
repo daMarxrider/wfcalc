@@ -136,6 +136,8 @@ const weaponData = new Map();
 let allBuffs = [];
 /** Archon Shard bonuses by colour, from /api/shards. */
 let shardCatalog = {};
+/** Sniper zoom levels and combo minimums, from /api/snipers. */
+let sniperCatalog = {};
 const SHARD_COLORS = { crimson: '#d9474b', amber: '#e8a33c', azure: '#4fa3e0', violet: '#a565e0', topaz: '#e2b04a', emerald: '#4fc28a' };
 let allAbilities = [];
 let calculationId = 0;
@@ -754,6 +756,20 @@ function renderShards() {
     recalc();
   };
   for (const element of $('shard-slots').querySelectorAll('select, input')) element.addEventListener('change', read);
+}
+
+/** Zoom level and Shot Combo, only for sniper rifles (wiki zoom table). */
+function renderSniperFields() {
+  const sniper = sniperCatalog[state.weapon];
+  $('sniper-fields').hidden = !sniper;
+  if (!sniper) return;
+  $('zoom-select').innerHTML = `<option value="0">unscoped</option>${sniper.zooms
+    .map((zoom, index) => `<option value="${index + 1}" ${Number(state.zoom) === index + 1 ? 'selected' : ''}>${zoom.zoom}x · ${zoom.text}</option>`)
+    .join('')}`;
+  $('sniper-combo').value = String(state.sniperCombo ?? 0);
+  const hits = Number(state.sniperCombo ?? 0);
+  const steps = hits >= sniper.minimumCombo ? 1.5 + 0.5 * Math.floor(Math.log(hits / sniper.minimumCombo) / Math.log(3) + 1e-9) : 1;
+  $('sniper-combo-value').textContent = `x${steps} (min ${sniper.minimumCombo})`;
 }
 
 /** Arch-guns hold a Primary and a Secondary arcane; every other weapon holds one. */
@@ -1488,6 +1504,7 @@ function syncInputs() {
   renderFindMethod();
   renderBuffList();
   renderShards();
+  renderSniperFields();
 }
 
 let eventsBound = false;
@@ -1617,6 +1634,15 @@ function bindEvents() {
     $(id).addEventListener('change', () => setArcanes($('find-arcane').value, $('find-arcane2').value, $('find-weapon').value.trim() || state.weapon));
   }
   $('find-weapon').addEventListener('change', refreshFindArcanes);
+  $('zoom-select').addEventListener('change', (event) => {
+    state.zoom = Number(event.target.value);
+    recalc();
+  });
+  $('sniper-combo').addEventListener('change', (event) => {
+    state.sniperCombo = Math.max(0, Number(event.target.value) || 0);
+    renderSniperFields();
+    recalc();
+  });
   $('riven-input').addEventListener('change', (event) => {
     state.riven = parseRivenInput(event.target.value);
     recalc();
@@ -1711,6 +1737,7 @@ async function loadStaticLists() {
     getJson('/api/shards'),
   ]);
   shardCatalog = shards;
+  sniperCatalog = await getJson('/api/snipers').catch(() => ({}));
   $('frame-list').innerHTML = warframes.map((frame) => `<option value="${frame.name}"></option>`).join('');
   weaponData.clear();
   for (const weapon of weapons) weaponData.set(weapon.name, weapon);
@@ -1757,6 +1784,7 @@ async function loadModsForWeapon() {
   $('filter-type').innerHTML = '<option value="">All types</option>' + types.map((type) => `<option value="${type.toLowerCase()}">${type}</option>`).join('');
   renderModList('');
   $('arcane-list').innerHTML = arcanes.map((arcane) => `<option value="${arcane.name}">${(arcane.description || '').split('\n')[0].slice(0, 44)}</option>`).join('');
+  renderSniperFields();
   // A non-arch-gun keeps only its first arcane.
   if (!isArchgun(state.weapon) && (state.arcanes?.length ?? 0) > 1) state.arcanes = state.arcanes.slice(0, 1);
   refreshFindArcanes();

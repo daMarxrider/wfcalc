@@ -443,6 +443,8 @@ export interface Snapshot {
    * whether its bonus multiplies or adds to other damage bonuses). Optional: older snapshots lack it.
    */
   compression?: Record<string, CompressionEntry[]>;
+  /** Sniper rifles: zoom levels with their scoped buff, and the Shot Combo minimum (wiki table). */
+  snipers?: Record<string, SniperData>;
   enemies: Record<string, EnemyData>;
   /** damage type -> health class -> percentage points */
   modifiers: ModifierTable;
@@ -458,4 +460,11 @@ export interface CompressionEntry {
   stacking: 'multiplies' | 'adds';
   /** Base explosion radius in metres. */
   radius: number;
+}
+
+export interface SniperData {
+  /** Hits needed for the first combo step; the multiplier grows every 3x more hits. */
+  minimumCombo: number;
+  /** Zoom levels in the game's order, each with its scoped buff. */
+  zooms: Array<{ zoom: number; text: string; effects: Effect[] }>;
 }

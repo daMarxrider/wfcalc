@@ -230,3 +230,22 @@ test('Primary Compression matches the wiki table: Kuva Bramma +664%, +956.16% wi
   const firestorm = resolveBuild(snapshot, { ...base, mods: ['Primed Firestorm'], stackMode: 'max', quantize: false });
   assert.ok(Math.abs(firestorm.damage.projectileTotal / none.damage.projectileTotal - 10.5616) < 1e-9);
 });
+
+test('sniper zoom buffs and the Shot Combo Counter follow the wiki table and formula', () => {
+  const unscoped = resolveBuild(snapshot, { weapon: 'Lanka', mods: [], quantize: false });
+  const zoomed = resolveBuild(snapshot, { weapon: 'Lanka', mods: [], zoom: 3, quantize: false });
+  // Lanka at 8x: +50% Critical Chance on its base.
+  assert.ok(Math.abs(zoomed.critChance - unscoped.critChance * 1.5) < 1e-9);
+  // Minimum combo 2: 1.5x at 2 hits, +0.5x every 3x more (6, 18, ...).
+  for (const [hits, multiplier] of [[1, 1], [2, 1.5], [5, 1.5], [6, 2], [17, 2], [18, 2.5]] as const) {
+    assert.equal(resolveBuild(snapshot, { weapon: 'Lanka', mods: [], sniperCombo: hits }).sniperComboMultiplier, multiplier);
+  }
+});
+
+test('a beam ramps up from 20%: the simulated kill is slower than the steady state for a non-status beam', () => {
+  const resolved = resolveBuild(snapshot, { weapon: 'Amprex', mods: ['Serration'] });
+  const scaled = scaleEnemy(snapshot, snapshot.enemies['Bombard'], 30);
+  const steady = hitEnemy(snapshot, resolved, scaled);
+  const simulated = hitEnemy(snapshot, resolved, scaled, { simulate: true });
+  assert.ok((simulated.timeToKill ?? 0) > (steady.timeToKill ?? Infinity));
+});

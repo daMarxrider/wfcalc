@@ -52,6 +52,8 @@ export function buildFromJson(snapshot: Snapshot, body: any, weaponName: string)
     headshot: Boolean(body.headshot),
     hit: body.hit === 'head' || body.hit === 'body' ? body.hit : undefined,
     stackMode: body.stackMode === 'none' || body.stackMode === 'max' || body.stackMode === 'custom' ? body.stackMode : undefined,
+    zoom: body.zoom !== undefined && body.zoom !== null ? Number(body.zoom) : undefined,
+    sniperCombo: body.sniperCombo ? Number(body.sniperCombo) : undefined,
     shards: Array.isArray(body.shards)
       ? body.shards.filter((shard: any) => shard && typeof shard.color === 'string').slice(0, 5)
         .map((shard: any) => ({ color: String(shard.color).toLowerCase(), bonus: String(shard.bonus ?? 'other'), tauforged: Boolean(shard.tauforged) }))
