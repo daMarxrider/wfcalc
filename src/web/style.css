@@ -500,6 +500,7 @@ details > *:not(summary) { margin-top: 8px; }
 .mcard.uncommon .mcard-text { color: #bec0c2; }
 .mcard.rare .mcard-text { color: #fbecc4; }
 .mcard.legendary .mcard-text { color: #dfdfdf; }
+.mcard.riven .mcard-text { color: #d9c8f5; }
 .mcard.galvanized::before { z-index: 4; }
 .mcard.galvanized .mcard-text { color: #dfdfdf; }
 

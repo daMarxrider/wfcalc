@@ -32,7 +32,7 @@ const glyph = (polarity) => POLARITY_GLYPH[String(polarity ?? '').toLowerCase()]
 
 /** Rarity colours, bronze to platinum like the game. */
 const RARITY_COLORS = {
-  common: '#c08a5a', uncommon: '#b9c2d0', rare: '#e0b04a', legendary: '#e8e8f0',
+  common: '#c08a5a', uncommon: '#b9c2d0', rare: '#e0b04a', legendary: '#e8e8f0', riven: '#a98ad8',
 };
 const rarityColor = (rarity) => RARITY_COLORS[String(rarity ?? '').toLowerCase()] ?? '#8d95a7';
 
@@ -311,6 +311,36 @@ function equippedIndex(name, except = -1) {
   return state.mods.findIndex((entry, index) => index !== except && entry.name === name);
 }
 
+/** The riven sits in a standard slot as a card named RIVEN; its stats live in state.riven. */
+const RIVEN = 'Riven';
+// The riven's stat lines as the last calculation printed them.
+let rivenLines = [];
+const rivenInfo = () => ({
+  name: RIVEN, rarity: 'Riven', polarity: state.rivenPolarity ?? null, baseDrain: state.rivenDrain ?? 0, maxRank: 0,
+  description: (rivenLines.length ? rivenLines : [rivenText(state.riven)]).join('\n'),
+});
+const modInfo = (name) => (name === RIVEN ? rivenInfo() : allMods.find((entry) => entry.name === name));
+
+/** One riven card on the board while there is a riven, always in a standard slot. */
+function syncRivenSlot() {
+  const at = state.mods.findIndex((mod) => mod.name === RIVEN);
+  if (at >= 0 && state.riven && at < MAX_SLOTS) return;
+  if (at >= 0) state.mods[at] = { name: '', rank: undefined };
+  if (!state.riven) return;
+  // shortcut: with all eight slots full the riven gets no card (it still counts), until a slot frees.
+  const free = state.mods.findIndex((mod, index) => index < MAX_SLOTS && !mod.name);
+  if (free >= 0) state.mods[free] = { name: RIVEN, rank: 0 };
+}
+
+/** Empty a slot; emptying the riven's slot removes the riven itself. */
+function clearSlot(index) {
+  const wasRiven = state.mods[index]?.name === RIVEN;
+  state.mods[index] = { name: '', rank: undefined };
+  if (!wasRiven) return;
+  $('riven-input').value = '';
+  $('riven-input').dispatchEvent(new Event('change'));
+}
+
 /** Briefly outline a slot, to show where the mod the player just tried to add already is. */
 function flashSlot(index) {
   const row = $('slots')?.querySelectorAll('.slot')[index];
@@ -350,7 +380,7 @@ function capacityInfo() {
   let used = 0;
   state.mods.forEach((mod, index) => {
     if (!mod.name) return;
-    const info = allMods.find((entry) => entry.name === mod.name);
+    const info = modInfo(mod.name);
     if (!info) return;
     const base = (info.baseDrain ?? 0) + (mod.rank ?? info.maxRank ?? 0);
     const matches = Boolean(info.polarity && slotPolarity(index) && info.polarity === slotPolarity(index));
@@ -433,9 +463,10 @@ function renderSlots() {
   const container = $('slots');
   container.innerHTML = '';
   padSlots();
+  syncRivenSlot();
 
   state.mods.forEach((mod, index) => {
-    const info = allMods.find((entry) => entry.name === mod.name);
+    const info = modInfo(mod.name);
     const maxRank = info?.maxRank ?? 0;
     const exilus = index === EXILUS_SLOT;
     const stance = isStance(index);
@@ -459,7 +490,7 @@ function renderSlots() {
       <div class="slot-top">
         <button class="polarity forma${state.slotPolarities?.[index] ? ' applied' : ''}" title="forma: cycle polarity"
                 data-forma="${index}" style="color:${polarityColor(slotPolarityName)}">${glyph(slotPolarityName) || '·'}</button>
-        <span class="rank-value">${mod.name ? `R${mod.rank ?? maxRank}` : ''}</span>
+        <span class="rank-value">${mod.name && mod.name !== RIVEN ? `R${mod.rank ?? maxRank}` : ''}</span>
         <span class="drain${matches ? ' halved' : ''}">${mod.name && info ? realDrain : ''}</span>
         <span class="mod-share">${mod.name && share ? `+${(share * 100).toFixed(0)}%` : ''}</span>
         <button class="remove" data-index="${index}" title="remove">×</button>
@@ -469,7 +500,7 @@ function renderSlots() {
         : `<div class="slot-glyph" style="color:${polarityColor(slotPolarityName)}">${glyph(slotPolarityName) || '·'}</div>`}
       <div class="mod-name${mod.name ? ' sr-only' : ''}" data-index="${index}" tabindex="0" role="button"
            aria-label="edit mod">${mod.name ? mod.name.replace(/</g, '&lt;') : `<span class="placeholder">${exilus ? 'exilus slot' : 'empty slot'}</span>`}</div>
-      ${mod.name && !info?.card ? `<div class="mod-desc">${description}</div>` : ''}`;
+      ${mod.name && !info?.card && mod.name !== RIVEN ? `<div class="mod-desc">${description}</div>` : ''}`;
 
     // Drag a filled slot onto another to swap; drag it out of the grid to remove.
     if (mod.name) {
@@ -527,7 +558,7 @@ function renderSlots() {
     const index = dragFrom.index;
     dragFrom = null;
     // Dragging a slot out of the grid clears it; the slot itself stays.
-    state.mods[index] = { name: '', rank: undefined };
+    clearSlot(index);
     renderSlots();
     recalc();
   };
@@ -599,7 +630,7 @@ function renderSlots() {
   container.querySelectorAll('.remove').forEach((button) => {
     button.onclick = () => {
       // Empty the slot instead of removing it: the board keeps its shape.
-      state.mods[Number(button.dataset.index)] = { name: '', rank: undefined };
+      clearSlot(Number(button.dataset.index));
       renderSlots();
       recalc();
     };
@@ -1038,6 +1069,10 @@ function renderResults(result) {
   if (result.weapon.mode) notes.push(`Using fire mode: ${result.weapon.mode}`);
   if (result.incarnon?.length) notes.push(`Incarnon: ${result.incarnon.join(' / ')}`);
   if (result.riven?.length) notes.push(`Riven: ${result.riven.join(', ')}`);
+  if (String(result.riven ?? []) !== String(rivenLines)) {
+    rivenLines = result.riven ?? [];
+    renderSlots();
+  }
   if (state.conditions.statusTypes !== undefined) {
     notes.push(`Status types pinned to ${state.conditions.statusTypes} by this link; edit “Extra status types” to count each build's own instead.`);
   }
@@ -1130,7 +1165,7 @@ function buildPayload(extra = {}) {
   return {
     ...state,
     level: effectiveLevel(state.level, state.steelPath, state.steelPathNodeLevel),
-    mods: state.mods.filter((mod) => mod.name),
+    mods: state.mods.filter((mod) => mod.name && mod.name !== RIVEN),
     riven: state.riven
       ? {
           ...state.riven,
@@ -1389,7 +1424,7 @@ function renderFind(result) {
       // The search counted capacity with the Forma it decided to spend; put those on the
       // matching slots, or the loaded build would show as over capacity.
       const innate = weaponData.get(result.weapon)?.polarities ?? [];
-      const slotPolarities = build.mods.filter((mod) => mod.name !== 'Riven').map((mod, index) =>
+      const slotPolarities = build.mods.map((mod, index) =>
         mod.halvedByPolarity && innate[index] !== mod.polarity ? mod.polarity : null);
       state = {
         ...state,
@@ -1400,11 +1435,13 @@ function renderFind(result) {
         steelPath: Boolean(result.steelPath),
         reactor: result.capacity >= 60,
         slotPolarities,
-        // The riven is not a mod in the board; it stays in state.riven.
-        mods: [
-          ...build.mods.filter((mod) => mod.name !== 'Riven').map((mod) => ({ name: mod.name, rank: mod.rank })),
-          ...(build.exilus ? [{ name: build.exilus.name, rank: build.exilus.rank }] : []),
-        ],
+        // The riven keeps the slot the search gave it; its stats stay in state.riven.
+        mods: Object.assign(
+          Array.from({ length: MAX_SLOTS }, (_, index) => build.mods[index]
+            ? { name: build.mods[index].name, rank: build.mods[index].rank }
+            : { name: '', rank: undefined }),
+          build.exilus ? { [EXILUS_SLOT]: { name: build.exilus.name, rank: build.exilus.rank } } : {},
+        ),
         // The brute force takes the Incarnon evolutions as input, so it returns none.
         incarnon: build.incarnon ? [...build.incarnon] : state.incarnon,
       };
@@ -1843,14 +1880,18 @@ function bindEvents() {
   });
   $('riven-input').addEventListener('change', (event) => {
     state.riven = parseRivenInput(event.target.value);
+    rivenLines = [];
+    renderSlots();
     recalc();
   });
   $('riven-drain').addEventListener('change', (event) => {
     state.rivenDrain = event.target.value === '' ? null : Math.max(0, Number(event.target.value));
+    renderSlots();
     recalc();
   });
   $('riven-polarity').addEventListener('change', (event) => {
     state.rivenPolarity = event.target.value || null;
+    renderSlots();
     recalc();
   });
   // "custom" reads the Conditions & stacks panel: the link opens it and scrolls there.
