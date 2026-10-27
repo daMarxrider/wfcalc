@@ -16,6 +16,7 @@ import { hitEnemy } from '../src/engine/damage.ts';
 import { parseModEffects } from '../src/mods/parse.ts';
 import { buffEffects, buffById, abilityStrengthFromMods } from '../src/engine/buffs.ts';
 import { rivenEffects } from '../src/engine/riven.ts';
+import { enumerateRivens, rivenPicker } from '../src/engine/riven-picker.ts';
 import { viralMultiplier, corrosiveArmorMultiplier } from '../src/engine/dot.ts';
 import type { AbilityData, ArcaneData, EnemyData, ModData, Snapshot, WeaponData, WeaponStats } from '../src/types.ts';
 
@@ -1422,4 +1423,33 @@ test('Incarnon "Increase Base X" raises the base stat before mods; perks also wo
   // Prelude of Might: +3 base crit multiplier while crit chance stays under 50%.
   close(build([], ['EVO5:Prelude']).critMultiplier, 2 + 3);
   close(build(['Point Strike'], ['EVO5:Prelude']).critMultiplier, 2);
+});
+
+test('riven picker: 3 positives (at most one spliced) + 1 negative that may roll negative', () => {
+  const snap = snapshot([weapon({ impact: 100 })], []);
+  snap.rivenStats.rifle = { Damage: 1.65, Multishot: 0.9, Zoom: 0.6, 'Critical Chance': 1.5, 'Viral Damage': 0.9 };
+  const rivens = enumerateRivens(snap, 'Test Weapon');
+  // 10 positive triples: the 6 with Viral leave 2 negatives each, the 4 without leave 1.
+  assert.equal(rivens.length, 6 * 2 + 4 * 1);
+  assert.ok(rivens.every((riven) => riven.malus !== 'viral' && !riven.stats.includes(riven.malus!)));
+  assert.ok(rivens.every((riven) => riven.roll === 1.1 && riven.rank === 8));
+});
+
+test('riven picker: each riven replaces the build mod it is worth most against, counts cover every riven', async () => {
+  const snap = snapshot([weapon({ impact: 100, critChance: 0.2, critMultiplier: 2, statusChance: 0.3 })], [serration, hellfire, cryoRounds, infectedClip], [dummy]);
+  snap.rivenStats.rifle = { Damage: 1.65, Multishot: 0.9, Zoom: 0.6, Recoil: 0.9, 'Critical Chance': 1.5, 'Viral Damage': 0.9 };
+  const result = await rivenPicker(snap, { weapon: 'Test Weapon', mods: [{ name: 'Serration' }, { name: 'Hellfire' }, { name: 'Cryo Rounds' }], enemy: 'Dummy', level: 1 });
+  assert.equal(Object.values(result.replacedCounts).reduce((sum, count) => sum + count, 0), result.rivens);
+  assert.equal(result.picks.reduce((sum, pick) => sum + pick.equivalent, 0), result.rivens);
+  // Zoom and recoil do nothing to damage: rivens differing only in those share a group.
+  assert.ok(result.groups < result.rivens);
+  for (let i = 1; i < result.picks.length; i++) {
+    const best = (pick: typeof result.picks[number]) => Math.max(pick.score, pick.swap?.score ?? -Infinity);
+    assert.ok(best(result.picks[i - 1]) >= best(result.picks[i]));
+  }
+  // The best riven beats the build as it is (a "+zoom +recoil -damage" one need not).
+  assert.ok(result.picks[0].score > result.baseline.score);
+  // The filter keeps only rivens with the stats the player has.
+  const viral = await rivenPicker(snap, { weapon: 'Test Weapon', mods: [{ name: 'Serration' }, { name: 'Hellfire' }, { name: 'Cryo Rounds' }], enemy: 'Dummy', level: 1, stats: ['viral'] });
+  assert.ok(viral.picks.length && viral.picks.every((pick) => pick.stats.includes('viral')));
 });
