@@ -1219,7 +1219,7 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
          --zoom N|max  --sniper-combo N   sniper zoom level buff and Shot Combo Counter
          --riven "crit-chance=142.3,multishot=110.2,-zoom=40.1"   the card's own values
                                       (x1.24 for faction stats); a bare id estimates the value
-         --riven-drain 18 --riven-polarity madurai   the riven's slot cost (counts in capacity)
+         --riven-drain 18 --riven-polarity madurai   the riven's slot cost (counts in capacity; default 16)
          --no-sim                     steady-state statuses instead of the fight simulation
          --brief one line per result        --brief=answer answer only
          --json machine-readable output      --debug stack trace on failure

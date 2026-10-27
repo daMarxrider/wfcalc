@@ -318,7 +318,6 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   const freeSlots = STANDARD_SLOTS - fixed.length - rivenSlot;
   if (freeSlots < 0) throw new InputError(`too many fixed mods: ${fixed.length} (+${rivenSlot} riven) for ${STANDARD_SLOTS} slots`, 'too_many_mods');
   const rivenMod = base.riven ? rivenAsMod(base.riven) : null;
-  if (rivenSlot && !rivenMod) notes.push('The riven takes one standard slot; give its drain (and polarity) to count it against capacity.');
   if (rivenMod) assumptions.push(`Riven in one slot: drain ${rivenMod.baseDrain}${rivenMod.polarity ? `, ${rivenMod.polarity}` : ''}`);
 
   const fixedFit = fitMods([

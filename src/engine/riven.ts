@@ -39,12 +39,15 @@ export interface RivenSpec {
   polarity?: string;
 }
 
+/** A riven's drain at max rank (8) when the card's is not given: the usual cost. */
+export const DEFAULT_RIVEN_DRAIN = 16;
+
 /** The riven as a mod for capacity: its card drain, polarity and slot (no effects of its own). */
-export function rivenAsMod(spec: RivenSpec): ModData | null {
-  if (spec.drain === undefined || !Number.isFinite(spec.drain)) return null;
+export function rivenAsMod(spec: RivenSpec): ModData {
+  const drain = spec.drain !== undefined && Number.isFinite(spec.drain) ? spec.drain : DEFAULT_RIVEN_DRAIN;
   return {
     id: 'Riven', name: 'Riven', category: 'Riven Mod', classes: [], polarity: spec.polarity ?? null, rarity: 'Riven',
-    baseDrain: Math.max(0, spec.drain), maxRank: 0, description: '', effects: [], cardImage: null, partial: false,
+    baseDrain: Math.max(0, drain), maxRank: 0, description: '', effects: [], cardImage: null, partial: false,
     outOfScopeLines: [], incompatible: [], set: null, upgradeTypes: [], isAugment: false, isRiven: true, conclave: false,
   } as unknown as ModData;
 }

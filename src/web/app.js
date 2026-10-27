@@ -316,7 +316,7 @@ const RIVEN = 'Riven';
 // The riven's stat lines as the last calculation printed them.
 let rivenLines = [];
 const rivenInfo = () => ({
-  name: RIVEN, rarity: 'Riven', polarity: state.rivenPolarity ?? null, baseDrain: state.rivenDrain ?? 0, maxRank: 0,
+  name: RIVEN, rarity: 'Riven', polarity: state.rivenPolarity ?? null, baseDrain: state.rivenDrain ?? 16, maxRank: 0,
   description: (rivenLines.length ? rivenLines : [rivenText(state.riven)]).join('\n'),
 });
 const modInfo = (name) => (name === RIVEN ? rivenInfo() : allMods.find((entry) => entry.name === name));
@@ -1588,7 +1588,7 @@ const TIPS = {
   'covenant-damage': 'Harrow\'s Covenant: damage prevented during it, which sets its crit bonus.',
   'shard-slots': 'Archon Shards on your Warframe: up to five, one bonus each; Tauforged gives 1.5x.',
   'riven-input': 'Your riven, as on the card: crit-chance=142.3,multishot=110.2,-zoom=40.1 (minus = the malus; faction stats as the multiplier, faction-grineer=1.24). A stat without a value is estimated from disposition.',
-  'riven-drain': 'The riven\'s drain shown on the card: counts against capacity in its slot. Empty: not counted.',
+  'riven-drain': 'The riven\'s drain shown on the card: counts against capacity in its slot. Empty: 16, a max-rank riven\'s usual drain.',
   'riven-polarity': 'The riven\'s polarity: half drain in a matching slot, +25% in a mismatched one.',
   'riven-roll': 'For stats without a value: the random roll, 0.9 (worst) to 1.1 (best).',
   'riven-rank': 'For stats without a value: the riven\'s rank, 8 = full value.',
