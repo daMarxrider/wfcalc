@@ -585,9 +585,9 @@ export async function gpuAdapter(allowFallback = false) {
   return adapter;
 }
 
-/** A short name for an adapter, for the settings and the result notes. */
+/** A short name for an adapter, for the settings and the result notes. Brave's Shields blank it out. */
 export const adapterName = (adapter) => [adapter?.info?.vendor, adapter?.info?.architecture, adapter?.info?.description]
-  .filter(Boolean).join(' ') || 'GPU';
+  .filter(Boolean).join(' ') || 'a hardware GPU (the browser hides its name)';
 
 /**
  * Runs the pre-filter on the GPU. Resolves to the best `model.keep` combinations (candidate
