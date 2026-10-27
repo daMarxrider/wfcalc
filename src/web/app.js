@@ -170,6 +170,8 @@ let allBuffs = [];
 let shardCatalog = {};
 /** Sniper zoom levels and combo minimums, from /api/snipers. */
 let sniperCatalog = {};
+/** Riven stat ids and labels, from /api/riven-stats. */
+let rivenStatCatalog = [];
 const SHARD_COLORS = { crimson: '#d9474b', amber: '#e8a33c', azure: '#4fa3e0', violet: '#a565e0', topaz: '#e2b04a', emerald: '#4fc28a' };
 let allAbilities = [];
 let calculationId = 0;
@@ -245,6 +247,18 @@ const parseRivenInput = (text) => {
     if (Number.isFinite(value)) values[id] = value;
   }
   return stats.length ? { stats, malus, ...(Object.keys(values).length ? { values } : {}) } : null;
+};
+
+/** Stat ids that can finish the last token of a riven text, each as the whole text with it filled in. */
+const rivenSuggestions = (text, attributes) => {
+  const head = text.slice(0, text.lastIndexOf(',') + 1);
+  const last = text.slice(head.length).trimStart();
+  if (last.includes('=')) return [];
+  const sign = last.startsWith('-') ? '-' : '';
+  const used = new Set(head.split(',').map((part) => part.trim().replace(/^-/, '').split('=')[0].trim()));
+  return attributes
+    .filter((attribute) => !used.has(attribute.id) && attribute.id.startsWith(last.slice(sign.length).toLowerCase()))
+    .map((attribute) => ({ value: `${head}${sign}${attribute.id}`, label: attribute.label }));
 };
 
 /** The riven back as text, values included. */
@@ -1928,6 +1942,12 @@ function bindEvents() {
     renderSniperFields();
     recalc();
   });
+  for (const id of ['riven-input', 'find-riven-input']) {
+    $(id).addEventListener('input', (event) => {
+      $('riven-stat-list').innerHTML = rivenSuggestions(event.target.value, rivenStatCatalog)
+        .map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+    });
+  }
   $('riven-input').addEventListener('change', (event) => {
     state.riven = parseRivenInput(event.target.value);
     rivenLines = [];
@@ -2047,7 +2067,7 @@ function bindEvents() {
 /** ---------- boot ---------- */
 
 async function loadStaticLists() {
-  const [weapons, enemies, buffs, arcanes, warframes, abilities, shards] = await Promise.all([
+  const [weapons, enemies, buffs, arcanes, warframes, abilities, shards, rivenStats] = await Promise.all([
     getJson('/api/weapons'),
     getJson('/api/enemies'),
     getJson('/api/buffs'),
@@ -2055,8 +2075,10 @@ async function loadStaticLists() {
     getJson('/api/warframes'),
     getJson('/api/abilities'),
     getJson('/api/shards'),
+    getJson('/api/riven-stats'),
   ]);
   shardCatalog = shards;
+  rivenStatCatalog = rivenStats;
   sniperCatalog = await getJson('/api/snipers').catch(() => ({}));
   $('frame-list').innerHTML = warframes.map((frame) => `<option value="${frame.name}"></option>`).join('');
   weaponData.clear();
