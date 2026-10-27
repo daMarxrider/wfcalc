@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadSnapshot } from '../src/data.ts';
-import { rivenEffects } from '../src/engine/riven.ts';
+import { rivenAsMod, rivenEffects } from '../src/engine/riven.ts';
 
 const snapshot = loadSnapshot();
 
@@ -21,4 +21,9 @@ test('real riven base values are percentages, not near-zero cells', () => {
   assert.ok(damage.value > 1 && damage.value < 2.5, `damage value ${damage.value}`);
   assert.ok(multishot.value > 0.5 && multishot.value < 1.5, `multishot value ${multishot.value}`);
   assert.match(riven.lines[0], /Damage \+\d+(\.\d+)?%/);
+});
+
+test('a riven without its card drain costs 16, a max-rank riven', () => {
+  assert.equal(rivenAsMod({ stats: ['crit-chance'] }).baseDrain, 16);
+  assert.equal(rivenAsMod({ stats: ['crit-chance'], drain: 12 }).baseDrain, 12);
 });
