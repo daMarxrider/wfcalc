@@ -365,6 +365,9 @@ const server = createServer(async (req, res) => {
         let lastSent = 0;
         if (stream) res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
         const send = (line: unknown): void => { res.write(`${JSON.stringify(line)}\n`); };
+        // The Find tab's stop button drops the connection: stop the worker threads with it.
+        const stopped = new AbortController();
+        res.on('close', () => { if (!res.writableFinished) stopped.abort(new Error('stopped by the client')); });
         const run = bruteForce(snapshot, {
           weapon: weapon.name,
           objective: body.objective === 'dps' ? 'dps' : 'ttk',
@@ -384,6 +387,7 @@ const server = createServer(async (req, res) => {
           simulate: body.simulate !== false,
           limit: body.limit !== undefined ? Number(body.limit) : 5,
           base,
+          signal: stopped.signal,
           onProgress: stream
             ? (done, total) => {
                 const now = Date.now();
@@ -394,10 +398,18 @@ const server = createServer(async (req, res) => {
               }
             : undefined,
         });
-        if (!stream) return json(res, 200, await run);
+        if (!stream) {
+          try {
+            return json(res, 200, await run);
+          } catch (error) {
+            if (stopped.signal.aborted) return;
+            throw error;
+          }
+        }
         try {
           send({ result: await run });
         } catch (error) {
+          if (stopped.signal.aborted) return;
           send({ error: String((error as Error).message), ...(error instanceof InputError ? { code: error.code } : {}) });
         }
         return res.end();

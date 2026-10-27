@@ -84,6 +84,8 @@ export interface BruteForceRequest {
   snapshotPath?: string;
   /** Called with (combinations evaluated, combinations planned) while the search runs. */
   onProgress?: (done: number, total: number) => void;
+  /** Aborting it stops the worker threads; the search then rejects with the signal's reason. */
+  signal?: AbortSignal;
 }
 
 /** Everything a shard needs to walk the tree; plain data so it can cross into a worker. */
@@ -649,12 +651,20 @@ function runInWorkers(
   workers: number,
   limit: number,
   onProgress?: (done: number) => void,
+  signal?: AbortSignal,
 ): Promise<ShardResult[]> {
   const progress = new Array<number>(workers).fill(0);
   return Promise.all(Array.from({ length: workers }, (_, shard) => new Promise<ShardResult>((resolve, reject) => {
     const worker = new Worker(new URL('./bruteforce-worker.ts', import.meta.url), {
       workerData: { plan, snapshotPath, shard, shards: workers, limit },
     });
+    const stop = (): void => {
+      reject(signal!.reason);
+      void worker.terminate();
+    };
+    if (signal?.aborted) stop();
+    else signal?.addEventListener('abort', stop, { once: true });
+    worker.on('exit', () => signal?.removeEventListener('abort', stop));
     worker.on('message', (message: { type: 'progress'; done: number } | { type: 'done'; result: ShardResult }) => {
       if (message.type === 'progress') {
         progress[shard] = message.done;
@@ -672,6 +682,7 @@ function runInWorkers(
 /** Plans, enumerates (in parallel when allowed) and reports the best builds. */
 export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest): Promise<BruteForceResult> {
   const started = performance.now();
+  request.signal?.throwIfAborted();
   const plan = planBruteForce(snapshot, request);
   const limit = request.limit ?? 5;
   // Small trees are not worth a thread start-up each.
@@ -687,7 +698,9 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
   const pool = plan.simulate ? Math.max(request.rerank ?? limit * 40, 200, limit) : limit;
   const shards = workers === 1
     ? [runShard(snapshot, plan, 0, 1, pool, progress)]
-    : await runInWorkers(plan, request.snapshotPath, workers, pool, progress);
+    : await runInWorkers(plan, request.snapshotPath, workers, pool, progress, request.signal);
+  // An in-thread walk cannot be interrupted (it is small: under 2,000 leaves), so check after it.
+  request.signal?.throwIfAborted();
 
   const scaled = scaleTarget(snapshot, plan, snapshot.enemies[plan.enemy], plan.level);
   let winners = mergeTop(shards, pool);

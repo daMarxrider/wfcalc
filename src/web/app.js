@@ -1350,7 +1350,11 @@ async function runBruteForce(weapon) {
   $('find-out').innerHTML = `<div class="working"><span id="find-phase">Ranking the candidate mods…</span> <span id="find-clock">0s</span>
     <div class="progress" role="progressbar" aria-label="Brute-force progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="find-progress">
       <div class="progress-track"><div class="progress-fill" id="find-fill"></div></div><span class="progress-pct" id="find-pct">0%</span>
+      <button id="find-stop" class="stop-button" type="button" title="Stop the brute force; the server stops working on it at once.">stop</button>
     </div></div>`;
+  // Stop: dropping the request makes the server terminate its worker threads.
+  const stopper = new AbortController();
+  $('find-stop').addEventListener('click', () => stopper.abort());
   const showProgress = (done, total) => {
     const share = total > 0 ? Math.min(1, done / total) : 0;
     const percent = share * 100;
@@ -1370,6 +1374,7 @@ async function runBruteForce(weapon) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: stopper.signal,
     });
     // Progress arrives as one JSON object per line; errors before the search starts come as plain JSON.
     let result = null;
@@ -1397,7 +1402,9 @@ async function runBruteForce(weapon) {
     }
     renderFind(result);
   } catch (error) {
-    $('find-out').innerHTML = `<p class="error">${String(error.message ?? error)}</p>`;
+    $('find-out').innerHTML = stopper.signal.aborted
+      ? `<p class="hint">Stopped after ${((performance.now() - started) / 1000).toFixed(0)}s, at ${$('find-pct')?.textContent ?? '0%'}. No build was kept: the best ones are only known at the end.</p>`
+      : `<p class="error">${String(error.message ?? error)}</p>`;
   } finally {
     clearInterval(clock);
     button.disabled = false;
