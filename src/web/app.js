@@ -1153,7 +1153,7 @@ function renderWeaponMeta(result) {
   $('weapon-meta').innerHTML = `<span class="chip">${weapon.type}</span>
     <span class="chip">MR ${weapon.masteryRank}</span>
     ${formas ? `<span class="chip forma">${formas} forma${formas === 1 ? '' : 's'}</span>` : ''}
-    <span class="chip">${(weapon.disposition ?? 1).toFixed(1)}★ riven</span>
+    <span class="chip" title="Riven disposition is retired: every weapon rolls at 1.20x">riven 1.20x</span>
     ${classes.length ? `<span class="chip">${classes.join(' / ')}</span>` : ''}`;
   const desc = document.getElementById('weapon-desc');
   if (desc) {
