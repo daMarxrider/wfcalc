@@ -110,6 +110,15 @@ function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; 
   const fixed = Array.isArray(body.fixed)
     ? body.fixed.map((entry: unknown) => (typeof entry === 'string' ? { name: entry } : entry))
     : asList(body.fixed).map((name) => ({ name }));
+  // The Incarnon form is never chosen for the player: a weapon that has one needs form "normal"
+  // or "incarnon" in the request.
+  if (weapon.incarnonForm) {
+    if (body.form !== 'normal' && body.form !== 'incarnon') {
+      throw new InputError(`${weapon.name} has an Incarnon form: send form "normal" or "incarnon"`, 'choose_form');
+    }
+    const picks = (base.incarnon ?? []).filter((choice: string) => choice.toLowerCase() !== 'form');
+    base.incarnon = body.form === 'incarnon' ? [...picks, 'form'] : picks;
+  }
   return {
     weapon: weapon.name,
     objective: body.objective === 'dps' ? 'dps' : 'ttk',
@@ -269,6 +278,8 @@ const server = createServer(async (req, res) => {
           // Needed by the client to work out mod capacity and polarity matches.
           polarities: w.polarities, exilusPolarity: w.exilusPolarity, modClasses: w.modClasses,
           trigger: w.trigger ?? null,
+          // The Find tab asks for normal or Incarnon form before a search on these.
+          incarnonForm: Boolean(w.incarnonForm),
           stancePolarity: w.stancePolarity ?? WEAPON_STANCE.get(w.name) ?? null,
           image: w.image ?? WEAPON_IMAGE.get(w.name) ?? null,
           description: w.description ?? '',
@@ -372,7 +383,8 @@ const server = createServer(async (req, res) => {
           : (body.mdpt !== undefined || body.mdps !== undefined
             ? { id: 'custom', mdpi: Number(body.mdpt ?? 0), mdps: Number(body.mdps ?? 0) }
             : undefined),
-        base: chooseIncarnon ? { ...base, incarnon: undefined } : base,
+        // Choosing perks keeps the player's form switch.
+        base: chooseIncarnon ? { ...base, incarnon: (base.incarnon ?? []).filter((choice) => choice.toLowerCase() === 'form') } : base,
       });
       return json(res, 200, result);
     }
