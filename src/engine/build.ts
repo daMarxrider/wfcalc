@@ -72,9 +72,10 @@ export interface Build {
   /** Caster's Warframe name, used to validate which buffs it can actually bring. */
   frame?: string;
   /**
-   * Kuva/Tenet weapon elemental bonus: the player-chosen element and its percentage of
-   * base damage (25-60%). It behaves as innate damage, so it joins the elemental
-   * combination after every mod (wiki: innate elements are last in the hierarchy).
+   * Kuva/Tenet/Coda bonus element: the element and its share of base damage (25-60%). It is
+   * innate damage, so it joins the elemental combination after every mod (wiki: innate elements
+   * are last in the hierarchy). Left out on such a weapon: 60% Heat (see `weaponElementBonus`);
+   * a value of 0 means none.
    */
   elementBonus?: { type: DamageType; value: number };
   /** Round each damage type to 1/32 of the modded base damage, as the game does. Default true. */
@@ -202,6 +203,8 @@ export interface ResolvedBuild {
    * hit's modded base damage, all types, before physical and elemental mods and quantization.
    */
   dotSeed: number;
+  /** Kuva/Tenet/Coda bonus element in effect (the player's pick or the 60% default), null when none. */
+  elementBonus: { type: DamageType; value: number } | null;
   /** Primary Debilitate's chance to add a base status on 10+ combined stacks, 0 when none. */
   debilitateChance: number;
   /** Multiplier on damage to Overguard (Secondary Fortifier: x8), 1 when none. */
@@ -317,6 +320,20 @@ export function falloffFactor(falloff: { start: number; end: number; reduction: 
 
 /** Reads a weapon mode's stats, falling back to the arsenal block. */
 /** Arcane slot types each weapon category accepts. Arch-guns take a Primary and a Secondary arcane. */
+/** Elements a Kuva, Tenet or Coda weapon can carry, switchable with an Elemental Vice (wiki: Coda Weapons). */
+export const BONUS_ELEMENTS = ['impact', 'heat', 'cold', 'electricity', 'toxin', 'magnetic', 'radiation'] as const;
+/** What the model assumes when the player did not pick one: the in-game maximum, 60%. */
+export const DEFAULT_ELEMENT_BONUS = { type: 'heat' as DamageType, value: 0.6 };
+
+/** Kuva, Tenet and Coda weapons roll a bonus element of 25-60% of base damage. */
+export const hasBonusElement = (weapon: WeaponData): boolean => /^(Kuva|Tenet|Coda|Dual Coda) /.test(weapon.name);
+
+/** The bonus element a build fires with: the player's pick, else the default on weapons that carry one. */
+export function weaponElementBonus(weapon: WeaponData, requested: Build['elementBonus']): { type: DamageType; value: number } | null {
+  if (requested) return requested.value > 0 ? requested : null;
+  return hasBonusElement(weapon) ? DEFAULT_ELEMENT_BONUS : null;
+}
+
 export const ARCANE_SLOTS: Record<string, string[]> = {
   primary: ['primary', 'bow', 'shotgun'],
   secondary: ['secondary'],
@@ -443,12 +460,16 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     ? weapon.incarnonFormDirectShare ?? 1
     : 1;
 
-  // Kuva/Tenet elemental bonus: a player-chosen element worth 25-60% of base damage,
-  // baked in before anything else so it combines like innate damage.
+  // Kuva/Tenet/Coda bonus element: worth 25-60% of base damage, baked in before anything else
+  // so it combines like innate damage, and counts as base damage for mods and status seeds.
   let elementBonusWarning: string | null = null;
-  if (build.elementBonus && build.elementBonus.value > 0) {
-    const { type, value } = build.elementBonus;
-    if (value > 0.6) elementBonusWarning = `element bonus ${(value * 100).toFixed(0)}% is above the 60% maximum`;
+  const elementBonus = weaponElementBonus(weapon, build.elementBonus);
+  if (elementBonus) {
+    const { type, value } = elementBonus;
+    if (!hasBonusElement(weapon)) elementBonusWarning = `${weapon.name} is not a Kuva, Tenet or Coda weapon and has no bonus element`;
+    else if (!(BONUS_ELEMENTS as readonly string[]).includes(type)) elementBonusWarning = `${type} is not a bonus element; the game offers ${BONUS_ELEMENTS.join(', ')}`;
+    else if (value > 0.6) elementBonusWarning = `element bonus ${(value * 100).toFixed(0)}% is above the 60% maximum`;
+    else if (value < 0.25) elementBonusWarning = `element bonus ${(value * 100).toFixed(0)}% is below the 25% minimum`;
     const rawTotal = DAMAGE_TYPES.reduce((sum, candidate) => sum + (stats[candidate] ?? 0), 0);
     stats = { ...stats, [type]: (stats[type] ?? 0) + rawTotal * value };
   }
@@ -1087,6 +1108,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     toxinStatusDamageBonus: shards.toxinStatusDamage,
     corrosiveCapBonus: shards.corrosiveStacks,
     dotSeed: (baseTotal + flatBase) * damageBonus * sniperComboMultiplier,
+    elementBonus,
     debilitateChance: bonus('debilitate'),
     overguardDamageMultiplier: bonus('overguardDamage') || 1,
     procDamage: bonus('procDamage'),

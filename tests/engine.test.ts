@@ -773,6 +773,40 @@ test('wiki DoT example: the seed is the whole modded base damage, not the type s
   close(hit.dot.find((entry) => entry.type === 'slash')!.tickDamage, 14.35, 1e-3);
 });
 
+test('innate elements go last, unless a mod of the same element places them (wiki: Elemental Damage)', () => {
+  const cryo = mod('Cryo Rounds', 5, ['+90% Cold']);
+  const infected = mod('Infected Clip', 5, ['+90% Toxin']);
+  const hellfire = mod('Hellfire', 5, ['+90% Heat']);
+  const storm = mod('Stormbringer', 5, ['+90% Electricity']);
+  const snap = snapshot([weapon({ puncture: 50, electricity: 50 })], [cryo, infected, hellfire, storm], [dummy]);
+  const types = (mods: string[]) => Object.keys(build(snap, mods).damage.perProjectile).filter((t) => (build(snap, mods).damage.perProjectile as Record<string, number>)[t] > 0).sort();
+  // Prova/Lecta example: Cold, Toxin, Heat mods -> Cold+Toxin = Viral, Heat + innate Electricity = Radiation.
+  assert.deepEqual(types(['Cryo Rounds', 'Infected Clip', 'Hellfire']), ['puncture', 'radiation', 'viral']);
+  // Toxin + Heat pair first, the innate Electricity is left on its own.
+  assert.deepEqual(types(['Infected Clip', 'Hellfire']), ['electricity', 'gas', 'puncture']);
+  // Amprex + Stormbringer: the mod pulls the innate Electricity to the front, so it now pairs
+  // with Heat (Radiation) and Toxin is the one left over.
+  assert.deepEqual(types(['Stormbringer', 'Hellfire', 'Infected Clip']), ['puncture', 'radiation', 'toxin']);
+});
+
+test('Kuva/Tenet/Coda weapons carry a bonus element, 60% Heat unless the player picks one', () => {
+  const kuva = { ...weapon({ impact: 100 }), id: 'Kuva Test', name: 'Kuva Test' };
+  const snap = snapshot([kuva, weapon({ impact: 100 })], [thermite], [dummy]);
+  const at = (extra: Partial<Build>) => resolveBuild(snap, { weapon: 'Kuva Test', mods: [], ...extra });
+  close(at({}).damage.perProjectile.heat ?? 0, 60);
+  close(at({ elementBonus: { type: 'toxin', value: 0.45 } }).damage.perProjectile.toxin ?? 0, 45);
+  assert.equal(at({ elementBonus: { type: 'heat', value: 0 } }).elementBonus, null);
+  // It is base damage: Thermite's +60% Heat works on 160, and status ticks seed from 160.
+  close(at({ mods: ['Thermite Rounds'] }).damage.perProjectile.heat ?? 0, 60 + 160 * 0.6);
+  const heatTick = hitEnemy(snap, at({}), scaleEnemy(snap, dummy, 1)).dot.find((entry) => entry.type === 'heat')!;
+  close(heatTick.tickDamage, (160 + 1) * 0.5, 1e-6);
+  // Out-of-game picks only warn; ordinary weapons get no default.
+  assert.ok(at({ elementBonus: { type: 'blast', value: 0.6 } }).warnings.some((line) => line.includes('not a bonus element')));
+  const plain = resolveBuild(snap, { weapon: 'Test Weapon', mods: [] });
+  assert.equal(plain.elementBonus, null);
+  assert.ok(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], elementBonus: { type: 'heat', value: 0.6 } }).warnings.some((line) => line.includes('no bonus element')));
+});
+
 test('Primary Debilitate adds base statuses on 10+ stacks of a combined one', () => {
   const debilitate: ArcaneData = { id: 'Primary Debilitate', name: 'Primary Debilitate', category: 'Primary Arcane', rarity: 'Rare', maxRank: 5, description: '', effects: [], slot: 'primary' };
   // Pure Gas, 100% status, 10 shots/s: 60 Gas procs alive over 6 s, so every proc lands on 10+.

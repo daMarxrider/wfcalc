@@ -26,8 +26,9 @@ const GOLDEN = {
   // not from the elemental damage on top, which made the old 4.21s too optimistic.
   somaSearchTtk: '7.34s',
   somaSearchDps: '16,142.7 dps',
-  brammaTotal: 'total 205.4 dps with status',
-  brammaTtk: 'ttk 576.74s',
+  // Kuva weapons carry their bonus element: with none picked, the in-game maximum of 60% Heat.
+  brammaTotal: 'total 784.5 dps with status',
+  brammaTtk: 'ttk 151.03s',
   somaStrippedTtk: 'ttk 128.54s',
   avalancheCast: '3,000 at 200%',
   ceramicIncarnonHit: 1540,
@@ -228,7 +229,7 @@ const cases: Case[] = [
       check(result.status === 0, `exit ${result.status}: ${result.stderr}`);
       const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
       check(lines.length === 3, `expected 3 lines, got ${lines.length}`);
-      check(lines[0].label === 'bramma' && lines[0].totalDps === 205.4, `bad bramma line: ${JSON.stringify(lines[0])}`);
+      check(lines[0].label === 'bramma' && lines[0].totalDps === 784.5, `bad bramma line: ${JSON.stringify(lines[0])}`);
       check(lines[1].armor === 2700 && typeof lines[1].timeToKill === 'number', `bad dagger line: ${JSON.stringify(lines[1])}`);
       check(lines[2].ability === 'Avalanche' && lines[2].armorStrip.fraction === 1, `bad ability line: ${JSON.stringify(lines[2])}`);
     },

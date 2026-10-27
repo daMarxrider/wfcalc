@@ -35,10 +35,12 @@ export function buildFromJson(snapshot: Snapshot, body: any, weaponName: string)
     frame: body.frame || undefined,
     warframeArcanes: Array.isArray(body.warframeArcanes) ? body.warframeArcanes : [],
     incarnon: Array.isArray(body.incarnon) ? body.incarnon.map(String) : [],
+    // Kuva/Tenet/Coda element: null means "not set" (60% Heat on such a weapon); "none" or 0 means none.
     elementBonus: body.elementBonus
       ? {
           type: body.elementBonus.type,
-          value: Number(body.elementBonus.value) > 1 ? Number(body.elementBonus.value) / 100 : Number(body.elementBonus.value),
+          value: body.elementBonus.type === 'none' ? 0
+            : Number(body.elementBonus.value ?? 60) > 1 ? Number(body.elementBonus.value ?? 60) / 100 : Number(body.elementBonus.value),
         }
       : undefined,
     // null means "not set" (the UI's default), not a distance of 0 m.
