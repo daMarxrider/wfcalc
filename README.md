@@ -168,7 +168,7 @@ current state, the working method and what is left to do.
 | `--riven-roll 1.05` / `--riven-rank 6` | Riven random roll (0.9-1.1) and rank |
 | `--frame Rhino` | Validate that the frame can actually bring those buffs (Helminth) |
 | `--frame-arcane "Arcane Avenger"` | Warframe arcanes (also feed Ability Strength) |
-| `--element-bonus heat:60` | Kuva/Tenet elemental bonus (25-60%) |
+| `--element-bonus toxin:60` | Kuva/Tenet/Coda bonus element: impact, heat, cold, electricity, toxin, magnetic or radiation, 25-60% (default `heat:60`, `none` turns it off) |
 | `--covenant-damage 4000` | Damage prevented, for Harrow's Covenant |
 | `--viral 10`, `--corrosive 10` | Status stacks kept up on the target |
 | `--incarnon "EVO2:0,EVO4:1"` | Incarnon evolutions per tier (see `wfcalc incarnon`) |
@@ -296,8 +296,10 @@ Everything comes from two upstreams, rebuilt into `data/snapshot.json` (1.7 MB):
 - **Warframe arcanes that buff one weapon class** (Arcane Fury: melee, Arcane Velocity: pistols)
   do nothing on other weapons. Arcane Awakening, Primary Charger, Tempo, Velocity, Hot Shot and
   Crepuscular (+3x final crit damage) are modelled.
-- **Kuva/Tenet elemental bonus**: the player-chosen element, baked in as innate damage
-  (which is what really decides the elemental combination on those 35 weapons).
+- **Kuva/Tenet/Coda bonus element** (51 weapons): one of Impact, Heat, Cold, Electricity, Toxin,
+  Magnetic, Radiation, switchable like an Elemental Vice does in game. It is innate base damage:
+  last in the elemental combination, raising elemental mods and status ticks with it. Not picked:
+  60% Heat, the in-game maximum.
 - **Warframe arcanes**: Arcane Avenger (flat crit chance), Arcane Acceleration, Arcane Rage,
   Molt Augmented (which feeds Ability Strength and therefore every buff).
 - **Helminth awareness**: a buff from another frame is flagged when it is not subsumable.

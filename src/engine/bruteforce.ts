@@ -25,7 +25,7 @@
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import type { Build, BuildMod } from './build.ts';
-import { resolveBuild, statsForMode } from './build.ts';
+import { resolveBuild, statsForMode, weaponElementBonus } from './build.ts';
 import { hitEnemy } from './damage.ts';
 import type { SimulationResult } from './simulate.ts';
 import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
@@ -213,7 +213,8 @@ function modElement(mod: ModData | undefined): BaseElement | null {
 /** Innate base elements of the profile the build fires, in the hierarchy's HCET order. */
 function innateElements(weapon: WeaponData, base: Partial<Build>): BaseElement[] {
   const stats = base.incarnon?.length && weapon.incarnonForm ? weapon.incarnonForm : statsForMode(weapon, base.mode).stats;
-  return BASE_ELEMENTS.filter((element) => (stats[element] ?? 0) > 0 || base.elementBonus?.type === element);
+  const bonus = weaponElementBonus(weapon, base.elementBonus);
+  return BASE_ELEMENTS.filter((element) => (stats[element] ?? 0) > 0 || bonus?.type === element);
 }
 
 /** Which damage types a hierarchy produces: the key for "these two orders are the same build". */

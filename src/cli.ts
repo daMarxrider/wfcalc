@@ -84,13 +84,14 @@ function parseModArg(raw: string): BuildMod {
   return { name: raw.trim() };
 }
 
-/** `--element-bonus heat:60` -> Kuva/Tenet elemental bonus. */
+/** `--element-bonus toxin` or `toxin:45` -> Kuva/Tenet/Coda bonus element (60% when no number); `none` -> none. */
 function parseElementBonus(args: Args) {
   const raw = flag(args, 'element-bonus');
   if (!raw) return undefined;
   const [type, value] = raw.split(':');
   const element = (type ?? '').trim().toLowerCase();
-  const amount = Number(String(value ?? '').replace('%', '').trim());
+  if (element === 'none') return { type: 'heat' as never, value: 0 };
+  const amount = value === undefined ? 60 : Number(String(value).replace('%', '').trim());
   if (!element || !Number.isFinite(amount)) return undefined;
   return { type: element as never, value: amount > 1 ? amount / 100 : amount };
 }
@@ -554,8 +555,9 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
   if (resolved.activeBuffs.length) console.log(`  buffs        ${resolved.activeBuffs.join(', ')} @ ${num(resolved.abilityStrength)}% strength`);
   if (resolved.rivenLines.length) console.log(`  riven        ${resolved.rivenLines.join(', ')}`);
   if (resolved.incarnonLines.length) console.log(`  incarnon     ${resolved.incarnonLines.join(' / ')}`);
-  if (build.elementBonus) {
-    console.log(`  element      +${(build.elementBonus.value * 100).toFixed(0)}% ${build.elementBonus.type} (Kuva/Tenet bonus)`);
+  if (resolved.elementBonus) {
+    const picked = build.elementBonus ? '' : ', the default: pick with --element-bonus';
+    console.log(`  element      +${(resolved.elementBonus.value * 100).toFixed(0)}% ${resolved.elementBonus.type} (Kuva/Tenet/Coda bonus${picked})`);
   }
   if (resolved.comboMultiplier > 1) {
     console.log(`  combo        ${num(resolved.comboMultiplier, 1)}x at ${build.comboHits} hits${build.heavyAttack ? ' (heavy attack)' : ''}`);
@@ -1189,7 +1191,7 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
          --strength 284  --riven damage,multishot
          --incarnon "EVO2:0,EVO4:1"  --riven-roll 1.05
          --incarnon form           use the transformed profile with no evolution perks
-         --element-bonus heat:60    (Kuva/Tenet elemental bonus)
+         --element-bonus toxin:60   (Kuva/Tenet/Coda bonus element; default heat:60, none = off)
          --covenant-damage 4000    (damage prevented for Harrow's Covenant)
          --viral 10  --corrosive 10  (status debuffs on the target)
          --armor-strip 60            (percent of the target's armour removed)

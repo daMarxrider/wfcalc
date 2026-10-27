@@ -14,7 +14,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { loadSnapshot, findEnemy, findWeapon, modsForWeapon } from './data.ts';
-import { ARCANE_SLOTS, resolveBuild, type Build } from './engine/build.ts';
+import { ARCANE_SLOTS, hasBonusElement, resolveBuild, type Build } from './engine/build.ts';
 import { scaleEnemy } from './engine/enemy.ts';
 import { hitEnemy, statusProcs } from './engine/damage.ts';
 import { availableBuffs } from './engine/buffs.ts';
@@ -181,7 +181,9 @@ function calculate(body: any) {
       modClasses: weapon.modClasses,
       mode: resolved.mode?.name ?? null,
       modes: weapon.modes.map((m) => m.name),
+      hasBonusElement: hasBonusElement(weapon),
     },
+    elementBonus: resolved.elementBonus,
     build,
     damage: resolved.damage.perProjectile,
     projectileTotal: resolved.damage.projectileTotal,

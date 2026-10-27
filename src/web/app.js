@@ -260,9 +260,6 @@ const parseElementBonus = (text) => {
   return { type: type.trim().toLowerCase(), value: amount > 1 ? amount / 100 : amount };
 };
 
-const elementBonusText = (bonus) =>
-  bonus ? `${bonus.type}:${(bonus.value * 100).toFixed(0)}` : '';
-
 const parseNameList = (text) =>
   text.split(',').map((name) => name.trim()).filter(Boolean).map((name) => ({ name }));
 
@@ -922,6 +919,15 @@ function renderWeaponMeta(result) {
     desc.title = description;
   }
   const modes = weapon.modes ?? [];
+  // Kuva/Tenet/Coda: the bonus element and its share, as the Elemental Vice switches it in game.
+  $('element-field').hidden = !weapon.hasBonusElement;
+  if (weapon.hasBonusElement) {
+    const bonus = state.elementBonus ?? result.elementBonus;
+    $('element-select').value = bonus?.type ?? 'none';
+    $('element-input').value = String(Math.round((bonus?.value || 0.6) * 100));
+    $('element-input').disabled = $('element-select').value === 'none';
+    $('element-value').textContent = $('element-select').value === 'none' ? 'off' : `${$('element-input').value}%`;
+  }
   $('mode-field').hidden = modes.length === 0;
   if (modes.length) {
     $('mode-select').innerHTML = ['<option value="">arsenal (default)</option>', ...modes.map((mode) => `<option value="${mode}">${mode}</option>`)].join('');
@@ -1596,7 +1602,8 @@ const TIPS = {
   'combo-input': 'Melee combo counter hits.',
   'heavy': 'Count a heavy attack (spends the combo for its multiplier).',
   'aoe-input': 'Distance from the blast centre, for explosion falloff.',
-  'element-bonus': 'Kuva/Tenet weapon element bonus, e.g. heat:60.',
+  'element-select': 'Kuva/Tenet/Coda bonus element, switchable in game with an Elemental Vice. Not picked: 60% Heat.',
+  'element-input': 'Bonus element share of base damage: 25-60% in game.',
   'save-build': 'Save this build in the browser (Saved tab).',
   share: 'Copy a link that opens exactly this build.',
   'find-weapon': 'Weapon to search; empty uses the Build tab\'s.',
@@ -1713,7 +1720,6 @@ function syncInputs() {
   $('heavy').checked = Boolean(state.heavyAttack);
   $('aoe-input').value = String(state.aoeDistance ?? 0);
   $('aoe-value').textContent = state.aoeDistance ? `${state.aoeDistance} m` : 'centre';
-  $('element-bonus').value = elementBonusText(state.elementBonus);
   $('reactor').checked = Boolean(state.reactor);
   $('cp-input').value = String(state.corrosiveProjections ?? 0);
   $('strip-input').value = String(state.armorStripPercent ?? 0);
@@ -1750,6 +1756,7 @@ function bindEvents() {
     if (name === state.weapon) return;
     state.weapon = name;
     state.mods = [];
+    state.elementBonus = null; // the new weapon's own default (60% Heat on Kuva/Tenet/Coda)
     allMods = [];
     await loadModsForWeapon();
     renderSlots();
@@ -1943,10 +1950,13 @@ function bindEvents() {
     $('aoe-value').textContent = value === 0 ? 'centre' : `${value} m`;
     recalc();
   });
-  $('element-bonus').addEventListener('change', (event) => {
-    state.elementBonus = parseElementBonus(event.target.value);
+  const pickElement = () => {
+    const type = $('element-select').value;
+    state.elementBonus = type === 'none' ? { type: 'none', value: 0 } : { type, value: Number($('element-input').value) / 100 };
     recalc();
-  });
+  };
+  $('element-select').addEventListener('change', pickElement);
+  $('element-input').addEventListener('input', pickElement);
 
   const stripInput = (id, key) => {
     $(id).addEventListener('change', (event) => {
