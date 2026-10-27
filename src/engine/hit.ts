@@ -6,7 +6,8 @@
  *         weak point base: 3.0x for most factions, 1.5x for the Murmur and the Techrot, or a
  *         replacement such as Sonar's
  *         crit chance += base crit × Σ weak point critical chance
- *         head crits double the critical multiplier: 1 + tier × (2 × CD − 1)
+ *         head crits double the critical multiplier: 1 + tier × (2 × CD − 1), except on heads
+ *         that cannot be crit-headshot (Corpus, most Murmur and Techrot)
  *   body  multiplier = 1 + Σ bodyshot damage (Meticulous Aim −45%)
  *
  * The same location multiplier and crit multiplier carry into status ticks (wiki:
@@ -16,6 +17,13 @@ import type { ResolvedBuild } from './build.ts';
 
 /** Factions whose heads are softer weak points (wiki: "closer to 1.5x"). */
 const SOFT_HEADS = new Set(['murmur', 'techrot']);
+
+/**
+ * Wiki (Weak Point): the critical headshot "excludes the heads of all Corpus humanoids and ground
+ * units, most of The Murmur, and much of Techrot"; they still take the weak point multiplier.
+ * shortcut: the whole faction for Murmur and Techrot, the wiki names no exceptions; per-unit data would refine it.
+ */
+const NO_CRIT_HEADSHOT = new Set(['corpus', 'murmur', 'techrot']);
 
 export function weakPointBase(faction: string | null | undefined): number {
   return SOFT_HEADS.has(String(faction ?? '').toLowerCase()) ? 1.5 : 3;
@@ -31,6 +39,8 @@ export interface HitProfile {
   averageCrit: number;
   /** Average crit multiplier of a hit that did crit (orange/red tiers included). */
   critOnCrit: number;
+  /** Whether crits on this hit double the critical multiplier (a critical headshot). */
+  critHeadshot: boolean;
 }
 
 export function hitProfile(build: ResolvedBuild, faction: string | null | undefined): HitProfile {
@@ -41,9 +51,10 @@ export function hitProfile(build: ResolvedBuild, faction: string | null | undefi
   const critChance = Math.max(0, build.critChance + (head ? build.weakPointCritChance : 0));
   const critDamage = Math.max(1, build.critMultiplier);
   // Expected crit tier equals the crit chance at any value, so the average is linear in it.
-  const perTier = head ? 2 * critDamage - 1 : critDamage - 1;
+  const critHeadshot = head && !NO_CRIT_HEADSHOT.has(String(faction ?? '').toLowerCase());
+  const perTier = critHeadshot ? 2 * critDamage - 1 : critDamage - 1;
   const averageCrit = 1 + critChance * perTier;
   const p = Math.min(1, critChance);
   const critOnCrit = p > 0 ? (averageCrit - (1 - p)) / p : 1 + perTier;
-  return { zone: head ? 'head' : 'body', location, critChance, averageCrit, critOnCrit };
+  return { zone: head ? 'head' : 'body', location, critChance, averageCrit, critOnCrit, critHeadshot };
 }
