@@ -499,6 +499,8 @@ const server = createServer(async (req, res) => {
       res.writeHead(404, { 'content-type': 'text/plain' });
       return res.end('not found');
     }
+    // Bad input from any route (a level of "abc") is the caller's mistake, not a server fault.
+    if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
     console.error(error);
     return json(res, 500, { error: String(error) });
   }
