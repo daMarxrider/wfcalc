@@ -172,6 +172,8 @@ let shardCatalog = {};
 let sniperCatalog = {};
 /** Riven stat ids and labels, from /api/riven-stats. */
 let rivenStatCatalog = [];
+/** Warframe mods that give Ability Strength, from /api/frame-mods. */
+let frameModNames = [];
 const SHARD_COLORS = { crimson: '#d9474b', amber: '#e8a33c', azure: '#4fa3e0', violet: '#a565e0', topaz: '#e2b04a', emerald: '#4fc28a' };
 let allAbilities = [];
 let calculationId = 0;
@@ -253,13 +255,45 @@ const parseRivenInput = (text) => {
 const rivenSuggestions = (text, attributes) => {
   const head = text.slice(0, text.lastIndexOf(',') + 1);
   const last = text.slice(head.length).trimStart();
+  // Keep the typed spacing: the browser only shows options that start with the input's text.
+  const lead = text.slice(0, text.length - last.length);
   if (last.includes('=')) return [];
   const sign = last.startsWith('-') ? '-' : '';
   const used = new Set(head.split(',').map((part) => part.trim().replace(/^-/, '').split('=')[0].trim()));
   return attributes
     .filter((attribute) => !used.has(attribute.id) && attribute.id.startsWith(last.slice(sign.length).toLowerCase()))
-    .map((attribute) => ({ value: `${head}${sign}${attribute.id}`, label: attribute.label }));
+    .map((attribute) => ({ value: `${lead}${sign}${attribute.id}`, label: attribute.label }));
 };
+
+/** Names that finish the last entry of a "Serration, Split Chamber:R3" list, skipping ones already listed. */
+const nameSuggestions = (text, names) => {
+  const head = text.slice(0, text.lastIndexOf(',') + 1);
+  const typed = text.slice(head.length).trimStart();
+  const lead = text.slice(0, text.length - typed.length);
+  const last = typed.trimEnd().toLowerCase();
+  if (!last || last.includes(':')) return [];
+  const used = new Set(head.split(',').map((part) => part.split(':')[0].trim().toLowerCase()));
+  return names
+    .filter((name) => !used.has(name.toLowerCase()) && name.toLowerCase().startsWith(last))
+    .map((name) => ({ value: `${lead}${name}`, label: '' }));
+};
+
+/** Mod names that fit a weapon, fetched once per weapon. */
+const modNameCache = new Map();
+const modNamesFor = (weapon) => {
+  if (!modNameCache.has(weapon)) {
+    modNameCache.set(weapon, getJson(`/api/mods?weapon=${encodeURIComponent(weapon)}`)
+      .then((mods) => mods.map((mod) => mod.name)).catch(() => []));
+  }
+  return modNameCache.get(weapon);
+};
+
+/** Fills the shared datalist from `suggest(text)` as the input is typed in. */
+const autocomplete = (input, suggest) => input.addEventListener('input', async () => {
+  const options = await suggest(input.value);
+  if (document.activeElement !== input) return;
+  $('complete-list').replaceChildren(...options.map((option) => new Option(option.label, option.value)));
+});
 
 /** The riven back as text, values included. */
 const rivenText = (riven) => (riven
@@ -589,7 +623,9 @@ function renderSlots() {
       const index = Number(label.dataset.index);
       const input = document.createElement('input');
       input.className = 'mod-name editing';
-      input.setAttribute('list', 'mod-list');
+      input.setAttribute('list', 'complete-list');
+      autocomplete(input, (text) => nameSuggestions(text, allMods.map((mod) => mod.name)
+        .filter((name) => equippedIndex(name, index) < 0)));
       input.value = state.mods[index].name ?? '';
       input.dataset.index = String(index);
       label.replaceWith(input);
@@ -1942,12 +1978,12 @@ function bindEvents() {
     renderSniperFields();
     recalc();
   });
-  for (const id of ['riven-input', 'find-riven-input']) {
-    $(id).addEventListener('input', (event) => {
-      $('riven-stat-list').innerHTML = rivenSuggestions(event.target.value, rivenStatCatalog)
-        .map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
-    });
+  for (const id of ['riven-input', 'find-riven-input']) autocomplete($(id), (text) => rivenSuggestions(text, rivenStatCatalog));
+  for (const id of ['find-must', 'find-exclude']) {
+    autocomplete($(id), async (text) => nameSuggestions(text, await modNamesFor($('find-weapon').value.trim() || state.weapon)));
   }
+  autocomplete($('b-mods'), async (text) => nameSuggestions(text, await modNamesFor($('b-weapon').value.trim() || state.weapon)));
+  autocomplete($('framemods-input'), (text) => nameSuggestions(text, frameModNames));
   $('riven-input').addEventListener('change', (event) => {
     state.riven = parseRivenInput(event.target.value);
     rivenLines = [];
@@ -2067,7 +2103,7 @@ function bindEvents() {
 /** ---------- boot ---------- */
 
 async function loadStaticLists() {
-  const [weapons, enemies, buffs, arcanes, warframes, abilities, shards, rivenStats] = await Promise.all([
+  const [weapons, enemies, buffs, arcanes, warframes, abilities, shards, rivenStats, frameMods] = await Promise.all([
     getJson('/api/weapons'),
     getJson('/api/enemies'),
     getJson('/api/buffs'),
@@ -2076,9 +2112,11 @@ async function loadStaticLists() {
     getJson('/api/abilities'),
     getJson('/api/shards'),
     getJson('/api/riven-stats'),
+    getJson('/api/frame-mods'),
   ]);
   shardCatalog = shards;
   rivenStatCatalog = rivenStats;
+  frameModNames = frameMods;
   sniperCatalog = await getJson('/api/snipers').catch(() => ({}));
   $('frame-list').innerHTML = warframes.map((frame) => `<option value="${frame.name}"></option>`).join('');
   weaponData.clear();

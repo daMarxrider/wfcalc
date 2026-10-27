@@ -341,6 +341,12 @@ const server = createServer(async (req, res) => {
       return json(res, 200, result);
     }
     if (url.pathname === '/api/shards') return json(res, 200, SHARD_BONUSES);
+    if (url.pathname === '/api/frame-mods') {
+      // The frame-mods field only counts Ability Strength, so only those mods are worth suggesting.
+      return json(res, 200, Object.values(snapshot.mods)
+        .filter((mod) => mod.effects.some((effect) => effect.target === 'abilityStrength'))
+        .map((mod) => mod.name).sort());
+    }
     if (url.pathname === '/api/riven-stats') return json(res, 200, RIVEN_ATTRIBUTES.map(({ id, label }) => ({ id, label })));
     if (url.pathname === '/api/snipers') {
       return json(res, 200, Object.fromEntries(Object.entries(snapshot.snipers ?? {}).map(([name, data]) => [name, {
