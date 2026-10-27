@@ -501,6 +501,25 @@ function scaleTarget(
   return scaleEnemy(snapshot, enemy, level, { eximus: request.eximus, overguard: request.overguard, steelPath: request.steelPath });
 }
 
+/** Stats where a negative value helps, so it is no drawback. */
+const LOWER_IS_BETTER = new Set(['recoil', 'spread']);
+
+/**
+ * Between builds that are equally fast: fewer drawbacks first, then less drain. Heavy Caliber and
+ * Serration both add +165% damage; Heavy Caliber also costs accuracy and 2 more capacity, so the
+ * tie goes to Serration. At most ~1e-6 of the score: it never reorders builds that really differ.
+ */
+function tiePenalty(snapshot: Snapshot, mods: BuildMod[]): number {
+  let penalty = 0;
+  for (const { name } of mods) {
+    const mod = snapshot.mods[name];
+    if (!mod) continue;
+    penalty += (mod.baseDrain ?? 0) + mod.maxRank;
+    penalty += 100 * mod.effects.filter((effect) => effect.value < 0 && !LOWER_IS_BETTER.has(String(effect.target))).length;
+  }
+  return penalty;
+}
+
 /** Score of one mod list: higher is better for either objective. Invalid builds score -Infinity. */
 function makeScorer(
   snapshot: Snapshot,
@@ -517,11 +536,12 @@ function makeScorer(
       const resolved = resolveBuild(snapshot, { ...base, weapon, mods: exilus ? [...mods, exilus] : mods });
       if (requireStatus.some((type) => !((resolved.damage.perProjectile[type] ?? 0) > 0))) return -Infinity;
       const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate' });
-      if (objective === 'dps') return hit.totalDps;
+      const tie = 1 - 1e-9 * tiePenalty(snapshot, mods);
+      if (objective === 'dps') return hit.totalDps * tie;
       if (hit.timeToKill === null) return -Infinity;
       // Builds that one-shot all share a kill time; the harder hit wins the tie (at most a 1e-4
       // relative nudge, so it never reorders builds whose times really differ).
-      return (1 / Math.max(hit.timeToKill, 1e-9)) * (1 + 1e-4 * Math.min(1, Math.log10(1 + hit.damagePerShotHealth) / 10));
+      return (1 / Math.max(hit.timeToKill, 1e-9)) * (1 + 1e-4 * Math.min(1, Math.log10(1 + hit.damagePerShotHealth) / 10)) * tie;
     } catch {
       return -Infinity;
     }
