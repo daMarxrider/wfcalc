@@ -19,7 +19,7 @@ import { scaleEnemy } from './engine/enemy.ts';
 import { hitEnemy, statusProcs } from './engine/damage.ts';
 import { availableBuffs } from './engine/buffs.ts';
 import { search } from './engine/search.ts';
-import { bruteForce, bruteForceFromCombinations, type BruteForceRequest } from './engine/bruteforce.ts';
+import { bruteForce, bruteForceFromCombinations, warmExactPool, type BruteForceRequest } from './engine/bruteforce.ts';
 import { gpuModel } from './engine/gpu-model.ts';
 import { SHARD_BONUSES } from './engine/shards.ts';
 import { RIVEN_ATTRIBUTES } from './engine/riven.ts';
@@ -396,6 +396,8 @@ const server = createServer(async (req, res) => {
       try {
         const request = bruteForceRequestFrom(body);
         if ('error' in request) return json(res, 404, request);
+        // The exact pass follows in a few seconds: load its threads while the GPU works.
+        warmExactPool();
         return json(res, 200, gpuModel(snapshot, request, body.keep !== undefined ? Math.max(1, Math.min(100_000, Number(body.keep))) : undefined));
       } catch (error) {
         if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
@@ -412,7 +414,7 @@ const server = createServer(async (req, res) => {
         const request = bruteForceRequestFrom(body);
         if ('error' in request) return json(res, 404, request);
         const gpu = body.gpu ?? {};
-        return json(res, 200, bruteForceFromCombinations(snapshot, request, body.combinations, {
+        return json(res, 200, await bruteForceFromCombinations(snapshot, request, body.combinations, {
           combinations: Number(gpu.combinations) || 0,
           elapsedMs: Number(gpu.elapsedMs) || 0,
           adapter: typeof gpu.adapter === 'string' ? gpu.adapter.slice(0, 80) : undefined,
