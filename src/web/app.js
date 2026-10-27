@@ -1840,7 +1840,7 @@ function applyTips() {
     document.addEventListener('click', show);
     document.addEventListener('focusin', show);
   }
-  const modes = 'none: every conditional effect off. custom: the values in Conditions (aiming, on-kill...). all: every conditional effect at its cap; weak-point ones need headshots.';
+  const modes = 'none: every conditional effect off. custom: the values in Conditions (aiming, on-kill...). all: every conditional effect at its cap; weak-point ones need headshots, aiming ones need aiming ticked.';
   for (const group of document.querySelectorAll('.segmented[aria-label^="Stack mode"]')) group.title = modes;
   const method = 'Quick search: greedy, fast, usually right. Brute force: every combination of the candidate mods, on every core.';
   document.querySelector('.segmented[aria-label="Search method"]')?.setAttribute('title', method);

@@ -30,7 +30,7 @@ import { hitEnemy } from './damage.ts';
 import type { SimulationResult } from './simulate.ts';
 import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
 import type { AttenuationProfile } from './attenuation.ts';
-import { fitMods, search, searchableMods } from './search.ts';
+import { DAMAGE_TARGETS, fitMods, search, searchableMods } from './search.ts';
 import { InputError } from '../errors.ts';
 import { rivenAsMod } from './riven.ts';
 import { loadSnapshot, modsForWeapon } from '../data.ts';
@@ -342,6 +342,18 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   }
 
   const excluded = new Set((request.exclude ?? []).map((name) => name.toLowerCase()));
+  // Mods that only work while aiming (Bladed Rounds) are dead weight unless the player aims.
+  const aiming = base.stackMode !== 'none' && Boolean(base.conditions?.aiming);
+  const aimingOnly: string[] = [];
+  if (!aiming) {
+    for (const mod of modsForWeapon(snapshot, weapon)) {
+      const live = mod.effects.filter((effect) => DAMAGE_TARGETS.has(String(effect.target)));
+      if (live.length && live.every((effect) => effect.condition?.split('+').includes('aiming')) && !base.sourceStacks?.[mod.name]) {
+        excluded.add(mod.name.toLowerCase());
+        aimingOnly.push(mod.name);
+      }
+    }
+  }
   const fittingMods = searchableMods(snapshot, weapon, excluded)
     .filter((mod) => !fixedNames.has(mod.name))
     .filter((mod) => !mod.incompatible.some((other) => fixedNames.has(other)));
@@ -357,12 +369,34 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   const scoreOf = makeScorer(snapshot, weapon.name, base, scaled, objective, request.attenuation, request.simulate === false ? 'plain' : 'steady');
   const seed = search(snapshot, {
     weapon: weapon.name, objective, enemy: enemy.name, level, capacity, maxForma,
-    exclude: request.exclude, mustInclude: [...fixedNames].filter((name) => name !== exilus?.name),
+    exclude: [...excluded], mustInclude: [...fixedNames].filter((name) => name !== exilus?.name),
     eximus: request.eximus, overguard: request.overguard, steelPath: request.steelPath,
     attenuation: request.attenuation, base, limit: 3,
   });
   // The greedy search does not reserve a slot for the riven, so its sets are trimmed to fit.
   const seedSets = seed.builds.map((build) => build.mods.map((mod) => mod.name).filter((name) => !fixedNames.has(name)).slice(0, freeSlots));
+  // Exilus slot, when none is pinned: the Exilus mod that does most for the greedy builds (and
+  // still fits) takes it, before the ranking, so set pieces in the eight slots are valued with it.
+  // shortcut: picked once on the greedy builds, not searched per combination; pin one with --fixed to override.
+  let exilusPicked = false;
+  if (!exilus) {
+    const fitsWith = (set: string[], drain: number): boolean => {
+      const fit = fitMods([
+        ...[...fixed, ...set.map((name) => ({ name, rank: snapshot.mods[name].maxRank }))].map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? 0 })),
+        ...(rivenMod ? [{ mod: rivenMod, rank: 0 }] : []),
+      ], weapon, capacity - drain);
+      return fit.drain <= capacity - drain && (maxForma === null || fit.formaNeeded <= maxForma);
+    };
+    const bestWith = (candidate: BuildMod | null): number => Math.max(...seedSets
+      .filter((set) => fitsWith(set, exilusCost(snapshot, weapon, candidate)))
+      .map((set) => scoreOf([...fixed, ...set.map((name) => ({ name }))], candidate)));
+    let best = bestWith(null);
+    for (const mod of searchableMods(snapshot, weapon, excluded, true)) {
+      const candidate: BuildMod = { name: mod.name, rank: mod.maxRank };
+      const score = bestWith(candidate);
+      if (score > best) [best, exilus, exilusPicked] = [score, candidate, true];
+    }
+  }
   const value = new Map<string, number>();
   for (const mod of all) {
     let best = -Infinity;
@@ -408,7 +442,8 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   if (request.steelPath) assumptions.push('Steel Path: target health and shields x2.5 (armour unchanged)');
   if (request.eximus) assumptions.push('Eximus target: raised base health/shields and Overguard');
   if (requireStatus.length) assumptions.push(`Every build carries ${requireStatus.join(', ')} damage`);
-  if (fixed.length || exilus) assumptions.push(`Fixed mods: ${[...fixed, ...(exilus ? [exilus] : [])].map((mod) => `${mod.name} R${mod.rank}`).join(', ')}`);
+  const pinned = [...fixed, ...(exilus && !exilusPicked ? [exilus] : [])];
+  if (pinned.length) assumptions.push(`Fixed mods: ${pinned.map((mod) => `${mod.name} R${mod.rank}`).join(', ')}`);
   if (base.buffs?.length) assumptions.push(`Buffs: ${base.buffs.join(', ')}${base.abilityStrength ? ` at ${base.abilityStrength}% Ability Strength` : ''}`);
   if (base.incarnon?.length) assumptions.push(`Incarnon: ${base.incarnon.join(', ')}`);
   if (base.arcanes?.length) assumptions.push(`Arcanes: ${base.arcanes.map((entry) => (typeof entry === 'string' ? entry : entry.name)).join(', ')}`);
@@ -418,7 +453,9 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
       + `(budget ${maxEvaluations.toLocaleString('en-US')}); raise --max-evals or --pool to widen it.`,
     );
   }
-  notes.push('The Exilus slot is not searched; pin an Exilus mod with --fixed to count it.');
+  if (exilusPicked) assumptions.push(`Exilus: ${exilus!.name} R${exilus!.rank}, the best Exilus mod on the greedy builds; pin one with --fixed to choose`);
+  else if (!exilus) notes.push('No Exilus mod adds damage here, so the Exilus slot stays empty.');
+  if (aimingOnly.length) assumptions.push(`Not aiming: ${aimingOnly.join(', ')} left out`);
 
   return {
     weapon: weapon.name,

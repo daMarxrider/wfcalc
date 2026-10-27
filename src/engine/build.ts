@@ -208,6 +208,8 @@ export interface ResolvedBuild {
   elementBonus: { type: DamageType; value: number } | null;
   /** Primary Debilitate's chance to add a base status on 10+ combined stacks, 0 when none. */
   debilitateChance: number;
+  /** Chance a critical hit gains one more tier (Vigilante Set: 5% per piece), 0 when none. */
+  critTierBonus: number;
   /** Multiplier on damage to Overguard (Secondary Fortifier: x8), 1 when none. */
   overguardDamageMultiplier: number;
   /** Flat damage per status proc, of the proc's own type (Cascadia Empowered: 750), 0 when none. */
@@ -270,7 +272,9 @@ function conditionStacks(effect: Effect, conditions: Conditions, context: StackC
     } else if (context.mode === 'none') {
       stacks = 0;
     } else if (context.mode === 'max') {
-      stacks = WEAK_POINT_CONDITION.test(effect.condition) && context.hit !== 'head' ? 0 : cap;
+      // Aiming is how the player plays, not a stack to max out: like head hits, it needs the switch.
+      const aimingOff = effect.condition.split('+').includes('aiming') && !conditions.aiming;
+      stacks = (WEAK_POINT_CONDITION.test(effect.condition) && context.hit !== 'head') || aimingOff ? 0 : cap;
     } else {
       for (const part of effect.condition.split('+')) {
         // A ramping buff the player picked counts as fully built unless they say otherwise.
@@ -1070,12 +1074,12 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
 
   const crit = Math.max(1, critMultiplier);
   // Expectation over the two cases. "Non-critical hits deal +240%" (Cull the Weak) weights
-  // the non-crit branch, and Vigilante moves a share of that branch into the crit branch.
+  // the non-crit branch. Vigilante (wiki: Critical Hit) raises a critical hit's tier by 1 at
+  // 5% per piece, so it adds `vigilante` tiers on the share of hits that crit, red crits included.
   const nonCritBonus = bonus('nonCritDamage');
-  const effectiveCritChance = critChance >= 1 ? 1 : critChance + (1 - critChance) * vigilante;
   const averageCritMultiplier = critChance >= 1
-    ? 1 + critChance * (crit - 1)
-    : (1 - effectiveCritChance) * (1 + nonCritBonus) + effectiveCritChance * crit;
+    ? 1 + (critChance + vigilante) * (crit - 1)
+    : (1 - critChance) * (1 + nonCritBonus) + critChance * (crit + vigilante * (crit - 1));
   // Hit location (wiki: Enemy Body Parts). The arsenal figure assumes the usual 3x head; the
   // target's own faction multiplier is applied in hit.ts.
   const hitZone = hitZoneOf(build);
@@ -1152,6 +1156,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     dotSeed: (baseTotal + flatBase) * damageBonus * sniperComboMultiplier * finalFactor,
     elementBonus,
     debilitateChance: bonus('debilitate'),
+    critTierBonus: vigilante,
     overguardDamageMultiplier: bonus('overguardDamage') || 1,
     procDamage: bonus('procDamage'),
     elementBonuses: collected.elementBonuses.reduce<Partial<Record<BaseElement, number>>>((acc, entry) => {
