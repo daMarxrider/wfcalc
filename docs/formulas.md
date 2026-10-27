@@ -73,6 +73,11 @@ total = base × (1 + damage mods) × (1 + direct damage) × …
 Verified against Overframe on the Haalvu build: `218.7 × 1.8 = 393.5`, where `1.8` is
 Galvanized Aptitude at two stacks. Treating it as additive with Serration gave 284.6.
 
+It scales direct hits only (wiki: "never worked on AoE"). On a weapon whose arsenal block is
+direct hit + explosion (Kuva Zarr, Kuva Bramma, Tenet Envoy) the bonus is scaled by the direct
+hit's share of base damage, which is exact because every later step is linear. Status ticks
+are seeded from the base-damage bucket and do not take it.
+
 ### Faction damage
 
 `Bane of Grineer` and friends are a separate multiplier bucket
