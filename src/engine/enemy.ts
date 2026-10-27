@@ -10,6 +10,7 @@
  *   DR = armor / (armor + 300)        above that (only reachable with buffs/debuffs)
  */
 import type { EnemyData, HealthPool, Snapshot } from '../types.ts';
+import { InputError } from '../errors.ts';
 
 /** f32 rounding, because the game stores these values as binary32. */
 const f32 = Math.fround;
@@ -143,6 +144,11 @@ export function scaleEnemy(
   level: number,
   options: ScaleOptions = {},
 ): ScaledEnemy {
+  // Every caller passes user input through here; a NaN or overflowing level used to come out as
+  // a target with no health, killed in 0 s. The game caps enemy level at 9999.
+  if (!Number.isFinite(level) || level < 1 || level > 9999) {
+    throw new InputError(`enemy level must be a number from 1 to 9999, got ${level}`, 'invalid_level');
+  }
   const faction = (enemy.faction ?? 'neutral').toLowerCase();
   const q = Math.max(0, level - enemy.baseLevel);
 

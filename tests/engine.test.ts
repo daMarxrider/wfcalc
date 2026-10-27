@@ -713,17 +713,17 @@ test('a non-subsumable buff from another frame only warns', () => {
 });
 
 test('Kuva/Tenet elemental bonus joins the combination as innate damage', () => {
-  const snap = snapshot([weapon({ impact: 100 })], [hellfire, cryoRounds]);
+  const snap = snapshot([{ ...weapon({ impact: 100 }), name: 'Kuva Test' }], [hellfire, cryoRounds]);
   // 60% of 100 base = 60 Heat, added before mods; Hellfire (+90%) stacks on top of the
   // 100 base, so Heat = 60 + 90 = 150 and nothing is left to combine.
-  const bare = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], elementBonus: { type: 'heat', value: 0.6 } });
+  const bare = resolveBuild(snap, { weapon: 'Kuva Test', mods: [], elementBonus: { type: 'heat', value: 0.6 } });
   close(bare.damage.perProjectile.heat ?? 0, 60);
   close(bare.damage.projectileTotal, 160);
 
   // The bonus counts as base damage, so elemental mods scale off the larger total:
   // Cryo Rounds adds 90% of 160 = 144 Cold, which pairs with the innate 60 Heat.
   const withCold = resolveBuild(snap, {
-    weapon: 'Test Weapon', mods: ['Cryo Rounds'], elementBonus: { type: 'heat', value: 0.6 },
+    weapon: 'Kuva Test', mods: ['Cryo Rounds'], elementBonus: { type: 'heat', value: 0.6 },
   });
   close(withCold.damage.perProjectile.blast ?? 0, 60 + 144);
   close(withCold.damage.perProjectile.heat ?? 0, 0);
@@ -804,7 +804,17 @@ test('Kuva/Tenet/Coda weapons carry a bonus element, 60% Heat unless the player 
   assert.ok(at({ elementBonus: { type: 'blast', value: 0.6 } }).warnings.some((line) => line.includes('not a bonus element')));
   const plain = resolveBuild(snap, { weapon: 'Test Weapon', mods: [] });
   assert.equal(plain.elementBonus, null);
-  assert.ok(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], elementBonus: { type: 'heat', value: 0.6 } }).warnings.some((line) => line.includes('no bonus element')));
+  // Not on an ordinary weapon, not past the game's 60%: ignored or clamped, with a warning.
+  const ordinary = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], elementBonus: { type: 'heat', value: 0.6 } });
+  assert.ok(ordinary.warnings.some((line) => line.includes('no bonus element')));
+  close(ordinary.damage.projectileTotal, 100);
+  close(at({ elementBonus: { type: 'heat', value: 50 } }).damage.perProjectile.heat ?? 0, 60);
+});
+
+test('enemy levels outside 1..9999 are refused instead of scaling to nothing', () => {
+  const snap = snapshot([weapon({ impact: 100 })], [], [dummy]);
+  for (const level of [Number.NaN, 0, -5, 1e9]) assert.throws(() => scaleEnemy(snap, dummy, level), /level must be a number/);
+  assert.ok(scaleEnemy(snap, dummy, 9999).health > 0);
 });
 
 test('Primary Debilitate adds base statuses on 10+ stacks of a combined one', () => {

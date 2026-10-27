@@ -328,10 +328,15 @@ export const DEFAULT_ELEMENT_BONUS = { type: 'heat' as DamageType, value: 0.6 };
 /** Kuva, Tenet and Coda weapons roll a bonus element of 25-60% of base damage. */
 export const hasBonusElement = (weapon: WeaponData): boolean => /^(Kuva|Tenet|Coda|Dual Coda) /.test(weapon.name);
 
-/** The bonus element a build fires with: the player's pick, else the default on weapons that carry one. */
+/**
+ * The bonus element a build fires with: the player's pick, else the default on weapons that carry
+ * one. Only what the game allows counts: a Kuva/Tenet/Coda weapon, one of its elements, at most 60%.
+ */
 export function weaponElementBonus(weapon: WeaponData, requested: Build['elementBonus']): { type: DamageType; value: number } | null {
-  if (requested) return requested.value > 0 ? requested : null;
-  return hasBonusElement(weapon) ? DEFAULT_ELEMENT_BONUS : null;
+  if (!hasBonusElement(weapon)) return null;
+  if (!requested) return DEFAULT_ELEMENT_BONUS;
+  if (!(requested.value > 0) || !(BONUS_ELEMENTS as readonly string[]).includes(requested.type)) return null;
+  return { type: requested.type, value: Math.min(0.6, requested.value) };
 }
 
 export const ARCANE_SLOTS: Record<string, string[]> = {
@@ -464,12 +469,15 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   // so it combines like innate damage, and counts as base damage for mods and status seeds.
   let elementBonusWarning: string | null = null;
   const elementBonus = weaponElementBonus(weapon, build.elementBonus);
+  const asked = build.elementBonus;
+  if (asked && asked.value > 0) {
+    if (!hasBonusElement(weapon)) elementBonusWarning = `${weapon.name} is not a Kuva, Tenet or Coda weapon and has no bonus element; ignored`;
+    else if (!(BONUS_ELEMENTS as readonly string[]).includes(asked.type)) elementBonusWarning = `${asked.type} is not a bonus element (the game offers ${BONUS_ELEMENTS.join(', ')}); ignored`;
+    else if (asked.value > 0.6) elementBonusWarning = `element bonus ${(asked.value * 100).toFixed(0)}% is above the 60% maximum; 60% used`;
+    else if (asked.value < 0.25) elementBonusWarning = `element bonus ${(asked.value * 100).toFixed(0)}% is below the 25% minimum`;
+  }
   if (elementBonus) {
     const { type, value } = elementBonus;
-    if (!hasBonusElement(weapon)) elementBonusWarning = `${weapon.name} is not a Kuva, Tenet or Coda weapon and has no bonus element`;
-    else if (!(BONUS_ELEMENTS as readonly string[]).includes(type)) elementBonusWarning = `${type} is not a bonus element; the game offers ${BONUS_ELEMENTS.join(', ')}`;
-    else if (value > 0.6) elementBonusWarning = `element bonus ${(value * 100).toFixed(0)}% is above the 60% maximum`;
-    else if (value < 0.25) elementBonusWarning = `element bonus ${(value * 100).toFixed(0)}% is below the 25% minimum`;
     const rawTotal = DAMAGE_TYPES.reduce((sum, candidate) => sum + (stats[candidate] ?? 0), 0);
     stats = { ...stats, [type]: (stats[type] ?? 0) + rawTotal * value };
   }
