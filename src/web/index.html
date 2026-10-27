@@ -16,6 +16,7 @@
     <button class="tab" data-tab="abilities" role="tab">Abilities</button>
     <button class="tab" data-tab="compare" role="tab">Compare</button>
     <button class="tab" data-tab="saved" role="tab">Saved</button>
+    <button class="tab" data-tab="riven" role="tab">Riven</button>
     <button class="tab" data-tab="settings" role="tab">Settings</button>
   </nav>
 </header>
@@ -437,6 +438,32 @@
   <section class="panel wide">
     <div class="panel-head"><h2>Saved builds</h2><span id="saved-count" class="badge"></span></div>
     <div id="saved-list" class="saved-list"></div>
+  </section>
+</main>
+
+<main id="tab-riven" class="tab-panel">
+  <section class="panel wide">
+    <div class="panel-head"><h2>Riven picker</h2></div>
+    <p class="hint">Every riven your weapon can roll (three positive stats, one negative, every stat at its best value;
+      the negative at its worst) against the build on the Build tab: which mod it should replace, and for a combined
+      element (Viral…) which of its element mods could go too. Target, loadout and Incarnon perks come from the Build tab.</p>
+    <div id="riven-build" class="build-mods"></div>
+    <div id="riven-form-box" class="stack-row" hidden>
+      <span class="field-label">Weapon form <span class="hint">· choose before searching</span></span>
+      <div class="segmented small" role="radiogroup" aria-label="Weapon form for the riven picker">
+        <label><input type="radio" name="riven-form" value="normal" /><span>normal</span></label>
+        <label><input type="radio" name="riven-form" value="incarnon" /><span>Incarnon form</span></label>
+      </div>
+    </div>
+    <div class="compare-grid">
+      <label class="field"><span>Goal</span>
+        <select id="riven-objective"><option value="ttk">fastest kill</option><option value="dps">most damage per second</option></select></label>
+      <label class="field"><span>My riven has (optional)</span>
+        <span class="riven-filter"><select id="riven-stat-1"></select><select id="riven-stat-2"></select><select id="riven-stat-3"></select></span></label>
+      <label class="field"><span>Negative stat (optional)</span><select id="riven-malus"></select></label>
+    </div>
+    <button id="riven-run" class="primary" type="button">find the riven slot</button>
+    <div id="riven-out"></div>
   </section>
 </main>
 

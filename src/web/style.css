@@ -795,3 +795,20 @@ label[title] > span:first-child, label.stack[title], .toggles label[title] { tex
   .evo-row { grid-template-columns: 1fr; gap: 4px; }
   .evo-option { width: calc(50% - 3px); }
 }
+
+/* Riven picker: one row per riven effect, its stats, then what it replaces. */
+.riven-filter { display: flex; gap: 6px; flex-wrap: wrap; }
+.riven-filter select { flex: 1 1 120px; min-width: 0; }
+#riven-run { margin: 6px 0 12px; }
+.riven-rows { display: grid; gap: 6px; }
+.riven-row {
+  display: grid; grid-template-columns: 28px 1fr minmax(180px, 34%); gap: 10px; align-items: center;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+}
+.riven-rank { color: var(--accent); text-align: center; }
+.riven-stats { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+.riven-action { font-size: 13px; }
+@media (max-width: 640px) {
+  .riven-row { grid-template-columns: 24px 1fr; }
+  .riven-action { grid-column: 2; }
+}

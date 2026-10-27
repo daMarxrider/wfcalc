@@ -21,6 +21,7 @@ import { availableBuffs } from './engine/buffs.ts';
 import { search } from './engine/search.ts';
 import { bruteForce, bruteForceFromCombinations, warmExactPool, type BruteForceRequest } from './engine/bruteforce.ts';
 import { gpuModel } from './engine/gpu-model.ts';
+import { rivenPicker } from './engine/riven-picker.ts';
 import { SHARD_BONUSES } from './engine/shards.ts';
 import { RIVEN_ATTRIBUTES } from './engine/riven.ts';
 import { abilityCast } from './engine/ability.ts';
@@ -432,6 +433,39 @@ const server = createServer(async (req, res) => {
           adapter: typeof gpu.adapter === 'string' ? gpu.adapter.slice(0, 80) : undefined,
           drift: gpu.drift !== undefined ? Number(gpu.drift) : undefined,
         }));
+      } catch (error) {
+        if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
+        throw error;
+      }
+    }
+    // Riven tab: which build mod each possible riven should replace.
+    if (url.pathname === '/api/riven-picker' && req.method === 'POST') {
+      const body = await readBody(req);
+      const { item: weapon, suggestions } = findWeapon(snapshot, body.weapon ?? '');
+      if (!weapon) return json(res, 404, { error: `weapon not found: ${body.weapon ?? ''}`, suggestions });
+      try {
+        const build = buildFromJson(snapshot, body, weapon.name);
+        const incarnon = (build.incarnon ?? []).filter((choice) => choice.toLowerCase() !== 'form');
+        if (weapon.incarnonForm) {
+          if (body.form !== 'normal' && body.form !== 'incarnon') {
+            throw new InputError(`${weapon.name} has an Incarnon form: send form "normal" or "incarnon"`, 'choose_form');
+          }
+          if (body.form === 'incarnon') incarnon.push('form');
+        }
+        const result = await rivenPicker(snapshot, {
+          weapon: weapon.name,
+          mods: (build.mods ?? []).map((mod) => (typeof mod === 'string' ? { name: mod } : mod)).filter((mod) => mod.name && mod.name !== 'Riven'),
+          base: { ...build, incarnon, mods: [] },
+          enemy: body.enemy ?? 'Bombard',
+          level: body.level !== undefined ? Number(body.level) : 150,
+          steelPath: Boolean(body.steelPath),
+          eximus: Boolean(body.eximus),
+          objective: body.objective === 'dps' ? 'dps' : 'ttk',
+          limit: body.limit !== undefined ? Math.max(1, Math.min(1000, Number(body.limit))) : 200,
+          stats: Array.isArray(body.stats) ? body.stats.map(String).slice(0, 3) : undefined,
+          malus: typeof body.malus === 'string' && body.malus ? body.malus : undefined,
+        });
+        return json(res, 200, result);
       } catch (error) {
         if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
         throw error;
