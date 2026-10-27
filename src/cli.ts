@@ -889,6 +889,7 @@ async function main(): Promise<void> {
         exclude: commaList('exclude'),
         pool: numeric('pool'),
         maxEvaluations: numeric('max-evals'),
+        allCombinations: Boolean(flag(args, 'all-combinations')),
         limit: numeric('top') ?? 5,
         workers: numeric('workers'),
         simulate: !args.flags.has('no-sim'),
@@ -1250,6 +1251,7 @@ buffs, --strength, --incarnon and --arcane are fixed inputs, not searched):
          --fixed "A,B:R3"      mods always equipped (an Exilus mod goes in the Exilus slot)
          --top N               how many builds to return (default 5)
          --max-evals N         combination budget; decides the shortlist (default 2000000)
+         --all-combinations    no shortlist: every candidate mod, however long it takes
          --pool N              force a shortlist of N candidate mods
          --workers N           threads (default: every core)`);
   }

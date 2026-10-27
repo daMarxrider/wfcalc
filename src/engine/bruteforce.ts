@@ -72,6 +72,8 @@ export interface BruteForceRequest {
   pool?: number;
   /** Upper bound on combinations to evaluate; decides the automatic shortlist size. */
   maxEvaluations?: number;
+  /** Every candidate mod, no shortlist, however many combinations that is. */
+  allCombinations?: boolean;
   /** How many builds to return. */
   limit?: number;
   /**
@@ -283,7 +285,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   const level = request.level ?? 150;
   const capacity = request.capacity ?? 60;
   const maxForma = request.maxForma ?? null;
-  const maxEvaluations = request.maxEvaluations ?? 2_000_000;
+  const maxEvaluations = request.allCombinations ? Infinity : request.maxEvaluations ?? 2_000_000;
   const assumptions: string[] = [];
   const notes: string[] = [];
 
@@ -331,9 +333,15 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   }
 
   const excluded = new Set((request.exclude ?? []).map((name) => name.toLowerCase()));
-  const all = searchableMods(snapshot, weapon, excluded)
+  const fittingMods = searchableMods(snapshot, weapon, excluded)
     .filter((mod) => !fixedNames.has(mod.name))
     .filter((mod) => !mod.incompatible.some((other) => fixedNames.has(other)));
+  // A mod whose Primed version is also a candidate is not searched: the Primed one does the same
+  // job better. Exclude the Primed one (not owned) and the plain one comes back.
+  const names = new Set(fittingMods.map((mod) => mod.name));
+  const all = fittingMods.filter((mod) => !names.has(`Primed ${mod.name}`));
+  const outclassed = fittingMods.filter((mod) => names.has(`Primed ${mod.name}`)).map((mod) => mod.name);
+  if (outclassed.length) assumptions.push(`Primed versions only: ${outclassed.join(', ')} not searched`);
 
   // Rank the candidates in the company of the greedy search's best builds.
   const scaled = scaleTarget(snapshot, request, enemy, level);
@@ -537,9 +545,17 @@ export function runShard(
 
   let leaf = 0;
   let evaluated = 0;
+  // Progress in full-size combinations (the plan's total): a pruned branch counts every full set
+  // it would have held, a full set counts one, so the count ends exactly at the total.
+  const size = Math.min(plan.freeSlots, mods.length);
+  let covered = 0;
+  let steps = 0;
+  const advance = (amount: number): void => {
+    covered += amount;
+    if (onProgress && ++steps % 4096 === 0) onProgress(covered);
+  };
   const visit = (chosen: number[]): void => {
     const current = leaf++;
-    if (onProgress && current % 4096 === 0) onProgress(current);
     if (current % shards !== shard) return;
     const set: BuildMod[] = [...plan.fixed, ...chosen.map((i) => ({ name: plan.candidates[i] }))];
     let best: ScoredCombination | null = null;
@@ -552,12 +568,14 @@ export function runShard(
   };
 
   const walk = (chosen: number[], start: number): void => {
+    if (chosen.length === size) advance(1);
     if (chosen.length === plan.freeSlots) { visit(chosen); return; }
     let extended = false;
     for (let i = start; i < mods.length; i++) {
-      if (chosen.some((j) => clashes[i].has(j) || clashes[j].has(i))) continue;
+      const pruned = (): void => advance(binomial(mods.length - i - 1, size - chosen.length - 1));
+      if (chosen.some((j) => clashes[i].has(j) || clashes[j].has(i))) { pruned(); continue; }
       const next = [...chosen, i];
-      if (!fits(next)) continue;
+      if (!fits(next)) { pruned(); continue; }
       extended = true;
       walk(next, i + 1);
     }
@@ -576,6 +594,7 @@ export function runShard(
     return false;
   };
   walk([], 0);
+  onProgress?.(covered);
   return { top, evaluated, combinations: leaf };
 }
 
@@ -639,7 +658,8 @@ function runInWorkers(
     worker.on('message', (message: { type: 'progress'; done: number } | { type: 'done'; result: ShardResult }) => {
       if (message.type === 'progress') {
         progress[shard] = message.done;
-        onProgress?.(Math.max(...progress));
+        // Every worker walks the whole tree; the search is done when the slowest one is.
+        onProgress?.(progress.reduce((sum, done) => sum + done, 0) / workers);
       } else {
         resolve(message.result);
       }

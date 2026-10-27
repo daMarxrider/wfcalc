@@ -689,6 +689,18 @@ input:hover, select:hover { border-color: var(--border-strong); }
 }
 .build-card:first-of-type { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
 @media (prefers-reduced-motion: reduce) { .working::after { animation: none; } }
+.field > label > span { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
+.inline-pair { display: flex; align-items: center; gap: 12px; }
+.field.wide-field { grid-column: span 2; }
+.compare-grid .switch input { height: 20px; }
+.inline-pair input:disabled { opacity: .45; cursor: not-allowed; }
+.inline-pair input[type="number"] { flex: 1; min-width: 0; }
+.inline-pair .switch { flex: none; white-space: nowrap; }
+/* Brute-force progress: share of the planned combinations walked so far. */
+.progress { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.progress-track { flex: 1; height: 8px; border-radius: 99px; background: rgba(255,255,255,.07); overflow: hidden; }
+.progress-fill { height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--accent-dim), var(--accent)); transition: width .2s linear; }
+.progress-pct { font-variant-numeric: tabular-nums; color: var(--accent); min-width: 4.5ch; text-align: right; font-weight: 600; }
 .compare-grid input, .compare-grid select { height: 40px; }
 
 /* Brute force: the player's own loadout, kept apart from what the search decides. */

@@ -359,7 +359,13 @@ const server = createServer(async (req, res) => {
         const fixed = Array.isArray(body.fixed)
           ? body.fixed.map((entry: unknown) => (typeof entry === 'string' ? { name: entry } : entry))
           : asList(body.fixed).map((name) => ({ name }));
-        const result = await bruteForce(snapshot, {
+        // `stream: true`: one JSON object per line, {"progress","total"} while the leaves are
+        // walked (at most every 200 ms), then {"result"} or {"error"}.
+        const stream = body.stream === true;
+        let lastSent = 0;
+        if (stream) res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+        const send = (line: unknown): void => { res.write(`${JSON.stringify(line)}\n`); };
+        const run = bruteForce(snapshot, {
           weapon: weapon.name,
           objective: body.objective === 'dps' ? 'dps' : 'ttk',
           enemy: body.enemy ?? 'Bombard',
@@ -374,11 +380,27 @@ const server = createServer(async (req, res) => {
           exclude: asList(body.exclude),
           pool: body.pool !== undefined ? Number(body.pool) : undefined,
           maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
+          allCombinations: body.allCombinations === true,
           simulate: body.simulate !== false,
           limit: body.limit !== undefined ? Number(body.limit) : 5,
           base,
+          onProgress: stream
+            ? (done, total) => {
+                const now = Date.now();
+                const finished = done >= total;
+                if (finished ? lastSent === Infinity : now - lastSent < 200) return;
+                lastSent = finished ? Infinity : now;
+                send({ progress: done, total });
+              }
+            : undefined,
         });
-        return json(res, 200, result);
+        if (!stream) return json(res, 200, await run);
+        try {
+          send({ result: await run });
+        } catch (error) {
+          send({ error: String((error as Error).message), ...(error instanceof InputError ? { code: error.code } : {}) });
+        }
+        return res.end();
       } catch (error) {
         if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
         throw error;

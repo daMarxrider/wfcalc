@@ -127,6 +127,35 @@ test('incompatible mods are never combined and a fixed mod excludes its family',
   }
 });
 
+test('a mod with a Primed version in the pool is not searched, unless the Primed one is excluded', () => {
+  const primed = mod('Primed Point Strike', ['+165% Critical Chance'], { maxRank: 10, incompatible: ['Point Strike'] });
+  const snapshot = testSnapshot([...pool, primed]);
+  const plan = planBruteForce(snapshot, { weapon: 'Test Rifle', enemy: 'Heavy', allCombinations: true });
+  assert.ok(plan.candidates.includes('Primed Point Strike'));
+  assert.ok(!plan.candidates.includes('Point Strike'));
+  const notOwned = planBruteForce(snapshot, { weapon: 'Test Rifle', enemy: 'Heavy', exclude: ['Primed Point Strike'], allCombinations: true });
+  assert.ok(notOwned.candidates.includes('Point Strike'));
+});
+
+test('all combinations ignores the budget: every candidate, exhaustive', () => {
+  const snapshot = testSnapshot(pool);
+  const tight = planBruteForce(snapshot, { weapon: 'Test Rifle', enemy: 'Heavy', maxEvaluations: 10 });
+  assert.equal(tight.exhaustive, false);
+  const all = planBruteForce(snapshot, { weapon: 'Test Rifle', enemy: 'Heavy', maxEvaluations: 10, allCombinations: true });
+  assert.equal(all.exhaustive, true);
+  assert.equal(all.leftOut.length, 0);
+});
+
+test('progress counts pruned branches, so it ends exactly at the planned total', async () => {
+  const snapshot = testSnapshot(pool);
+  const seen: Array<[number, number]> = [];
+  // 30 capacity, no Forma: many branches are pruned, which used to leave the count short.
+  await bruteForce(snapshot, { weapon: 'Test Rifle', enemy: 'Heavy', capacity: 30, maxForma: 0, workers: 1, onProgress: (done, total) => seen.push([done, total]) });
+  const [done, total] = seen.at(-1)!;
+  assert.equal(done, total);
+  assert.ok(seen.every(([d], i) => i === 0 || d >= seen[i - 1][0]));
+});
+
 test('capacity prunes: with 30 capacity and no Forma every result fits', async () => {
   const snapshot = testSnapshot(pool);
   const result = await bruteForce(snapshot, { weapon: 'Test Rifle', enemy: 'Heavy', capacity: 30, maxForma: 0, limit: 5 });
