@@ -1304,12 +1304,40 @@ test('simulation: Corrosive and Heat strip armour during the fight, Heat multipl
   close(end.armor, scaled.armor * 0.2 * (1 - end.heatStrip), 1e-6);
 });
 
-test('simulation: no status procs while Overguard is up', () => {
-  const viralWeapon = weapon({ viral: 100, statusChance: 1, fireRate: 10, magazineSize: 100 });
-  const snap = snapshot([viralWeapon], [], [bombard]);
+test('simulation: under Overguard only Magnetic and Cold land, Cold at most 4 stacks (wiki: Overguard)', () => {
+  const mixed = weapon({ viral: 50, magnetic: 30, cold: 20, statusChance: 3, fireRate: 10, magazineSize: 100 });
+  const snap = snapshot([mixed], [], [bombard]);
   const scaled = scaleEnemy(snap, bombard, 50, { overguard: 1e9 });
-  const simulated = hitEnemy(snap, build(snap, []), scaled, { simulate: true });
-  assert.equal(simulated.simulation!.atEnd.viral, 0);
+  const end = hitEnemy(snap, build(snap, []), scaled, { simulate: true }).simulation!.atEnd;
+  assert.equal(end.viral, 0);
+  close(end.magnetic, 10);
+  close(end.cold, 4);
+});
+
+test('simulation: the 10th Cold stack freezes the target at +1.0 crit multiplier (wiki: Cold Damage)', () => {
+  // Cold procs 10 times a second: the target sits frozen most of the fight, so a 2x crit weapon
+  // hits at 3x there, more than the +0.5 the first 9 stacks allow.
+  const fight = (critChance: number) => {
+    const snap = snapshot([weapon({ cold: 100, statusChance: 1, fireRate: 10, magazineSize: 1000, critChance, critMultiplier: 2 })], [], [dummy]);
+    return hitEnemy(snap, build(snap, []), scaleEnemy(snap, dummy, 1), { simulate: true }).timeToKill!;
+  };
+  const ratio = fight(0) / fight(1);
+  assert.ok(ratio > 2.7 && ratio <= 3, `crit gain ${ratio}`);
+});
+
+test('simulation: Magnetic deals 3% of max shields per stack as Electricity when shields break (wiki: Magnetic Damage)', () => {
+  const shielded: EnemyData = {
+    id: 'Shielded', name: 'Shielded', faction: 'corpus', healthClass: 'Corpus', kind: 'Corpus', baseLevel: 1,
+    health: 1_000_000, shield: 1000, armor: 0,
+    pools: [{ type: 'Shield', category: 'shield', amount: 1000 }, { type: 'Flesh', category: 'health', amount: 1_000_000 }],
+    toxinBypassesShields: true,
+  };
+  const snap = snapshot([weapon({ magnetic: 100, statusChance: 1, fireRate: 10, magazineSize: 1000 })], [], [shielded]);
+  const scaled = scaleEnemy(snap, shielded, 1);
+  const simulated = hitEnemy(snap, build(snap, []), scaled, { simulate: true }).simulation!;
+  // 10 Magnetic stacks when the shields break: 30% of the maximum, as Electricity, nothing else deals Electricity.
+  assert.ok(Math.abs((simulated.damageBySource.electricity ?? 0) - 0.3 * scaled.shield) < 0.01 * scaled.shield,
+    `electricity ${simulated.damageBySource.electricity}`);
 });
 
 // ------------------------------------------------------------------ Archon Shards
