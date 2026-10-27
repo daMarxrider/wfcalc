@@ -208,6 +208,10 @@ export interface ResolvedBuild {
   elementBonus: { type: DamageType; value: number } | null;
   /** Primary Debilitate's chance to add a base status on 10+ combined stacks, 0 when none. */
   debilitateChance: number;
+  /** The weapon's stats this build starts from (mode, Incarnon form, bonus element and AoE falloff applied). */
+  baseStats: WeaponStats;
+  /** Every summed bonus by target ("baseDamage", "critChance", "element:viral"...), for the GPU search's mod vectors. */
+  bonusTotals: Record<string, number>;
   /** Chance a critical hit gains one more tier (Vigilante Set: 5% per piece), 0 when none. */
   critTierBonus: number;
   /** Multiplier on damage to Overguard (Secondary Fortifier: x8), 1 when none. */
@@ -1157,6 +1161,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     elementBonus,
     debilitateChance: bonus('debilitate'),
     critTierBonus: vigilante,
+    bonusTotals: Object.fromEntries(collected.byTarget),
+    baseStats: stats,
     overguardDamageMultiplier: bonus('overguardDamage') || 1,
     procDamage: bonus('procDamage'),
     elementBonuses: collected.elementBonuses.reduce<Partial<Record<BaseElement, number>>>((acc, entry) => {

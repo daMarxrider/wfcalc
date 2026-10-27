@@ -209,7 +209,7 @@ function findMod(snapshot: Snapshot, name: string): ModData {
 }
 
 /** The base element a mod adds, if any: what decides its place in the elemental hierarchy. */
-function modElement(mod: ModData | undefined): BaseElement | null {
+export function modElement(mod: ModData | undefined): BaseElement | null {
   for (const effect of mod?.effects ?? []) {
     if (effect.target === 'element' && effect.element && (BASE_ELEMENTS as readonly string[]).includes(effect.element) && effect.value > 0) {
       return effect.element as BaseElement;
@@ -542,6 +542,67 @@ export function runShard(
   limit = 5,
   onProgress?: (done: number) => void,
 ): ShardResult {
+  const { mods, clashes, fits, scoreSet } = leafScorer(snapshot, plan);
+  const top: ScoredCombination[] = [];
+  const keep = (candidate: ScoredCombination): void => {
+    if (top.length >= limit && candidate.score <= top[top.length - 1].score) return;
+    top.push(candidate);
+    top.sort((a, b) => b.score - a.score);
+    if (top.length > limit) top.pop();
+  };
+
+  let leaf = 0;
+  let evaluated = 0;
+  // Progress in full-size combinations (the plan's total): a pruned branch counts every full set
+  // it would have held, a full set counts one, so the count ends exactly at the total.
+  const size = Math.min(plan.freeSlots, mods.length);
+  let covered = 0;
+  let steps = 0;
+  const advance = (amount: number): void => {
+    covered += amount;
+    if (onProgress && ++steps % 4096 === 0) onProgress(covered);
+  };
+  const visit = (chosen: number[]): void => {
+    const current = leaf++;
+    if (current % shards !== shard) return;
+    const { best, orders } = scoreSet(chosen);
+    evaluated += orders;
+    if (best && Number.isFinite(best.score)) keep(best);
+  };
+
+  const walk = (chosen: number[], start: number): void => {
+    if (chosen.length === size) advance(1);
+    if (chosen.length === plan.freeSlots) { visit(chosen); return; }
+    let extended = false;
+    for (let i = start; i < mods.length; i++) {
+      const pruned = (): void => advance(binomial(mods.length - i - 1, size - chosen.length - 1));
+      if (chosen.some((j) => clashes[i].has(j) || clashes[j].has(i))) { pruned(); continue; }
+      const next = [...chosen, i];
+      if (!fits(next)) { pruned(); continue; }
+      extended = true;
+      walk(next, i + 1);
+    }
+    // Nothing more fits after this set: it is a leaf in its own right. A set that could have
+    // grown is not, since a fuller set with the same mods is scored on its own branch.
+    if (!extended && !canGrow(chosen)) visit(chosen);
+  };
+  // True when some candidate (earlier ones included) could still be added: then a superset
+  // exists on another branch, and this smaller set does not need scoring.
+  const canGrow = (chosen: number[]): boolean => {
+    for (let i = 0; i < mods.length; i++) {
+      if (chosen.includes(i)) continue;
+      if (chosen.some((j) => clashes[i].has(j) || clashes[j].has(i))) continue;
+      if (fits([...chosen, i])) return true;
+    }
+    return false;
+  };
+  walk([], 0);
+  onProgress?.(covered);
+  return { top, evaluated, combinations: leaf };
+}
+
+/** What scoring one set of candidates (by index) needs: its feasibility and its best elemental order. */
+function leafScorer(snapshot: Snapshot, plan: BruteForcePlan) {
   const weapon = snapshot.weapons[plan.weapon];
   const enemy = snapshot.enemies[plan.enemy];
   const scaled = scaleTarget(snapshot, plan, enemy, plan.level);
@@ -585,67 +646,18 @@ export function runShard(
     return fit.drain <= capacity && fit.formaNeeded <= plan.maxForma;
   };
 
-  const top: ScoredCombination[] = [];
-  const keep = (candidate: ScoredCombination): void => {
-    if (top.length >= limit && candidate.score <= top[top.length - 1].score) return;
-    top.push(candidate);
-    top.sort((a, b) => b.score - a.score);
-    if (top.length > limit) top.pop();
-  };
-
-  let leaf = 0;
-  let evaluated = 0;
-  // Progress in full-size combinations (the plan's total): a pruned branch counts every full set
-  // it would have held, a full set counts one, so the count ends exactly at the total.
-  const size = Math.min(plan.freeSlots, mods.length);
-  let covered = 0;
-  let steps = 0;
-  const advance = (amount: number): void => {
-    covered += amount;
-    if (onProgress && ++steps % 4096 === 0) onProgress(covered);
-  };
-  const visit = (chosen: number[]): void => {
-    const current = leaf++;
-    if (current % shards !== shard) return;
+  const scoreSet = (chosen: number[]): { best: ScoredCombination | null; orders: number } => {
     const set: BuildMod[] = [...plan.fixed, ...chosen.map((i) => ({ name: plan.candidates[i] }))];
     let best: ScoredCombination | null = null;
+    let orders = 0;
     for (const order of elementalOrders(set, elementOf, innate)) {
       const score = scoreOf(order, plan.exilus);
-      evaluated++;
+      orders++;
       if (!best || score > best.score) best = { mods: order, score };
     }
-    if (best && Number.isFinite(best.score)) keep(best);
+    return { best, orders };
   };
-
-  const walk = (chosen: number[], start: number): void => {
-    if (chosen.length === size) advance(1);
-    if (chosen.length === plan.freeSlots) { visit(chosen); return; }
-    let extended = false;
-    for (let i = start; i < mods.length; i++) {
-      const pruned = (): void => advance(binomial(mods.length - i - 1, size - chosen.length - 1));
-      if (chosen.some((j) => clashes[i].has(j) || clashes[j].has(i))) { pruned(); continue; }
-      const next = [...chosen, i];
-      if (!fits(next)) { pruned(); continue; }
-      extended = true;
-      walk(next, i + 1);
-    }
-    // Nothing more fits after this set: it is a leaf in its own right. A set that could have
-    // grown is not, since a fuller set with the same mods is scored on its own branch.
-    if (!extended && !canGrow(chosen)) visit(chosen);
-  };
-  // True when some candidate (earlier ones included) could still be added: then a superset
-  // exists on another branch, and this smaller set does not need scoring.
-  const canGrow = (chosen: number[]): boolean => {
-    for (let i = 0; i < mods.length; i++) {
-      if (chosen.includes(i)) continue;
-      if (chosen.some((j) => clashes[i].has(j) || clashes[j].has(i))) continue;
-      if (fits([...chosen, i])) return true;
-    }
-    return false;
-  };
-  walk([], 0);
-  onProgress?.(covered);
-  return { top, evaluated, combinations: leaf };
+  return { mods, clashes, fits, scoreSet };
 }
 
 /** Full report for one winning combination. */
@@ -749,9 +761,86 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
     : await runInWorkers(plan, request.snapshotPath, workers, pool, progress, request.signal);
   // An in-thread walk cannot be interrupted (it is small: under 2,000 leaves), so check after it.
   request.signal?.throwIfAborted();
+  // Every worker counts every leaf it walks, so one shard's count is the tree's.
+  return report(snapshot, plan, mergeTop(shards, pool), {
+    limit, pool, workers, started,
+    combinations: shards[0]?.combinations ?? 0,
+    evaluated: shards.reduce((sum, shard) => sum + shard.evaluated, 0),
+  });
+}
 
+/**
+ * The exact pass of a GPU search: the browser's pre-filter (src/web/gpu-search.js) sends the
+ * combinations its reduced model liked best, and each is checked and scored here with the real
+ * engine, exactly as the CPU brute force would. `plan` must come from gpuPlan for the same request.
+ */
+export function bruteForceFromCombinations(
+  snapshot: Snapshot,
+  request: BruteForceRequest,
+  combinations: string[][],
+  gpu: { combinations: number; elapsedMs: number; adapter?: string; drift?: number },
+): BruteForceResult {
+  const started = performance.now() - gpu.elapsedMs;
+  const plan = gpuPlan(snapshot, request);
+  const limit = request.limit ?? 5;
+  const pool = plan.simulate ? Math.max(request.rerank ?? limit * 40, 200, limit) : limit;
+  const index = new Map(plan.candidates.map((name, i) => [name, i]));
+  const { clashes, fits, scoreSet } = leafScorer(snapshot, plan);
+  const top: ScoredCombination[] = [];
+  let evaluated = 0;
+  for (const names of combinations) {
+    const chosen = names.map((name) => index.get(name));
+    if (chosen.some((i) => i === undefined) || new Set(chosen).size !== chosen.length) {
+      throw new InputError('combination with a mod that is not a candidate of this search', 'invalid_argument');
+    }
+    const picked = (chosen as number[]).sort((a, b) => a - b);
+    if (picked.some((i) => picked.some((j) => clashes[i].has(j))) || !fits(picked)) continue;
+    const { best, orders } = scoreSet(picked);
+    evaluated += orders;
+    if (best && Number.isFinite(best.score)) top.push(best);
+  }
+  top.sort((a, b) => b.score - a.score);
+  const result = report(snapshot, plan, top.slice(0, pool), {
+    limit, pool, workers: 1, started, combinations: gpu.combinations, evaluated,
+  });
+  result.notes.unshift(
+    `GPU pre-filter${gpu.adapter ? ` on ${gpu.adapter}` : ''}: all ${gpu.combinations.toLocaleString('en-US')} combinations scored with a reduced model; `
+    + `the best ${combinations.length.toLocaleString('en-US')} were scored exactly. A build the reduced model ranks far too low can be missed.`,
+  );
+  if (gpu.drift !== undefined && gpu.drift > 1e-3) {
+    result.notes.unshift(`GPU and JS reduced models disagree by ${(gpu.drift * 100).toFixed(2)}%: the shader may be out of date.`);
+  }
+  return result;
+}
+
+/** The plan a GPU search runs on: every candidate (no shortlist), at most 64 of them (two 32-bit masks). */
+export function gpuPlan(snapshot: Snapshot, request: BruteForceRequest): BruteForcePlan {
+  const plan = planBruteForce(snapshot, { ...request, allCombinations: true });
+  const kept = plan.candidates.slice(0, GPU_CANDIDATES);
+  const dropped = plan.candidates.slice(GPU_CANDIDATES);
+  return {
+    ...plan,
+    candidates: kept,
+    leftOut: [...dropped, ...plan.leftOut],
+    exhaustive: plan.exhaustive && !dropped.length,
+    plannedCombinations: combinationBound(kept.length, plan.freeSlots),
+    notes: plan.notes.filter((note) => !note.startsWith('Exhaustive over')),
+  };
+}
+
+/** Most candidates the GPU search takes. */
+const GPU_CANDIDATES = 64;
+
+/** Simulates the best few (when asked), describes the winners and fills in the result. */
+function report(
+  snapshot: Snapshot,
+  plan: BruteForcePlan,
+  ranked: ScoredCombination[],
+  run: { limit: number; pool: number; workers: number; started: number; combinations: number; evaluated: number },
+): BruteForceResult {
+  const { limit, pool, workers, started, combinations, evaluated } = run;
   const scaled = scaleTarget(snapshot, plan, snapshot.enemies[plan.enemy], plan.level);
-  let winners = mergeTop(shards, pool);
+  let winners = ranked;
   if (plan.simulate) {
     const simulated = makeScorer(snapshot, plan.weapon, plan.base, scaled, plan.objective, plan.attenuation, 'simulate', plan.requireStatus);
     winners = winners
@@ -766,9 +855,6 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
       ? `No combination of the candidates fits the capacity and Forma limits and carries ${plan.requireStatus.join(', ')}.`
       : 'No combination of the candidates fits the capacity and Forma limits.');
   }
-  // Every worker counts every leaf it walks, so one shard's count is the tree's.
-  const combinations = shards[0]?.combinations ?? 0;
-
   return {
     weapon: plan.weapon,
     objective: plan.objective,
@@ -781,7 +867,7 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
     overguard: scaled.overguard,
     capacity: plan.capacity,
     combinations,
-    evaluated: shards.reduce((sum, shard) => sum + shard.evaluated, 0),
+    evaluated,
     elapsedMs: Math.round(performance.now() - started),
     workers,
     exhaustive: plan.exhaustive,
