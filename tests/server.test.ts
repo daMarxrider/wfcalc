@@ -152,9 +152,11 @@ test('POST /api/calc rejects a duplicate mod with 400 and a code', async () => {
   });
 });
 
-test('GET /api/riven-stats lists the riven ids the UI autocompletes', async () => {
+test('GET /api/riven-stats and /api/frame-mods list what the UI autocompletes', async () => {
   await withServer(async (base) => {
     const stats = (await (await fetch(`${base}/api/riven-stats`)).json()) as any[];
     assert.ok(stats.some((stat) => stat.id === 'crit-chance' && stat.label === 'Critical Chance'));
+    const frameMods = (await (await fetch(`${base}/api/frame-mods`)).json()) as string[];
+    assert.ok(frameMods.includes('Intensify') && frameMods.includes('Blind Rage'), 'the frame-mods field suggests strength mods');
   });
 });
