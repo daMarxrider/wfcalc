@@ -179,6 +179,8 @@ export interface BruteForceResult {
   evaluated: number;
   elapsedMs: number;
   workers: number;
+  /** Where the combinations were scored, when not on the server's threads ("GPU: <adapter>"). */
+  device?: string;
   exhaustive: boolean;
   candidates: string[];
   leftOut: string[];
@@ -803,6 +805,7 @@ export function bruteForceFromCombinations(
   const result = report(snapshot, plan, top.slice(0, pool), {
     limit, pool, workers: 1, started, combinations: gpu.combinations, evaluated,
   });
+  result.device = `GPU${gpu.adapter ? `: ${gpu.adapter}` : ''}`;
   result.notes.unshift(
     `GPU pre-filter${gpu.adapter ? ` on ${gpu.adapter}` : ''}: all ${gpu.combinations.toLocaleString('en-US')} combinations scored with a reduced model; `
     + `the best ${combinations.length.toLocaleString('en-US')} were scored exactly. A build the reduced model ranks far too low can be missed.`,

@@ -643,6 +643,7 @@ input:hover, select:hover { border-color: var(--border-strong); }
 }
 .switch input:checked { background: color-mix(in srgb, var(--accent) 70%, transparent); border-color: var(--accent); }
 .switch input:checked::after { transform: translateX(14px); background: #fff7e8; }
+.switch:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
 .switch small { color: var(--muted); }
 
 /* Segmented control for the search method. */

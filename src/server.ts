@@ -19,7 +19,8 @@ import { scaleEnemy } from './engine/enemy.ts';
 import { hitEnemy, statusProcs } from './engine/damage.ts';
 import { availableBuffs } from './engine/buffs.ts';
 import { search } from './engine/search.ts';
-import { bruteForce } from './engine/bruteforce.ts';
+import { bruteForce, bruteForceFromCombinations, type BruteForceRequest } from './engine/bruteforce.ts';
+import { gpuModel } from './engine/gpu-model.ts';
 import { SHARD_BONUSES } from './engine/shards.ts';
 import { RIVEN_ATTRIBUTES } from './engine/riven.ts';
 import { abilityCast } from './engine/ability.ts';
@@ -95,6 +96,41 @@ async function readBody(req: IncomingMessage): Promise<any> {
   for await (const chunk of req) chunks.push(chunk as Buffer);
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+
+/** A brute-force request from a JSON body (the Find tab's shape), or the weapon-not-found reply. */
+function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; suggestions: string[] } {
+  const { item: weapon, suggestions } = findWeapon(snapshot, body.weapon ?? '');
+  if (!weapon) return { error: `weapon not found: ${body.weapon ?? ''}`, suggestions };
+  const asList = (value: unknown): string[] =>
+    Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
+  // Mods are searched; everything else (buffs, Incarnon, arcanes, riven) is the player's input.
+  const baseSource = body.base && typeof body.base === 'object' ? body.base : body;
+  const base = { ...buildFromJson(snapshot, baseSource, weapon.name), mods: [] };
+  const fixed = Array.isArray(body.fixed)
+    ? body.fixed.map((entry: unknown) => (typeof entry === 'string' ? { name: entry } : entry))
+    : asList(body.fixed).map((name) => ({ name }));
+  return {
+    weapon: weapon.name,
+    objective: body.objective === 'dps' ? 'dps' : 'ttk',
+    enemy: body.enemy ?? 'Bombard',
+    level: body.level !== undefined ? Number(body.level) : 150,
+    steelPath: Boolean(body.steelPath),
+    eximus: Boolean(body.eximus),
+    overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
+    attenuation: body.attenuation,
+    capacity: body.capacity !== undefined ? Number(body.capacity) : 60,
+    maxForma: body.maxForma === null || body.maxForma === undefined ? null : Number(body.maxForma),
+    fixed,
+    exclude: asList(body.exclude),
+    requireStatus: asList(body.requireStatus),
+    pool: body.pool !== undefined ? Number(body.pool) : undefined,
+    maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
+    allCombinations: body.allCombinations === true,
+    simulate: body.simulate !== false,
+    limit: body.limit !== undefined ? Number(body.limit) : 5,
+    base,
+  };
 }
 
 /** Runs a build and returns everything the UI needs to render a report. */
@@ -354,19 +390,44 @@ const server = createServer(async (req, res) => {
         zooms: data.zooms.map((zoom) => ({ zoom: zoom.zoom, text: zoom.text })),
       }])));
     }
+    // GPU brute force: the model for the browser's pre-filter, then the exact pass on its shortlist.
+    if (url.pathname === '/api/bruteforce/gpu-model' && req.method === 'POST') {
+      const body = await readBody(req);
+      try {
+        const request = bruteForceRequestFrom(body);
+        if ('error' in request) return json(res, 404, request);
+        return json(res, 200, gpuModel(snapshot, request, body.keep !== undefined ? Math.max(1, Math.min(100_000, Number(body.keep))) : undefined));
+      } catch (error) {
+        if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
+        throw error;
+      }
+    }
+    if (url.pathname === '/api/bruteforce/gpu-finish' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (!Array.isArray(body.combinations) || body.combinations.length > 100_000
+        || !body.combinations.every((combo: unknown) => Array.isArray(combo) && combo.every((name) => typeof name === 'string'))) {
+        return json(res, 400, { error: 'combinations: a list of up to 100,000 lists of mod names', code: 'invalid_argument' });
+      }
+      try {
+        const request = bruteForceRequestFrom(body);
+        if ('error' in request) return json(res, 404, request);
+        const gpu = body.gpu ?? {};
+        return json(res, 200, bruteForceFromCombinations(snapshot, request, body.combinations, {
+          combinations: Number(gpu.combinations) || 0,
+          elapsedMs: Number(gpu.elapsedMs) || 0,
+          adapter: typeof gpu.adapter === 'string' ? gpu.adapter.slice(0, 80) : undefined,
+          drift: gpu.drift !== undefined ? Number(gpu.drift) : undefined,
+        }));
+      } catch (error) {
+        if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
+        throw error;
+      }
+    }
     if (url.pathname === '/api/bruteforce' && req.method === 'POST') {
       const body = await readBody(req);
-      const { item: weapon, suggestions } = findWeapon(snapshot, body.weapon ?? '');
-      if (!weapon) return json(res, 404, { error: `weapon not found: ${body.weapon ?? ''}`, suggestions });
-      const asList = (value: unknown): string[] =>
-        Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
-      // Mods are searched; everything else (buffs, Incarnon, arcanes, riven) is the player's input.
-      const baseSource = body.base && typeof body.base === 'object' ? body.base : body;
       try {
-        const base = { ...buildFromJson(snapshot, baseSource, weapon.name), mods: [] };
-        const fixed = Array.isArray(body.fixed)
-          ? body.fixed.map((entry: unknown) => (typeof entry === 'string' ? { name: entry } : entry))
-          : asList(body.fixed).map((name) => ({ name }));
+        const request = bruteForceRequestFrom(body);
+        if ('error' in request) return json(res, 404, request);
         // `stream: true`: one JSON object per line, {"progress","total"} while the leaves are
         // walked (at most every 200 ms), then {"result"} or {"error"}.
         const stream = body.stream === true;
@@ -377,25 +438,7 @@ const server = createServer(async (req, res) => {
         const stopped = new AbortController();
         res.on('close', () => { if (!res.writableFinished) stopped.abort(new Error('stopped by the client')); });
         const run = bruteForce(snapshot, {
-          weapon: weapon.name,
-          objective: body.objective === 'dps' ? 'dps' : 'ttk',
-          enemy: body.enemy ?? 'Bombard',
-          level: body.level !== undefined ? Number(body.level) : 150,
-          steelPath: Boolean(body.steelPath),
-          eximus: Boolean(body.eximus),
-          overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
-          attenuation: body.attenuation,
-          capacity: body.capacity !== undefined ? Number(body.capacity) : 60,
-          maxForma: body.maxForma === null || body.maxForma === undefined ? null : Number(body.maxForma),
-          fixed,
-          exclude: asList(body.exclude),
-          requireStatus: asList(body.requireStatus),
-          pool: body.pool !== undefined ? Number(body.pool) : undefined,
-          maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
-          allCombinations: body.allCombinations === true,
-          simulate: body.simulate !== false,
-          limit: body.limit !== undefined ? Number(body.limit) : 5,
-          base,
+          ...request,
           signal: stopped.signal,
           onProgress: stream
             ? (done, total) => {
