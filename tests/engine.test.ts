@@ -346,13 +346,35 @@ test('Roar is a faction bonus that applies to every faction and scales with stre
   close(hit.factionMultiplier, 1.5);
 });
 
-test('Eclipse adds to the damage bucket and stacks additively with Serration', () => {
-  const snap = snapshot([weapon({ impact: 100 })], [serration], [], {
+test('Eclipse is its own multiplier on top of Serration, status ticks included', () => {
+  const snap = snapshot([weapon({ impact: 250 })], [serration], [], {
     abilities: [ability('Eclipse', 'Mirage', 200, 'damage bonus')],
   });
-  const resolved = resolveBuild(snap, { weapon: 'Test Weapon', mods: ['Serration'], buffs: ['eclipse'] });
-  // +165% (Serration) and +200% (Eclipse) share the damage bucket: 100 x (1 + 3.65).
-  close(resolved.damage.projectileTotal, 465);
+  const plain = resolveBuild(snap, { weapon: 'Test Weapon', mods: ['Serration'] });
+  const resolved = resolveBuild(snap, { weapon: 'Test Weapon', mods: ['Serration'], buffs: ['eclipse'], abilityStrength: 130 });
+  // Wiki (Eclipse): 250 base, maxed Serration and Intensify -> 250 x 2.65 x (1 + 2 x 1.3) = 2,385.
+  close(resolved.damage.projectileTotal, 2385);
+  // Wiki (Damage over Time): total multipliers such as Eclipse carry into status ticks.
+  close(resolved.dotSeed, plain.dotSeed * 3.6);
+});
+
+test('per-status-type damage adds to Serration on most weapons and multiplies on the wiki\'s list', () => {
+  const galvanizedAptitude = mod('Galvanized Aptitude', 10, [
+    '+80% Status Chance', 'On Kill:', '+40% Direct Damage per Status Type affecting the target for 20s. Stacks up to 2x.',
+  ]);
+  const adding = weapon({ impact: 100 });
+  const multiplying: WeaponData = { ...adding, id: 'Hema', name: 'Hema' };
+  const snap = snapshot([adding, multiplying], [serration, galvanizedAptitude], [], {
+    abilities: [ability('Eclipse', 'Mirage', 200, 'damage bonus')],
+  });
+  const conditions = { onKill: 2, statusTypes: 2 };
+  const mods = ['Serration', 'Galvanized Aptitude'];
+  // Adding (wiki: Condition Overload (Mechanic)): 100 x (1 + 1.65 + 1.6).
+  close(resolveBuild(snap, { weapon: 'Test Weapon', mods, conditions }).damage.projectileTotal, 425);
+  // Multiplying (Hema's Normal Attack is on the list): 100 x 2.65 x 2.6.
+  close(resolveBuild(snap, { weapon: 'Hema', mods, conditions }).damage.projectileTotal, 689);
+  // Adding skips final multipliers: Eclipse x3 scales 100 x 2.65 only, the +160% stays 160.
+  close(resolveBuild(snap, { weapon: 'Test Weapon', mods, conditions, buffs: ['eclipse'] }).damage.projectileTotal, 100 * 2.65 * 3 + 160);
 });
 
 test('elemental infusions add their damage type proportionally to base damage', () => {
@@ -951,10 +973,11 @@ test('matches the Overframe Haalvu build: arsenal stats', () => {
   close(bare.damage.perProjectile.heat ?? 0, 131.2, 1e-2); // 49.5 x 2.65
   close(bare.damage.projectileTotal, 218.7, 1e-1);
 
-  // With Galvanized Aptitude active the total is 218.7 x (1 + 80%) = 393.5: Direct Damage
-  // multiplies the Serration result instead of sharing its bucket.
+  // With Galvanized Aptitude active: Overframe shows 218.7 x 1.8 = 393.5, but the wiki
+  // (Condition Overload (Mechanic)) lists the Haalvu as Adding, so the +80% joins Serration's
+  // bucket: 33 x (1 + 1.5) x (1 + 1.65 + 0.8) = 284.6.
   const stacked = resolveBuild(snap, { weapon: 'Test Weapon', mods, conditions: { onKill: 2, statusTypes: 1 } });
-  close(stacked.damage.projectileTotal, 393.5, 1e-1);
+  close(stacked.damage.projectileTotal, 284.6, 1e-1);
 });
 
 test('"(x2 for Bows)" doubles the effect on bow-type weapons only', () => {

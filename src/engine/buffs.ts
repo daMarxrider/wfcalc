@@ -23,6 +23,7 @@ export interface BuffContext {
 
 export type BuffKind =
   | 'damage' // multiplies total weapon damage (same bucket as Serration)
+  | 'multiplier' // separate final damage multiplier (wiki: Eclipse is multiplicative with Serration)
   | 'faction' // faction damage bonus: multiplicative with damage mods
   | 'element' // adds a damage type worth N% of base damage
   | 'elementMultiplier' // multiplies one existing damage type
@@ -77,7 +78,7 @@ const byIndex =
  * | Ability | Effect on weapons | Source |
  * |---|---|---|
  * | Roar | +50% damage to all factions, "considered Faction Damage Bonus" | Rhino/Roar |
- * | Eclipse | +200% weapon damage (day side) | Mirage/Eclipse |
+ * | Eclipse | +200% weapon damage (day side), its own multiplier | Mirage/Eclipse |
  * | Vex Armor | up to +275% weapon damage (Fury, fully charged) | Chroma/Vex_Armor |
  * | Xata's Whisper | adds Void damage worth 26% of base | Xaku/Xata's_Whisper |
  * | Toxic Lash | adds Toxin damage worth 30% to guns | Saryn/Toxic_Lash |
@@ -94,7 +95,7 @@ const byIndex =
  */
 export const BUFFS: BuffDefinition[] = [
   { id: 'roar', ability: 'Roar', kind: 'faction' },
-  { id: 'eclipse', ability: 'Eclipse', kind: 'damage', pick: byLabel('damage', 'bonus'), note: 'day side' },
+  { id: 'eclipse', ability: 'Eclipse', kind: 'multiplier', pick: byLabel('damage', 'bonus'), note: 'day side' },
   { id: 'vex-armor', ability: 'Vex Armor', kind: 'damage', pick: byLabel('fury', 'max'), note: 'Fury at maximum', ramps: true },
   { id: 'xatas-whisper', ability: "Xata's Whisper", kind: 'element', element: 'void' },
   { id: 'toxic-lash', ability: 'Toxic Lash', kind: 'element', element: 'toxin', pick: byLabel('gun') },
@@ -141,6 +142,8 @@ export function buffEffects(
   switch (definition.kind) {
     case 'damage':
       return [{ target: 'baseDamage', op: 'add', value, raw }];
+    case 'multiplier':
+      return [{ target: 'damageMultiplier', op: 'mult', value, raw }];
     case 'faction':
       // Roar is explicitly a faction damage bonus: multiplicative with damage mods.
       return [{ target: 'factionDamage', faction: 'all', op: 'add', value, raw }];

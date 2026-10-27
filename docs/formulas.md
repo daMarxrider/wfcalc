@@ -61,22 +61,24 @@ Mods have `maxRank + 1` equal steps, so rank `r` of a `maxRank` mod is
 `value × (r + 1) / (maxRank + 1)`: Serration R0 = +15%, R9 = +150%, R10 = +165%
 (the wiki quotes the R9 example: `18 × (1 + 1.5) = 45`).
 
-### Direct Damage (`Galvanized Aptitude` / `Savvy` / `Shot`)
+### Per-status-type damage (`Condition Overload`, `Galvanized Aptitude` / `Savvy` / `Shot`, Incarnon perks)
 
-"Direct Damage" is a **separate multiplier bucket**, not part of the base-damage bucket:
-it multiplies the result of the damage mods instead of adding to them.
+Weapon-dependent (wiki: Condition Overload (Mechanic)). Most attacks are **Adding**: the bonus
+joins the Serration bucket and skips final multipliers such as Eclipse:
 
 ```
-total = base × (1 + damage mods) × (1 + direct damage) × …
+total = base × (1 + damage mods) × final multipliers + base × per-status bonus     (Adding)
+total = base × (1 + damage mods) × (1 + per-status bonus) × final multipliers       (Multiplying)
 ```
 
-Verified against Overframe on the Haalvu build: `218.7 × 1.8 = 393.5`, where `1.8` is
-Galvanized Aptitude at two stacks. Treating it as additive with Serration gave 284.6.
+The attacks the wiki lists as Multiplying (Hema, Tenet Envoy, Latron/Paris/Kunai Incarnon
+form, Cedo alt-fire...) are in `src/engine/overload.ts`. Overframe multiplies on every weapon
+(Haalvu: 393.5); the wiki lists the Haalvu as Adding, which gives 284.6.
 
 It scales direct hits only (wiki: "never worked on AoE"). On a weapon whose arsenal block is
 direct hit + explosion (Kuva Zarr, Kuva Bramma, Tenet Envoy) the bonus is scaled by the direct
-hit's share of base damage, which is exact because every later step is linear. Status ticks
-are seeded from the base-damage bucket and do not take it.
+hit's share of base damage, which is exact because every later step is linear. Adding bonuses
+reach status ticks through the base-damage bucket; Multiplying ones do not (the wiki is silent).
 
 ### Faction damage
 
@@ -200,7 +202,8 @@ describes in prose and therefore lives in a curated registry (`src/engine/buffs.
 
 | Kind | Meaning | Examples |
 |---|---|---|
-| `damage` | Shares the damage-mod bucket with Serration | Eclipse +200%, Vex Armor +275%, Resupply +25% |
+| `damage` | Shares the damage-mod bucket with Serration | Vex Armor +275%, Resupply +25% |
+| `multiplier` | Its own final multiplier; status ticks inherit it (wiki: Eclipse, Damage over Time) | Eclipse +200% |
 | `faction` | Faction damage bonus, multiplicative with everything, applied against the target's faction | Roar +50% |
 | `element` | Adds a damage type worth N% of base damage; participates in elemental combination | Toxic Lash +30% Toxin, Nourish +250% Viral, Xata's Whisper +26% Void, the elemental augments +100% |
 | `elementMultiplier` | Multiplies one existing damage type | Accelerant ×2.5 Heat |

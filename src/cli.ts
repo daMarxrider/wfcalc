@@ -887,6 +887,7 @@ async function main(): Promise<void> {
         maxForma: numeric('forma') ?? null,
         fixed: commaList('fixed').map(parseModArg),
         exclude: commaList('exclude'),
+        requireStatus: commaList('require-status'),
         pool: numeric('pool'),
         maxEvaluations: numeric('max-evals'),
         allCombinations: Boolean(flag(args, 'all-combinations')),
@@ -1249,6 +1250,7 @@ Search options:
 Brute-force options (also: --objective --capacity --forma --exclude, and every build option;
 buffs, --strength, --incarnon and --arcane are fixed inputs, not searched):
          --fixed "A,B:R3"      mods always equipped (an Exilus mod goes in the Exilus slot)
+         --require-status blast,viral   only builds that deal these damage types
          --top N               how many builds to return (default 5)
          --max-evals N         combination budget; decides the shortlist (default 2000000)
          --all-combinations    no shortlist: every candidate mod, however long it takes

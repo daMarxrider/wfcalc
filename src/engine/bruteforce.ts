@@ -34,7 +34,7 @@ import { fitMods, search, searchableMods } from './search.ts';
 import { InputError } from '../errors.ts';
 import { rivenAsMod } from './riven.ts';
 import { loadSnapshot, modsForWeapon } from '../data.ts';
-import { BASE_ELEMENTS, ELEMENT_COMBINATIONS, type BaseElement, type DamageType, type ModData, type Snapshot, type WeaponData } from '../types.ts';
+import { BASE_ELEMENTS, DAMAGE_TYPES, ELEMENT_COMBINATIONS, type BaseElement, type DamageType, type ModData, type Snapshot, type WeaponData } from '../types.ts';
 
 /** The eight standard mod slots. */
 const STANDARD_SLOTS = 8;
@@ -58,6 +58,8 @@ export interface BruteForceRequest {
   fixed?: Array<string | BuildMod>;
   /** Mods the player does not own. */
   exclude?: string[];
+  /** Damage types every build must carry (blast for Blast procs, viral...): builds without them are dropped. */
+  requireStatus?: string[];
   /** Everything the player decides: buffs, Ability Strength, Incarnon, arcanes, riven, debuffs. */
   base?: Partial<Build>;
   /**
@@ -110,6 +112,8 @@ export interface BruteForcePlan {
   exhaustive: boolean;
   /** Candidates that were ranked out of the shortlist. */
   leftOut: string[];
+  /** Damage types every build must carry. */
+  requireStatus: DamageType[];
   base: Partial<Build>;
   simulate: boolean;
   steelPath: boolean;
@@ -290,6 +294,9 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   const maxEvaluations = request.allCombinations ? Infinity : request.maxEvaluations ?? 2_000_000;
   const assumptions: string[] = [];
   const notes: string[] = [];
+  const requireStatus = [...new Set((request.requireStatus ?? []).map((type) => type.trim().toLowerCase()).filter(Boolean))] as DamageType[];
+  const unknownStatus = requireStatus.find((type) => !(DAMAGE_TYPES as readonly string[]).includes(type));
+  if (unknownStatus) throw new InputError(`unknown status type: ${unknownStatus} (one of ${DAMAGE_TYPES.join(', ')})`, 'invalid_argument');
 
   // Melee: Blood Rush and Weeping Wounds are worth nothing at 1x combo, so the same 12x
   // assumption as the greedy search applies unless the player gave a combo count.
@@ -400,6 +407,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
     : `Objective: highest damage per second against ${enemy.name} at level ${level}, status damage included`);
   if (request.steelPath) assumptions.push('Steel Path: target health and shields x2.5 (armour unchanged)');
   if (request.eximus) assumptions.push('Eximus target: raised base health/shields and Overguard');
+  if (requireStatus.length) assumptions.push(`Every build carries ${requireStatus.join(', ')} damage`);
   if (fixed.length || exilus) assumptions.push(`Fixed mods: ${[...fixed, ...(exilus ? [exilus] : [])].map((mod) => `${mod.name} R${mod.rank}`).join(', ')}`);
   if (base.buffs?.length) assumptions.push(`Buffs: ${base.buffs.join(', ')}${base.abilityStrength ? ` at ${base.abilityStrength}% Ability Strength` : ''}`);
   if (base.incarnon?.length) assumptions.push(`Incarnon: ${base.incarnon.join(', ')}`);
@@ -426,6 +434,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
     plannedCombinations: combinationBound(candidates.length, freeSlots),
     exhaustive,
     leftOut,
+    requireStatus,
     base,
     simulate: request.simulate !== false,
     steelPath: Boolean(request.steelPath),
@@ -462,10 +471,12 @@ function makeScorer(
   objective: 'ttk' | 'dps',
   attenuation: string | AttenuationProfile | null | undefined,
   mode: 'steady' | 'simulate' | 'plain' = 'plain',
+  requireStatus: DamageType[] = [],
 ): (mods: BuildMod[], exilus: BuildMod | null) => number {
   return (mods, exilus) => {
     try {
       const resolved = resolveBuild(snapshot, { ...base, weapon, mods: exilus ? [...mods, exilus] : mods });
+      if (requireStatus.some((type) => !((resolved.damage.perProjectile[type] ?? 0) > 0))) return -Infinity;
       const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate' });
       if (objective === 'dps') return hit.totalDps;
       if (hit.timeToKill === null) return -Infinity;
@@ -497,7 +508,7 @@ export function runShard(
   const weapon = snapshot.weapons[plan.weapon];
   const enemy = snapshot.enemies[plan.enemy];
   const scaled = scaleTarget(snapshot, plan, enemy, plan.level);
-  const scoreOf = makeScorer(snapshot, weapon.name, plan.base, scaled, plan.objective, plan.attenuation, plan.simulate ? 'steady' : 'plain');
+  const scoreOf = makeScorer(snapshot, weapon.name, plan.base, scaled, plan.objective, plan.attenuation, plan.simulate ? 'steady' : 'plain', plan.requireStatus);
   const innate = innateElements(weapon, plan.base);
   const exilusDrain = exilusCost(snapshot, weapon, plan.exilus);
 
@@ -705,7 +716,7 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
   const scaled = scaleTarget(snapshot, plan, snapshot.enemies[plan.enemy], plan.level);
   let winners = mergeTop(shards, pool);
   if (plan.simulate) {
-    const simulated = makeScorer(snapshot, plan.weapon, plan.base, scaled, plan.objective, plan.attenuation, 'simulate');
+    const simulated = makeScorer(snapshot, plan.weapon, plan.base, scaled, plan.objective, plan.attenuation, 'simulate', plan.requireStatus);
     winners = winners
       .map((winner) => ({ ...winner, score: simulated(winner.mods, plan.exilus) }))
       .sort((a, b) => b.score - a.score);
@@ -713,7 +724,11 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
   winners = winners.slice(0, limit);
   const notes = [...plan.notes];
   if (plan.simulate) notes.push(`Ranked with steady-state status stacks; the best ${pool} were simulated over the fight for the final order.`);
-  if (!winners.length) notes.push('No combination of the candidates fits the capacity and Forma limits.');
+  if (!winners.length) {
+    notes.push(plan.requireStatus.length
+      ? `No combination of the candidates fits the capacity and Forma limits and carries ${plan.requireStatus.join(', ')}.`
+      : 'No combination of the candidates fits the capacity and Forma limits.');
+  }
   // Every worker counts every leaf it walks, so one shard's count is the tree's.
   const combinations = shards[0]?.combinations ?? 0;
 

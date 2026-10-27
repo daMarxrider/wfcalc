@@ -36,6 +36,7 @@ import { rivenEffects, type RivenSpec } from './riven.ts';
 import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot } from './arcanes.ts';
 import { debilitateRates } from './dot.ts';
 import { InputError } from '../errors.ts';
+import { overloadMultiplies } from './overload.ts';
 
 export interface BuildMod {
   name: string;
@@ -804,6 +805,14 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       const setFactor = 1 + amplifyFor(source.set, source.name);
       const directOnly = effect.perStatusType ? directShare : 1;
       const value = effect.value * rankFraction * stacks * comboFactor * bowFactor * setFactor * directOnly;
+      // Per-status-type damage: on most attacks it joins the Serration bucket and skips the final
+      // multipliers (wiki: Condition Overload (Mechanic), "Adding"); listed attacks multiply.
+      if (effect.perStatusType && effect.op === 'add' && (effect.target === 'directDamage' || effect.target === 'baseDamage')) {
+        const target = overloadMultiplies(weapon.name, mode?.name ?? null, incarnonForm) ? 'directDamage' : 'baseDamage';
+        collected.byTarget.set(target, (collected.byTarget.get(target) ?? 0) + value);
+        if (target === 'baseDamage') collected.byTarget.set('overloadAdd', (collected.byTarget.get('overloadAdd') ?? 0) + value);
+        continue;
+      }
       if (effect.op === 'mult' && effect.target === 'elementMultiplier' && effect.element) {
         // "x2.5 Heat damage" (Accelerant): multiplies that damage type only.
         collected.elementMultipliers.set(effect.element, (collected.elementMultipliers.get(effect.element) ?? 1) * (1 + value));
@@ -998,7 +1007,11 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   // Direct Damage bonuses (Galvanized Aptitude) multiply the finished damage, so they are
   // applied after the elemental combination like faction damage.
   // A separate multiplier ("x2.5 Melee Damage against Frozen enemies", Melee Careen) rides along.
-  const directDamageBonus = (1 + (collected.byTarget.get('directDamage') ?? 0)) * (collected.byTarget.get('damageMultiplier') ?? 1);
+  // Additive per-status damage is left out of the final multiplier (Eclipse...): only the rest
+  // of the base-damage bucket takes it. Status ticks inherit the final multiplier (wiki: Damage over Time).
+  const overloadShare = bonus('overloadAdd') / (1 + bonus('baseDamage') + platedRound + compressionAdd);
+  const finalFactor = (1 - overloadShare) * (collected.byTarget.get('damageMultiplier') ?? 1) + overloadShare;
+  const directDamageBonus = (1 + (collected.byTarget.get('directDamage') ?? 0)) * finalFactor;
   if (directDamageBonus !== 1) {
     for (const key of Object.keys(damage) as DamageType[]) damage[key] = (damage[key] ?? 0) * directDamageBonus;
   }
@@ -1136,7 +1149,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     usesStatusTypes,
     toxinStatusDamageBonus: shards.toxinStatusDamage,
     corrosiveCapBonus: shards.corrosiveStacks,
-    dotSeed: (baseTotal + flatBase) * damageBonus * sniperComboMultiplier,
+    dotSeed: (baseTotal + flatBase) * damageBonus * sniperComboMultiplier * finalFactor,
     elementBonus,
     debilitateChance: bonus('debilitate'),
     overguardDamageMultiplier: bonus('overguardDamage') || 1,
