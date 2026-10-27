@@ -149,7 +149,7 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
 
     // Overguard is a health class of its own: Void +50%, neutral to everything else, no
     // armour, and not bypassed by Toxin. Magnetic's status amplification is not modelled.
-    perProjectileOverguard += landed * (1 + healthModifier(snapshot, type, 'Overguard'));
+    perProjectileOverguard += landed * (1 + healthModifier(snapshot, type, 'Overguard')) * (build.overguardDamageMultiplier ?? 1);
 
     const shieldMod = healthModifier(snapshot, type, healthClass);
     const bypassesShield = type === 'toxin' && scaled.enemy.toxinBypassesShields;
@@ -174,8 +174,25 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
       .reduce((sum, entry) => sum + entry.toHealth, 0) * factionMultiplier;
 
   const shots = build.multishot;
-  const damagePerShotShield = perProjectileShield * critMultiplier * shots * factionMultiplier;
-  const damagePerShotHealth = perProjectileHealth * critMultiplier * shots * factionMultiplier;
+  // Cascadia Empowered (wiki): every proc adds flat damage of its own type; no crit, weak point
+  // or mod scaling, only faction and the target's resistances. Statuses do not land on Overguard.
+  let procHealth = 0;
+  let procShield = 0;
+  if (build.procDamage) {
+    const dr = armor ? armorDamageReduction(armorAfterStatus) : 0;
+    const procs: Array<[DamageType, number]> = DAMAGE_TYPES
+      .map((type): [DamageType, number] => [type, build.statusChance * ((build.damage.perProjectile[type] ?? 0) / totalRaw)]);
+    for (const proc of build.forcedProcs ?? []) procs.push([proc.type, proc.chance * (proc.requiresCrit ? Math.min(1, build.critChance) : 1)]);
+    for (const [type, chance] of procs) {
+      if (chance <= 0) continue;
+      const amount = build.procDamage * chance * shots * factionMultiplier;
+      const modifier = 1 + healthModifier(snapshot, type, healthClass);
+      procHealth += amount * modifier * (1 - dr) * viral;
+      if (shieldType && !(type === 'toxin' && scaled.enemy.toxinBypassesShields)) procShield += amount * modifier;
+    }
+  }
+  const damagePerShotShield = perProjectileShield * critMultiplier * shots * factionMultiplier + procShield;
+  const damagePerShotHealth = perProjectileHealth * critMultiplier * shots * factionMultiplier + procHealth;
   const damagePerShotOverguard = perProjectileOverguard * critMultiplier * shots * factionMultiplier;
 
   // Sequential kill, as rates rather than shots so status damage counts:

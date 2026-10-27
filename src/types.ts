@@ -190,6 +190,8 @@ export interface WeaponData {
   modes: WeaponMode[];
   /** Riven mod capacity: most weapons have 1 slot. */
   hasRivenSlot: boolean;
+  /** Shotgun sidearm (wiki tag SECONDARYSHOTGUN): its pellets count as one hit for on-hit effects. */
+  shotgunSidearm?: boolean;
 }
 
 /**
@@ -298,6 +300,8 @@ export interface ArcaneData {
   rarity: string | null;
   maxRank: number;
   description: string;
+  /** Full text of every rank, rank 0 first: values do not always scale linearly with rank. */
+  levels?: string[];
   effects: Effect[];
   /** Where it goes: 'warframe', 'primary', 'secondary', 'melee', 'operator'... */
   slot: string | null;

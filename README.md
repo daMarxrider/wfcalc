@@ -283,9 +283,19 @@ Everything comes from two upstreams, rebuilt into `data/snapshot.json` (1.7 MB):
   **combination order**, multishot, crit chance/damage, status chance.
 - Faction damage mods and **Roar**, applied multiplicatively against the matching faction.
 - Weapon arcanes (Primary Merciless, Melee Exposure, Cascadia Flare...) with their stacks.
-  On-status arcanes (Cascadia Flare, Primary Blight, Conjunction Voltage...) only count when the
-  build procs that status, unless you set their stacks with `--source-stacks`. Secondary Enervate
-  uses its average crit chance over the reset cycle (+10% per shot, reset after 6 big crits).
+  Values are read from each rank's own text (Merciless's +30% Reload Speed exists only at max
+  rank). On-status arcanes (Cascadia Flare, Primary Blight, Conjunction Voltage, Secondary Shiver...)
+  only count when the build procs that status, unless you set their stacks with `--source-stacks`.
+  Rules from the wiki for the arcanes the card text does not cover: Secondary Enervate (average
+  crit over its reset cycle; projectile pellets are one hit each, hitscan and shotgun-sidearm
+  pellets one per shot, at most 30 a second), Melee Doughty, Melee Duplicate, Melee Careen,
+  Melee Retaliation, Melee Animosity / Assimilation (heavy attacks), Primary Plated Round,
+  Primary Bulwark, Primary Overcharge, Primary Crux, Secondary Outburst, Secondary Kinship,
+  Secondary Fortifier (Overguard), Cascadia Empowered (flat damage per proc), Cascadia Accuracy.
+  Stack-type inputs (shields, armour, max Energy, ally buffs) are the arcane's stacks.
+- **Warframe arcanes that buff one weapon class** (Arcane Fury: melee, Arcane Velocity: pistols)
+  do nothing on other weapons. Arcane Awakening, Primary Charger, Tempo, Velocity, Hot Shot and
+  Crepuscular (+3x final crit damage) are modelled.
 - **Kuva/Tenet elemental bonus**: the player-chosen element, baked in as innate damage
   (which is what really decides the elemental combination on those 35 weapons).
 - **Warframe arcanes**: Arcane Avenger (flat crit chance), Arcane Acceleration, Arcane Rage,
