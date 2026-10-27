@@ -185,6 +185,7 @@ current state, the working method and what is left to do.
 | `--steel-path` | Steel Path target: health and shields ×2.5. `--level` is the actual enemy level (node level + 100) |
 | `--fixed "A,B:R3"` | (bruteforce) Mods always equipped; an Exilus mod goes in the Exilus slot |
 | `--max-evals N` / `--pool N` | (bruteforce) Combination budget (default 2,000,000) / force a shortlist size |
+| `--all-combinations` | (bruteforce) No shortlist: every candidate mod, however long it takes. A mod whose Primed version is a candidate is never searched |
 | `--workers N` | (bruteforce) Threads, default every core |
 | `--faction grineer` | Shorthand for a benchmark enemy of that faction |
 | `--mode "Incarnon Form"` | Use an alternative fire mode |

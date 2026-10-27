@@ -288,8 +288,11 @@
         <input id="find-must" placeholder="Serration, Hunter Munitions:R3" autocomplete="off" /></label>
       <label class="field"><span>Exclude (mods you don't own)</span>
         <input id="find-exclude" placeholder="Heavy Caliber" autocomplete="off" /></label>
-      <label class="field brute-only"><span>Max combinations</span>
-        <input id="find-max-evals" type="number" min="1000" step="100000" value="2000000" /></label>
+      <div class="field wide-field brute-only"><label for="find-max-evals"><span>Max combinations</span></label>
+        <div class="inline-pair">
+          <input id="find-max-evals" type="number" min="1000" step="100000" value="2000000" />
+          <label class="switch"><input type="checkbox" id="find-all" /> all combinations</label>
+        </div></div>
     </div>
     <div id="find-sp-box" class="steel-path">
       <label class="switch"><input type="checkbox" id="find-sp" /> Steel Path</label>

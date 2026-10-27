@@ -1339,13 +1339,28 @@ async function runBruteForce(weapon) {
     fixed: parseFixed($('find-must').value),
     exclude: $('find-exclude').value.split(',').map((name) => name.trim()).filter(Boolean),
     maxEvaluations: Number($('find-max-evals').value) || undefined,
+    allCombinations: $('find-all').checked,
     simulate: state.simulate !== false,
+    stream: true,
     base,
   };
   const started = performance.now();
   const button = $('find-run');
   button.disabled = true;
-  $('find-out').innerHTML = `<div class="working">Enumerating every combination on every core… <span id="find-clock">0s</span></div>`;
+  $('find-out').innerHTML = `<div class="working"><span id="find-phase">Ranking the candidate mods…</span> <span id="find-clock">0s</span>
+    <div class="progress" role="progressbar" aria-label="Brute-force progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="find-progress">
+      <div class="progress-track"><div class="progress-fill" id="find-fill"></div></div><span class="progress-pct" id="find-pct">0%</span>
+    </div></div>`;
+  const showProgress = (done, total) => {
+    const share = total > 0 ? Math.min(1, done / total) : 0;
+    const percent = share * 100;
+    $('find-fill').style.width = `${percent}%`;
+    $('find-pct').textContent = `${percent < 10 && percent > 0 ? percent.toFixed(1) : Math.floor(percent)}%`;
+    $('find-progress').setAttribute('aria-valuenow', String(Math.floor(percent)));
+    $('find-phase').textContent = share >= 1
+      ? 'Simulating the best builds over the fight…'
+      : `${fmt(done, 0)} of ${fmt(total, 0)} combinations`;
+  };
   const clock = setInterval(() => {
     const el = $('find-clock');
     if (el) el.textContent = `${((performance.now() - started) / 1000).toFixed(0)}s`;
@@ -1356,9 +1371,28 @@ async function runBruteForce(weapon) {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const result = await response.json();
-    if (result.error) {
-      $('find-out').innerHTML = `<p class="error">${result.error}</p>`;
+    // Progress arrives as one JSON object per line; errors before the search starts come as plain JSON.
+    let result = null;
+    if (!response.headers.get('content-type')?.includes('ndjson')) result = await response.json();
+    else {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffered = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        buffered += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+        const lines = buffered.split('\n');
+        buffered = lines.pop();
+        for (const line of lines.filter(Boolean)) {
+          const message = JSON.parse(line);
+          if (message.progress !== undefined) showProgress(message.progress, message.total);
+          else result = message.result ?? message;
+        }
+        if (done) break;
+      }
+    }
+    if (!result || result.error) {
+      $('find-out').innerHTML = `<p class="error">${result?.error ?? 'the search ended without a result'}</p>`;
       return;
     }
     renderFind(result);
@@ -1615,6 +1649,7 @@ const TIPS = {
   'find-must': 'Mods every build keeps (brute force: fixed). Add :R3 for a lower rank.',
   'find-exclude': 'Mods you do not own; they are never used.',
   'find-max-evals': 'How many combinations the brute force may try. Bigger = more candidate mods, slower.',
+  'find-all': 'Try every combination of every candidate mod, with no shortlist. Can take a very long time.',
   'find-incarnon': 'Let the quick search also pick Incarnon evolutions.',
   'find-arcane': 'Weapon arcane, used as given (arch-guns: the Primary one).',
   'find-arcane2': 'Arch-guns only: the Secondary arcane.',
@@ -1764,6 +1799,7 @@ function bindEvents() {
   });
 
   $('mod-filter').addEventListener('input', () => renderModList());
+  $('find-all').addEventListener('change', (event) => { $('find-max-evals').disabled = event.target.checked; });
   $('filter-polarity').addEventListener('change', () => renderLibrary());
   $('filter-sort').addEventListener('change', () => renderLibrary());
   $('filter-type').addEventListener('change', () => renderLibrary());
