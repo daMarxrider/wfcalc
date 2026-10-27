@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { falloffFactor, resolveBuild as resolveQuantized, type Build } from '../src/engine/build.ts';
+import { enervateCritChance, falloffFactor, resolveBuild as resolveQuantized, type Build } from '../src/engine/build.ts';
 import { armorDamageReduction, eximusBaseHealth, overguardForLevel, scaleEnemy } from '../src/engine/enemy.ts';
 import { elementalOrders } from '../src/engine/bruteforce.ts';
 import { hitProfile, weakPointBase } from '../src/engine/hit.ts';
@@ -406,6 +406,32 @@ test('weapon arcanes apply with their stack condition', () => {
   });
   close(idle.damage.projectileTotal, 100);
   close(stacked.damage.projectileTotal, 100 * (1 + 0.3 * 5));
+});
+
+test('an on-status arcane (Cascadia Flare) only counts when the build procs that status', () => {
+  const flare = arcane('Cascadia Flare', 'primary', 5, ['On Heat Status Effect:', '+12% Damage for 10s. Stacks up to 480%.']);
+  const noHeat = snapshot([weapon({ impact: 100, statusChance: 0.2 })], [], [], { arcanes: [flare] });
+  const heat = snapshot([weapon({ heat: 100, statusChance: 0.2 })], [], [], { arcanes: [flare] });
+  const build: Build = { weapon: 'Test Weapon', mods: [], arcanes: ['Cascadia Flare'], stackMode: 'max' };
+  close(resolveBuild(noHeat, build).damage.projectileTotal, 100);
+  close(resolveBuild(heat, build).damage.projectileTotal, 100 * (1 + 0.12 * 40));
+  // A stack count the player sets is kept: Heat from abilities or other weapons feeds it too.
+  close(resolveBuild(noHeat, { ...build, sourceStacks: { 'Cascadia Flare': 10 } }).damage.projectileTotal, 100 * (1 + 0.12 * 10));
+});
+
+test('Secondary Enervate averages its crit chance over the reset cycle', () => {
+  const enervate: ArcaneData = {
+    id: 'Secondary Enervate', name: 'Secondary Enervate', category: 'Secondary Arcane', rarity: 'Rare', maxRank: 5,
+    description: 'On Hit: Increase Critical Chance by 10%. Resets after 6 Big Critical Hit.', effects: [], slot: 'secondary',
+  };
+  // From 200% every shot is a big crit: bonuses 0..50% over six shots, +25% (wiki: AFCC = 25 + x).
+  close(enervateCritChance(2.5, 6), 2.75);
+  // At 195% the first shot is big 95% of the time: E[sum]/E[shots] = (6.05 x 1.95 + 1.53) / 6.05.
+  // The wiki's fit (35 + 0.95x = 220.25%) averages per-cycle means, which is not the per-shot average.
+  close(enervateCritChance(1.95, 6), 1.95 + 1.53 / 6.05);
+  const snap = snapshot([weapon({ impact: 100, critChance: 2.5 })], [], [], { arcanes: [enervate] });
+  close(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: ['Secondary Enervate'] }).critChance, 2.75);
+  close(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: [{ name: 'Secondary Enervate', rank: 0 }] }).critChance, 2.5);
 });
 
 test('an arcane in the wrong slot only warns', () => {

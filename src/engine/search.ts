@@ -657,7 +657,8 @@ export function search(snapshot: Snapshot, request: SearchRequest): SearchResult
   ]);
   const candidates = Object.values(snapshot.arcanes).filter(
     (arcane) => arcane.slot && allowed.includes(arcane.slot)
-      && arcane.effects.some((effect) => relevant.has(String(effect.target))),
+      // Secondary Enervate has no effect lines: build.ts models its crit cycle by name.
+      && (arcane.name === 'Secondary Enervate' || arcane.effects.some((effect) => relevant.has(String(effect.target)))),
   );
   if (!candidates.length) return searchOnce(snapshot, { ...request, chooseArcane: false });
 
