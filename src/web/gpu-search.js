@@ -574,16 +574,28 @@ function unrank(top, rank, k) {
   return combo;
 }
 
-/** True when this browser can run the GPU search. */
-export const gpuAvailable = () => typeof navigator !== 'undefined' && Boolean(navigator.gpu);
+/**
+ * The GPU to use, or null. A software fallback adapter (SwiftShader) is refused unless asked for:
+ * it runs on the CPU and is slower than the server's own brute force.
+ */
+export async function gpuAdapter(allowFallback = false) {
+  if (typeof navigator === 'undefined' || !navigator.gpu) return null;
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null);
+  if (!adapter || (!allowFallback && (adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter))) return null;
+  return adapter;
+}
+
+/** A short name for an adapter, for the settings and the result notes. */
+export const adapterName = (adapter) => [adapter?.info?.vendor, adapter?.info?.architecture, adapter?.info?.description]
+  .filter(Boolean).join(' ') || 'GPU';
 
 /**
  * Runs the pre-filter on the GPU. Resolves to the best `model.keep` combinations (candidate
  * indices) and a check of the shader against `proxyScore` on the winners.
  */
-export async function gpuSearch(model, { onProgress, signal } = {}) {
-  const adapter = await navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' });
-  if (!adapter) throw new Error('WebGPU: no GPU adapter');
+export async function gpuSearch(model, { onProgress, signal, allowFallback = false } = {}) {
+  const adapter = await gpuAdapter(allowFallback);
+  if (!adapter) throw new Error('WebGPU: no hardware GPU adapter in this browser');
   const device = await adapter.requestDevice({
     requiredLimits: { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize },
   });
@@ -623,8 +635,8 @@ export async function gpuSearch(model, { onProgress, signal } = {}) {
     const total = binomial(n, k);
     let done = 0;
     // Batches: one top element at a time (its lower elements count C(top, k-1), always < 2^32),
-    // split into dispatches the device allows (65535 x 256 threads per row, a few rows).
-    const perDispatch = 256 * 65535 * 4;
+    // split into dispatches of 4M threads: short enough for the driver watchdog on a slow GPU.
+    const perDispatch = 1 << 22;
     const run = async (topIndex, base, count, threshold) => {
       device.queue.writeBuffer(uniform, 0, new Uint32Array([topIndex, base, count, 0]));
       device.queue.writeBuffer(uniform, 12, new Float32Array([threshold]));
@@ -677,7 +689,7 @@ export async function gpuSearch(model, { onProgress, signal } = {}) {
       const expected = proxyScore(model, combo);
       return Math.max(worst, Math.abs(score - expected) / Math.max(1e-12, expected));
     }, 0);
-    return { winners, drift, adapter: adapter.info?.description || adapter.info?.vendor || 'GPU' };
+    return { winners, drift, adapter: adapterName(adapter) };
   } finally {
     device.destroy();
   }

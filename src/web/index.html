@@ -16,6 +16,7 @@
     <button class="tab" data-tab="abilities" role="tab">Abilities</button>
     <button class="tab" data-tab="compare" role="tab">Compare</button>
     <button class="tab" data-tab="saved" role="tab">Saved</button>
+    <button class="tab" data-tab="settings" role="tab">Settings</button>
   </nav>
 </header>
 
@@ -430,6 +431,18 @@
   <section class="panel wide">
     <div class="panel-head"><h2>Saved builds</h2><span id="saved-count" class="badge"></span></div>
     <div id="saved-list" class="saved-list"></div>
+  </section>
+</main>
+
+<main id="tab-settings" class="tab-panel">
+  <section class="panel wide">
+    <div class="panel-head"><h2>Settings</h2></div>
+    <label class="switch"><input type="checkbox" id="setting-gpu" /> Brute force on the GPU (WebGPU)</label>
+    <p class="hint" id="setting-gpu-status">Looking for a GPU…</p>
+    <p class="hint">The GPU scores every combination of up to 64 candidate mods with a reduced damage model and
+      sends the best 20,000 to the server, which scores them with the full engine. Much faster on big searches;
+      a build the reduced model badly underrates can be missed. Works on AMD, Nvidia, Intel and Apple GPUs.
+      Saved in this browser only.</p>
   </section>
 </main>
 

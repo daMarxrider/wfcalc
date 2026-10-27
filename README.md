@@ -22,6 +22,10 @@ and in-game calibration. On top of it this fork adds:
   the search must keep. Warframe buffs (`--buff`, `--strength`) and Incarnon evolutions
   (`--incarnon`) are inputs, not searched. Parallel across cores; pruned by capacity, Forma and
   incompatible mods; one evaluation per distinct elemental pairing rather than per slot order.
+- **GPU brute force** (web UI, Settings tab): WebGPU, so AMD, Nvidia, Intel and Apple GPUs alike.
+  The browser scores every combination of up to 64 candidates with a reduced damage model
+  (`src/web/gpu-search.js`, mod vectors from `src/engine/gpu-model.ts`) and the server scores the
+  best 20,000 with the full engine. Falls back to the CPU brute force without a hardware GPU.
 - **`--steel-path`** on every command: enemy health and shields ×2.5 (armour unchanged).
 - **Arch-guns take two arcanes**, one Primary and one Secondary (Archgun Arcane Adapter); every
   other weapon is checked for a single arcane.

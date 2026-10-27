@@ -6,8 +6,11 @@
  * build is shareable) and to localStorage (so it survives closing the tab).
  */
 
+import { gpuAdapter, adapterName, gpuSearch } from './gpu-search.js';
+
 const MAX_SLOTS = 8; // plus exilus; melee also gets a stance slot that adds capacity
 const STORAGE_KEY = 'wfcalc.builds';
+const GPU_KEY = 'wfcalc.gpu';
 
 const ELEMENT_COLORS = {
   impact: '#8b93a8', puncture: '#a08a6a', slash: '#c0504d', heat: '#f0793a',
@@ -401,6 +404,30 @@ function showTab(name) {
   for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.tab === name);
   for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.toggle('active', panel.id === `tab-${name}`);
 }
+
+/** ---------- settings ---------- */
+
+// A per-browser preference: storage can be missing (private windows), so every access is guarded.
+const gpuSetting = () => { try { return localStorage.getItem(GPU_KEY) === '1'; } catch { return false; } };
+let adapterLookup = null;
+const findAdapter = () => (adapterLookup ??= gpuAdapter());
+
+async function initSettings() {
+  const box = $('setting-gpu');
+  box.checked = gpuSetting();
+  box.onchange = () => { try { localStorage.setItem(GPU_KEY, box.checked ? '1' : '0'); } catch { /* not remembered */ } };
+  const adapter = await findAdapter();
+  box.disabled = !adapter;
+  // The saved choice is kept for a browser that gains WebGPU, but without a GPU the switch reads off.
+  if (!adapter) box.checked = false;
+  $('setting-gpu-status').textContent = adapter
+    ? `Found: ${adapterName(adapter)}.`
+    : 'No hardware WebGPU in this browser, so brute force runs on the server. On Linux, Chrome and Brave need '
+      + 'chrome://flags (brave://flags) → "Unsafe WebGPU Support" and "Vulkan" enabled, then a restart.';
+}
+
+/** True when the brute force should run on the GPU: switched on and a GPU is there. */
+const gpuWanted = async () => gpuSetting() && Boolean(await findAdapter());
 
 /** ---------- rendering: build ---------- */
 
@@ -1504,31 +1531,19 @@ async function runBruteForce(weapon) {
     if (el) el.textContent = `${((performance.now() - started) / 1000).toFixed(0)}s`;
   }, 500);
   try {
-    const response = await fetch('/api/bruteforce', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: stopper.signal,
-    });
-    // Progress arrives as one JSON object per line; errors before the search starts come as plain JSON.
     let result = null;
-    if (!response.headers.get('content-type')?.includes('ndjson')) result = await response.json();
-    else {
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffered = '';
-      for (;;) {
-        const { value, done } = await reader.read();
-        buffered += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-        const lines = buffered.split('\n');
-        buffered = lines.pop();
-        for (const line of lines.filter(Boolean)) {
-          const message = JSON.parse(line);
-          if (message.progress !== undefined) showProgress(message.progress, message.total);
-          else result = message.result ?? message;
-        }
-        if (done) break;
+    let gpuFailure = '';
+    if (await gpuWanted()) {
+      try {
+        result = await gpuBruteForce(payload, stopper.signal, showProgress);
+      } catch (error) {
+        if (stopper.signal.aborted) throw error;
+        gpuFailure = String(error.message ?? error);
       }
+    }
+    if (!result) result = await serverBruteForce(payload, stopper.signal, showProgress);
+    if (gpuFailure && result && !result.error) {
+      result.notes = [`The GPU search failed (${gpuFailure}), so this result comes from the server's CPU brute force.`, ...(result.notes ?? [])];
     }
     if (!result || result.error) {
       $('find-out').innerHTML = `<p class="error">${result?.error ?? 'the search ended without a result'}</p>`;
@@ -1545,6 +1560,54 @@ async function runBruteForce(weapon) {
   }
 }
 
+/** The CPU brute force on the server, streaming its progress. */
+async function serverBruteForce(payload, signal, showProgress) {
+  const response = await fetch('/api/bruteforce', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  // Progress arrives as one JSON object per line; errors before the search starts come as plain JSON.
+  if (!response.headers.get('content-type')?.includes('ndjson')) return response.json();
+  let result = null;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    buffered += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    const lines = buffered.split('\n');
+    buffered = lines.pop();
+    for (const line of lines.filter(Boolean)) {
+      const message = JSON.parse(line);
+      if (message.progress !== undefined) showProgress(message.progress, message.total);
+      else result = message.result ?? message;
+    }
+    if (done) break;
+  }
+  return result;
+}
+
+/** The GPU brute force: the server sends the model, the GPU pre-filters, the server scores the shortlist exactly. */
+async function gpuBruteForce(payload, signal, showProgress) {
+  const { stream, ...body } = payload;
+  const post = (path, data) => fetch(path, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data), signal,
+  }).then((response) => response.json());
+  $('find-phase').textContent = 'Preparing the GPU model…';
+  const model = await post('/api/bruteforce/gpu-model', body);
+  if (model.error) return model;
+  const started = performance.now();
+  const found = await gpuSearch(model, { signal, onProgress: showProgress });
+  $('find-phase').textContent = `Scoring the best ${fmt(found.winners.length, 0)} exactly…`;
+  return post('/api/bruteforce/gpu-finish', {
+    ...body,
+    combinations: found.winners.map(({ combo }) => combo.map((index) => model.candidates[index])),
+    gpu: { combinations: model.combinations, elapsedMs: performance.now() - started, adapter: found.adapter, drift: found.drift },
+  });
+}
+
 function renderFind(result) {
   const builds = result.builds ?? [];
   const target = `${result.weapon} vs ${result.enemy} level ${result.level}${result.steelPath ? ' <span class="chip sp">Steel Path</span>' : ''}`;
@@ -1554,9 +1617,11 @@ function renderFind(result) {
       ? `<div class="stat-line">
           <span class="chip">${fmt(result.combinations, 0)} combinations</span>
           <span class="chip">${fmt(result.evaluated, 0)} builds scored</span>
-          <span class="chip">${result.workers} threads</span>
+          <span class="chip">${result.device ?? `${result.workers} threads`}</span>
           <span class="chip">${(result.elapsedMs / 1000).toFixed(1)}s</span>
-          <span class="chip${result.exhaustive ? ' fixed' : ''}">${result.exhaustive ? `exhaustive: all ${result.candidates.length} mods` : `shortlist of ${result.candidates.length} mods`}</span>
+          <span class="chip${result.exhaustive ? ' fixed' : ''}">${result.device
+            ? `all ${result.candidates.length} mods, GPU pre-filter`
+            : result.exhaustive ? `exhaustive: all ${result.candidates.length} mods` : `shortlist of ${result.candidates.length} mods`}</span>
         </div>
         <p class="hint">${target} · ${fmt(result.health, 0)} hp · ${fmt(result.shield, 0)} shields · ${fmt(result.armor, 0)} armor</p>`
       : `<p class="hint">${result.evaluated} builds tried in ${result.elapsedMs} ms · ${target}</p>`}
@@ -1749,6 +1814,7 @@ const TIPS = {
   'filter-rarity': 'Show only mods of this rarity.',
   'filter-sort': 'Sort the library by name, or by how much each mod adds to this build.',
   'find-run': 'Run the search with the settings above.',
+  'setting-gpu': 'Run the brute force on this device\'s GPU through WebGPU. Off: the server\'s CPU threads do it.',
   'ability-run': 'Price one cast of the ability against the target.',
   'compare-run': 'Compare build A (the Build tab) with B.',
   'aiming': 'Aiming / scoped: turns on "when aiming" effects (Bladed Rounds, Argon Scope, Primary Compression).',
@@ -1927,6 +1993,7 @@ function bindEvents() {
   if (eventsBound) return;
   eventsBound = true;
   for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => showTab(tab.dataset.tab);
+  void initSettings();
 
   $('weapon-input').addEventListener('change', async (event) => {
     const name = event.target.value;
