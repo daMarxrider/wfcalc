@@ -116,6 +116,8 @@ export function proxyScore(model, combo) {
     }
   }
   if (half > params[P.capacityHalf]) return 0;
+  // A drawback twin (Heavy Caliber) only next to its clean mod (Serration).
+  if (combo.some((i) => (model.requires?.[i] ?? -1) >= 0 && !combo.includes(model.requires[i]))) return 0;
   const { A, B } = sums(model, combo);
   let mask = params[P.fixedElementMask];
   for (const i of combo) {
@@ -313,6 +315,7 @@ struct Hit { score: f32, rank: u32 }
 @group(0) @binding(4) var<uniform> batch: Batch;
 @group(0) @binding(5) var<storage, read_write> counter: atomic<u32>;
 @group(0) @binding(6) var<storage, read_write> hits: array<Hit>;
+@group(0) @binding(7) var<storage, read> twinOf: array<i32>;
 
 var<private> PERMS: array<u32, ${rows.length * 4}> = array<u32, ${rows.length * 4}>(${rows.flat().map((v) => `${v}u`).join(',')});
 var<private> COMBINE: array<i32, 16> = array<i32, 16>(${COMBINE.flat().join(',')});
@@ -527,6 +530,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     drain += vectors[m * STRIDE + 2u * NC];
   }
   if (drain > params[${P.capacityHalf}u]) { return; }
+  // A drawback twin (Heavy Caliber) only next to its clean mod (Serration).
+  for (var i = 0u; i < K; i++) {
+    let need = twinOf[combo[i]];
+    if (need < 0) { continue; }
+    let bit = u32(need);
+    if (bit < 32u && (lo & (1u << bit)) == 0u) { return; }
+    if (bit >= 32u && (hi & (1u << (bit - 32u))) == 0u) { return; }
+  }
   for (var c2 = 0u; c2 < NC; c2++) { A[c2] = params[${P.size}u + c2]; B[c2] = params[${P.size}u + NC + c2]; }
   var mask = u32(params[${P.fixedElementMask}u]);
   for (var i = 0u; i < K; i++) {
@@ -643,6 +654,7 @@ export async function gpuSearch(model, { onProgress, signal, allowFallback = fal
     const vectors = storage(new Float32Array(model.vectors));
     const clash = storage(new Uint32Array(model.clash));
     const chooseBuffer = storage(choose);
+    const requiresBuffer = storage(new Int32Array(model.requires ?? new Array(n).fill(-1)));
     const uniform = track(device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     const counter = track(device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST }));
     const hits = track(device.createBuffer({ size: capacity * 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC }));
@@ -650,7 +662,7 @@ export async function gpuSearch(model, { onProgress, signal, allowFallback = fal
     const readHits = track(device.createBuffer({ size: capacity * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }));
     const group = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
-      entries: [params, vectors, clash, chooseBuffer, uniform, counter, hits].map((buffer, binding) => ({ binding, resource: { buffer } })),
+      entries: [params, vectors, clash, chooseBuffer, uniform, counter, hits, requiresBuffer].map((buffer, binding) => ({ binding, resource: { buffer } })),
     });
 
     const top = new TopList(keep);

@@ -108,8 +108,9 @@ part of the build: do not omit it from the answer.
   Ability Strength. `--brief` prints them after the builds.
 - **`partial` mods / warnings**: those numbers are a **lower bound**. Say so.
 - **Incarnon**: it is never assumed. If the weapon has a form, say so and offer
-  `--incarnon auto`; the transformed profile, the perks and the form's AoE/explosion at the
-  blast centre are modelled (`--aoe-distance` applies the explosion's falloff).
+  `--incarnon auto`. Perks work untransformed too; `form` in `--incarnon` switches to the
+  transformed profile. Perks, their conditions and form scope, and the form's AoE/explosion at
+  the blast centre are modelled (`--aoe-distance` applies the explosion's falloff).
 - **Inactive conditions**: Galvanized/on-kill/"while aiming" effects are off unless
   `--stacks`/`--aiming` is passed. A build that relies on them is scored lower than it plays.
 

@@ -27,6 +27,34 @@ export const DAMAGE_TARGETS = new Set([
   'convert', 'ammoMax',
 ]);
 
+/** Stats where a negative value helps (less recoil), so it is no drawback. */
+export const LOWER_IS_BETTER = new Set(['recoil', 'spread']);
+export const isDrawback = (effect: { value: number; target: unknown }): boolean =>
+  effect.value < 0 && !LOWER_IS_BETTER.has(String(effect.target));
+
+/**
+ * Mods that are another mod plus drawbacks, as twin -> clean mod: Heavy Caliber is Serration with
+ * -55% accuracy, Hollow Point is Target Cracker with -15% damage. Among `mods` (the ones available),
+ * a twin belongs in a build only next to its clean mod.
+ */
+export function drawbackTwins(mods: ModData[]): Map<string, string> {
+  const useful = (mod: ModData): string => JSON.stringify(mod.effects
+    .filter((effect) => !isDrawback(effect))
+    .map(({ raw: _raw, ...rest }) => JSON.stringify({ ...rest, value: Math.round(rest.value * 1e6) / 1e6 }, Object.keys(rest).sort()))
+    .sort());
+  const clean = new Map<string, string>();
+  for (const mod of mods) {
+    if (mod.effects.length && !mod.effects.some(isDrawback) && !clean.has(useful(mod))) clean.set(useful(mod), mod.name);
+  }
+  const twins = new Map<string, string>();
+  for (const mod of mods) {
+    if (!mod.effects.some(isDrawback)) continue;
+    const twin = clean.get(useful(mod));
+    if (twin && twin !== mod.name) twins.set(mod.name, twin);
+  }
+  return twins;
+}
+
 /** Set bonuses build.ts turns into damage: Vigilante (enhanced crits), Gladiator (crit per combo). */
 const DAMAGE_SETS = new Set(['Vigilante Set', 'Gladiator Set']);
 
@@ -332,6 +360,13 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     .filter((mod) => !mustInclude.includes(mod.name))
     .map((mod) => ({ mod, rank: mod.maxRank ?? 0 }));
 
+  // A mod that is another plus drawbacks (Heavy Caliber) only joins a build that has the other one.
+  const twins = drawbackTwins([...pool.values()]);
+  const twinsOk = (names: string[]): boolean => names.every((name) => {
+    const clean = twins.get(name);
+    return !clean || mustInclude.includes(name) || names.includes(clean);
+  });
+
   // Feasibility: the build must fit, spending no more Forma than allowed.
   const fits = (names: string[]): { ok: boolean; drain: number; formaNeeded: number; entries: SearchBuild['mods'] } => {
     const mods = names
@@ -342,7 +377,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     // Pressure Point are the classic pair, and the data carries the incompatibility list.
     const chosen = new Set(names);
     const conflict = mods.some((entry) => entry.mod.incompatible.some((other) => chosen.has(other)));
-    const ok = !conflict && result.drain <= capacity && (maxForma === null || result.formaNeeded <= maxForma);
+    const ok = !conflict && twinsOk(names) && result.drain <= capacity && (maxForma === null || result.formaNeeded <= maxForma);
     return { ok, ...result };
   };
 
@@ -393,6 +428,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
         // Removing a mod is allowed too: sometimes seven mods beat eight.
         if (slot < names.length && evaluated < budget) {
           const trial = names.filter((_, index) => index !== slot);
+          if (!twinsOk(trial)) continue;
           const trialScore = evaluateOrder(trial, true);
           if (trialScore > bestScore + 1e-9) { bestScore = trialScore; bestNames = trial; }
         }
@@ -430,11 +466,12 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   /**
    * Tries every combination of perks and keeps the best. A greedy tier-by-tier walk is not
    * enough: the perks interact (the Incarnon profile alone can score worse than the base
-   * weapon, and only the full set overtakes it). Trees are small — the largest is 18
-   * combinations — so exhausting them is both affordable and exact.
+   * weapon, and only the full set overtakes it). Trees are small — the largest is 36
+   * combinations with the form on and off — so exhausting them is both affordable and exact.
    */
   const chooseIncarnon = (): void => {
-    const combinations: string[][] = [[]];
+    // The form is a choice of its own: perks also work on the untransformed weapon.
+    const combinations: string[][] = weapon.incarnonForm ? [[], ['form']] : [[]];
     for (const tier of incarnonTiers) {
       const grown: string[][] = [];
       for (const prefix of combinations) {

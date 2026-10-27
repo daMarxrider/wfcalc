@@ -1383,3 +1383,28 @@ test('Emerald shards raise the Corrosion cap and Toxin status damage', () => {
   const boosted = hitEnemy(toxin, build(toxin, [], { shards: [{ color: 'emerald', bonus: 'toxinStatusDamage' }] }), scaleEnemy(toxin, bombard, 50));
   close(boosted.dot.find((e) => e.type === 'toxin')!.tickDamage, base.dot.find((e) => e.type === 'toxin')!.tickDamage * 1.3);
 });
+
+test('Incarnon "Increase Base X" raises the base stat before mods; perks also work untransformed', () => {
+  const pointStrike = mod('Point Strike', 5, ['+150% Critical Chance']);
+  const snap = snapshot([{ ...weapon({ impact: 100, critChance: 0.2, critMultiplier: 2 }), incarnonForm: stats({ heat: 300, critChance: 0.4 }) }], [pointStrike], [], {});
+  snap.incarnons = {
+    'Test Weapon': [
+      { tier: 'EVO4', name: 'Edge', effects: [{ target: 'critChance', op: 'add', value: 0.1, raw: 'Increase Base Critical Chance by +10%', base: true }], text: [] },
+      { tier: 'EVO4', name: 'Form Only', effects: [{ target: 'critChance', op: 'add', value: 0.1, raw: 'x', base: true, form: 'incarnon' }], text: [] },
+      { tier: 'EVO5', name: 'Prelude', effects: [{ target: 'critDamage', op: 'add', value: 3, raw: 'y', base: true, critChanceBelow: 0.5 }], text: [] },
+    ],
+  };
+  const build = (mods: string[], incarnon: string[]) => resolveBuild(snap, { weapon: 'Test Weapon', mods, incarnon });
+  // (0.2 + 0.1) x 2.5, not 0.2 x (1 + 1.5 + 0.1): the perk is base crit chance.
+  close(build(['Point Strike'], ['EVO4:Edge']).critChance, 0.3 * 2.5);
+  // Picking a perk does not transform the weapon; "form" does.
+  assert.equal(build([], ['EVO4:Edge']).incarnonFormActive, false);
+  close(build([], ['EVO4:Edge']).damage.projectileTotal, 100);
+  assert.equal(build([], ['EVO4:Edge', 'form']).incarnonFormActive, true);
+  // A form-only perk does nothing untransformed.
+  close(build([], ['EVO4:Form Only']).critChance, 0.2);
+  close(build([], ['EVO4:Form Only', 'form']).critChance, 0.5);
+  // Prelude of Might: +3 base crit multiplier while crit chance stays under 50%.
+  close(build([], ['EVO5:Prelude']).critMultiplier, 2 + 3);
+  close(build(['Point Strike'], ['EVO5:Prelude']).critMultiplier, 2);
+});

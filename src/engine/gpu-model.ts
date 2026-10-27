@@ -7,7 +7,7 @@
  */
 import type { Build, BuildMod } from './build.ts';
 import { resolveBuild } from './build.ts';
-import { gpuPlan, modElement, type BruteForceRequest } from './bruteforce.ts';
+import { gpuPlan, modElement, twinRequirements, type BruteForceRequest } from './bruteforce.ts';
 import { effectiveArmor } from './dot.ts';
 import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
@@ -25,6 +25,8 @@ export interface GpuModel {
   params: number[];
   vectors: number[];
   clash: number[];
+  /** Per candidate, the candidate it needs beside it (a drawback twin's clean mod), or -1. */
+  requires: number[];
 }
 
 const NC = CHANNELS.length;
@@ -178,5 +180,6 @@ export function gpuModel(snapshot: Snapshot, request: BruteForceRequest, keep = 
     params: [...params, ...baseA, ...baseB],
     vectors,
     clash,
+    requires: twinRequirements(snapshot, plan),
   };
 }
