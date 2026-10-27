@@ -187,7 +187,8 @@ function buildMods(unmatchedReport: string[]): Record<string, ModData> {
       upgradeTypes: luaArray(entry.UpgradeTypes).filter((x): x is string => typeof x === 'string'),
       isAugment: Boolean(source?.isAugment) || /Augment/i.test(String(entry.Class ?? '')),
       isRiven: /Riven/i.test(name) || /Riven/i.test(String(source?.type ?? '')),
-      isExilus: exilusNames.has(name),
+      // The wiki category misses some (Galvanized Acceleration); the export's isUtility is the game's own flag.
+      isExilus: exilusNames.has(name) || (Boolean(source?.isUtility) && /^(Primary|Secondary|Shotgun|Melee) Mod$/.test(String(source?.type))),
       conclave: Boolean(entry.Conclave),
     };
     out[name] = mod;
