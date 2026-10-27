@@ -404,6 +404,7 @@ function showTab(name) {
   for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.tab === name);
   for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.toggle('active', panel.id === `tab-${name}`);
   if (name === 'find') renderFindForm();
+  if (name === 'riven') renderRivenTab();
 }
 
 /** ---------- Incarnon evolutions ---------- */
@@ -485,6 +486,93 @@ async function renderIncarnonPicker({ weaponChanged = false } = {}) {
       recalc();
     };
   }
+}
+
+/** ---------- riven picker ---------- */
+
+const rivenHasForm = () => Boolean(weaponData.get(state.weapon)?.incarnonForm);
+
+/** The Riven tab's view of the Build tab: its mods, and the stat lists for the filters. */
+function renderRivenTab() {
+  const mods = state.mods.filter((mod) => mod.name && mod.name !== RIVEN);
+  $('riven-build').innerHTML = state.weapon
+    ? `<span class="chip fixed">${escapeHtml(state.weapon)}</span>${mods.map((mod) => `<span class="chip">${escapeHtml(mod.name)}</span>`).join('')
+      || '<span class="hint">no mods on the Build tab yet</span>'}`
+    : '<span class="hint">Pick a weapon and mods on the Build tab first.</span>';
+  $('riven-form-box').hidden = !rivenHasForm();
+  const options = (none) => `<option value="">${none}</option>${rivenStatCatalog
+    .map((stat) => `<option value="${escapeHtml(stat.id)}">${escapeHtml(stat.label)}</option>`).join('')}`;
+  for (const id of ['riven-stat-1', 'riven-stat-2', 'riven-stat-3', 'riven-malus']) {
+    const select = $(id);
+    if (select.options.length) continue;
+    select.innerHTML = options(id === 'riven-malus' ? 'any' : '—');
+  }
+}
+
+async function runRivenPicker() {
+  const mods = state.mods.filter((mod) => mod.name && mod.name !== RIVEN);
+  if (!state.weapon || !mods.length) {
+    $('riven-out').innerHTML = '<p class="error">Put a weapon and its mods on the Build tab first.</p>';
+    return;
+  }
+  const form = rivenHasForm() ? document.querySelector('input[name="riven-form"]:checked')?.value : 'normal';
+  if (!form) {
+    $('riven-out').innerHTML = '<p class="error">This weapon has an Incarnon form: choose “normal” or “Incarnon form” above.</p>';
+    return;
+  }
+  const payload = {
+    ...buildPayload({ contributions: false }),
+    riven: null,
+    form,
+    objective: $('riven-objective').value,
+    stats: ['riven-stat-1', 'riven-stat-2', 'riven-stat-3'].map((id) => $(id).value).filter(Boolean),
+    malus: $('riven-malus').value || undefined,
+    limit: 100,
+  };
+  const button = $('riven-run');
+  button.disabled = true;
+  $('riven-out').innerHTML = '<p class="hint">Trying every riven against every mod…</p>';
+  try {
+    const result = await (await fetch('/api/riven-picker', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+    })).json();
+    if (result.error) {
+      $('riven-out').innerHTML = `<p class="error">${escapeHtml(result.error)}</p>`;
+      return;
+    }
+    renderRivenResult(result);
+  } catch (error) {
+    $('riven-out').innerHTML = `<p class="error">${escapeHtml(String(error.message ?? error))}</p>`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderRivenResult(result) {
+  const ttk = result.objective === 'ttk';
+  const value = (score, kill) => (ttk ? (kill === null ? '—' : `${fmt(kill, 2)}s`) : `${fmt(score, 0)} dps`);
+  const total = Object.values(result.replacedCounts).reduce((sum, count) => sum + count, 0) || 1;
+  $('riven-out').innerHTML = `
+    <div class="stat-line">
+      <span class="chip">${fmt(result.rivens, 0)} rivens</span>
+      <span class="chip">${fmt(result.groups, 0)} distinct effects</span>
+      <span class="chip">${fmt(result.evaluated, 0)} builds scored</span>
+      <span class="chip">${result.workers} threads</span>
+      <span class="chip">${(result.elapsedMs / 1000).toFixed(1)}s</span>
+      <span class="chip fixed">now: ${value(result.baseline.score, result.baseline.timeToKill)}</span>
+    </div>
+    <h3>Which mod rivens replace <span class="hint">· share of all ${fmt(result.rivens, 0)} rivens</span></h3>
+    <div class="build-mods">${Object.entries(result.replacedCounts).sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => `<span class="chip${count ? '' : ' subtle'}">${escapeHtml(name)} ${pct(count / total)}</span>`).join('')}</div>
+    <h3>Best rivens</h3>
+    <div class="riven-rows">${result.picks.map((pick, index) => `<div class="riven-row">
+      <b class="riven-rank">${index + 1}</b>
+      <div class="riven-stats">${pick.lines.map((line) => `<span class="chip${/ -/.test(line) ? ' warn' : ''}">${escapeHtml(line)}</span>`).join('')}
+        ${pick.equivalent > 1 ? `<span class="hint" title="${escapeHtml(pick.examples.join('\n'))}">+${pick.equivalent - 1} riven(s) with the same effect here</span>` : ''}</div>
+      <div class="riven-action">replaces <b>${escapeHtml(pick.replaces)}</b> → ${value(pick.score, pick.timeToKill)}
+        ${pick.swap ? `<div class="hint">then ${escapeHtml(pick.swap.out)} → ${escapeHtml(pick.swap.in)}: ${value(pick.swap.score, pick.swap.timeToKill)}</div>` : ''}</div>
+    </div>`).join('') || '<p class="hint">No riven matches that filter.</p>'}</div>
+    ${(result.assumptions ?? []).map((line) => `<p class="hint">· ${escapeHtml(line)}</p>`).join('')}`;
 }
 
 /** ---------- settings ---------- */
@@ -2100,6 +2188,7 @@ function bindEvents() {
   eventsBound = true;
   for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => showTab(tab.dataset.tab);
   void initSettings();
+  $('riven-run').addEventListener('click', () => void runRivenPicker());
 
   $('weapon-input').addEventListener('change', async (event) => {
     const name = event.target.value;
