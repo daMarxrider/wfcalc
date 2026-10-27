@@ -342,7 +342,7 @@
         </div>
         <label class="switch"><input type="checkbox" id="find-simulate" checked /> Simulate status build-up</label>
       </div>
-      <p class="hint" id="find-stack-hint">“all”: every on-kill, on-hit and aiming effect at its cap (DE's “Stacks up to”). Weak-point effects need headshots.
+      <p class="hint" id="find-stack-hint">“all”: every on-kill and on-hit effect at its cap (DE's “Stacks up to”). Weak-point effects need headshots, aiming effects need “aiming” ticked; without it the search leaves aiming-only mods out.
         Per-mod stack counts set on the Build tab apply here too.</p>
       <datalist id="find-arcane-list"></datalist>
       <p class="hint" id="find-shards"></p>
@@ -355,7 +355,7 @@
         <label class="field"><span>Polarity</span>
           <select id="find-riven-polarity"><option value="">none</option><option value="madurai">Madurai</option><option value="vazarin">Vazarin</option><option value="naramon">Naramon</option><option value="zenurik">Zenurik</option></select></label>
       </div>
-      <h3>Conditions <span class="hint">· used when conditional effects are on “custom”</span></h3>
+      <h3>Conditions <span class="hint">· used when conditional effects are on “custom”; aiming counts on “all” too</span></h3>
       <div class="toggles">
         <label><input type="checkbox" id="find-aiming" /> aiming</label>
         <label class="stack">On-kill <input type="number" id="find-onkill" min="0" max="50" value="0" /></label>

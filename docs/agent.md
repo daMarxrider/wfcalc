@@ -165,7 +165,7 @@ Ability Strength comes from the frame mods and arcanes and is reported back in `
 
 State these when they matter instead of guessing:
 
-- **The Exilus and stance slots are not searched.** An Exilus mod is never worth a standard slot.
+- **The stance slot is not searched; the quick search leaves the Exilus slot empty.** Brute force fills the Exilus slot with the Exilus mod that does most for the greedy builds (Vigilante Supplies counts through its set bonus); pin one with `--fixed` to choose.
 - **Melee assumes a 12x combo** (220 hits), because Blood Rush and Weeping Wounds are worth
   nothing at 1x. Pass `--combo-hits 0` to score raw swings; the assumption is reported.
 - **The Incarnon form is never assumed.** The search reports that the weapon has one and leaves

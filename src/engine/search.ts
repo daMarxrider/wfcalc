@@ -20,12 +20,15 @@ import type { ModData, Snapshot, WeaponData } from '../types.ts';
 import { modsForWeapon } from '../data.ts';
 
 /** Effect axes that can change damage, and so are worth searching over. */
-const DAMAGE_TARGETS = new Set([
+export const DAMAGE_TARGETS = new Set([
   'baseDamage', 'multishot', 'critChance', 'critDamage', 'statusChance', 'statusDuration',
   'statusDamage', 'fireRate', 'reloadSpeed', 'magazine', 'element', 'forcedProc',
   'directDamage', 'faction', 'headshotMultiplier', 'heavyAttackSpeed', 'comboDuration',
   'convert', 'ammoMax',
 ]);
+
+/** Set bonuses build.ts turns into damage: Vigilante (enhanced crits), Gladiator (crit per combo). */
+const DAMAGE_SETS = new Set(['Vigilante Set', 'Gladiator Set']);
 
 /** Slots the search fills: the eight standard ones, not the Exilus or stance slot. */
 const SEARCH_SLOTS = 8;
@@ -125,16 +128,19 @@ export interface SearchResult {
  * Mods worth searching for a weapon: they fit it, can change damage, are not Conclave, Flawed or
  * Exilus, and the player owns them (`excluded` holds lower-cased names).
  */
-export function searchableMods(snapshot: Snapshot, weapon: WeaponData, excluded: Set<string> = new Set()): ModData[] {
+export function searchableMods(snapshot: Snapshot, weapon: WeaponData, excluded: Set<string> = new Set(), exilus = false): ModData[] {
   // modsForWeapon also accepts the category-wide classes ("Primary": Hunter Munitions), which a
   // match on the weapon's own class ("Rifle") alone left out of every search.
   return modsForWeapon(snapshot, weapon).filter((mod) => {
     if (mod.conclave) return false;
     if (excluded.has(mod.name.toLowerCase())) return false;
-    // Exilus mods cannot go in the eight standard slots, so the search leaves them out.
-    if (mod.isExilus) return false;
+    // Exilus mods only fit the Exilus slot, and nothing else does.
+    if (Boolean(mod.isExilus) !== exilus) return false;
     // Cannonade mods lock the trigger to semi-auto, so they only fit weapons that have one.
     if (mod.effects.some((effect) => effect.target === 'requiresSemiTrigger') && weapon.trigger !== 'Semi') return false;
+    // A set piece counts towards its set bonus even when its own line does nothing for damage
+    // (Vigilante Supplies: enhanced crits), so it is worth searching too.
+    if (mod.set && DAMAGE_SETS.has(mod.set)) return true;
     return mod.effects.some((effect) => DAMAGE_TARGETS.has(String(effect.target)));
   });
 }

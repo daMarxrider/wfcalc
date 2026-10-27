@@ -53,7 +53,8 @@ export function hitProfile(build: ResolvedBuild, faction: string | null | undefi
   // Expected crit tier equals the crit chance at any value, so the average is linear in it.
   const critHeadshot = head && !NO_CRIT_HEADSHOT.has(String(faction ?? '').toLowerCase());
   const perTier = critHeadshot ? 2 * critDamage - 1 : critDamage - 1;
-  const averageCrit = 1 + critChance * perTier;
+  // Vigilante: a hit that crits gains one more tier at `critTierBonus` odds.
+  const averageCrit = 1 + (critChance + Math.min(1, critChance) * build.critTierBonus) * perTier;
   const p = Math.min(1, critChance);
   const critOnCrit = p > 0 ? (averageCrit - (1 - p)) / p : 1 + perTier;
   return { zone: head ? 'head' : 'body', location, critChance, averageCrit, critOnCrit, critHeadshot };

@@ -299,7 +299,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const critChance = hit.critChance + punctureCritBonus(puncture);
     const critDamage = Math.max(1, build.critMultiplier + coldCritBonus(cold));
     const perTier = hit.critHeadshot ? 2 * critDamage - 1 : critDamage - 1;
-    const averageCrit = 1 + critChance * perTier;
+    const averageCrit = 1 + (critChance + Math.min(1, critChance) * build.critTierBonus) * perTier;
     const pCrit = Math.min(1, critChance);
     const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;
 

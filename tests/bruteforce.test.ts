@@ -265,7 +265,9 @@ test('Primary Compression matches the wiki table: Kuva Bramma +664%, +956.16% wi
   assert.equal(plain.damage.projectileTotal, none.damage.projectileTotal);
   const aiming = resolveBuild(snapshot, { ...base, mods: [], conditions: { aiming: 1 }, quantize: false });
   assert.ok(Math.abs(aiming.damage.projectileTotal / none.damage.projectileTotal - 7.64) < 1e-9);
-  const firestorm = resolveBuild(snapshot, { ...base, mods: ['Primed Firestorm'], stackMode: 'max', quantize: false });
+  // "all" stacks do not aim for the player: aiming effects still need the switch.
+  assert.equal(resolveBuild(snapshot, { ...base, mods: [], stackMode: 'max', quantize: false }).damage.projectileTotal, none.damage.projectileTotal);
+  const firestorm = resolveBuild(snapshot, { ...base, mods: ['Primed Firestorm'], stackMode: 'max', conditions: { aiming: 1 }, quantize: false });
   assert.ok(Math.abs(firestorm.damage.projectileTotal / none.damage.projectileTotal - 10.5616) < 1e-9);
 });
 
@@ -314,4 +316,29 @@ test('a fixed Exilus mod the wiki list misses (Galvanized Acceleration) goes in 
   const plan = planBruteForce(snapshot, { weapon: 'Kuva Kohm', enemy: 'Bombard', fixed: ['Galvanized Acceleration'] });
   assert.equal(plan.exilus?.name, 'Galvanized Acceleration');
   assert.ok(!plan.fixed.some((mod) => mod.name === 'Galvanized Acceleration'));
+});
+
+test('Vigilante: each piece, Supplies in the Exilus slot too, raises a crit 5% of the time by one tier', () => {
+  const base = { weapon: 'Soma Prime', quantize: false };
+  for (const crit of [[], ['Point Strike', 'Vital Sense', 'Critical Delay']]) {
+    const without = resolveBuild(snapshot, { ...base, mods: [...crit, 'Vigilante Armaments'] });
+    const withSet = resolveBuild(snapshot, { ...base, mods: [...crit, 'Vigilante Armaments', 'Vigilante Supplies'] });
+    const { critChance: cc, critMultiplier: cd } = without;
+    const tiers = (v: number) => (cc >= 1 ? 1 + (cc + v) * (cd - 1) : 1 - cc + cc * (cd + v * (cd - 1)));
+    assert.ok(Math.abs(withSet.averageShotDamage / without.averageShotDamage - tiers(0.1) / tiers(0.05)) < 1e-9);
+  }
+});
+
+test('brute force fills the Exilus slot with the set piece that adds damage (Vigilante Supplies)', () => {
+  const plan = planBruteForce(snapshot, { weapon: 'Soma Prime', enemy: 'Bombard', maxEvaluations: 5_000 });
+  assert.equal(plan.exilus?.name, 'Vigilante Supplies');
+  assert.ok(plan.assumptions.some((line) => line.startsWith('Exilus: Vigilante Supplies')));
+});
+
+test('brute force leaves aiming-only mods (Bladed Rounds) out unless aiming is on', () => {
+  const request = { weapon: 'Soma Prime', enemy: 'Bombard', maxEvaluations: 5_000 };
+  const searched = (plan: ReturnType<typeof planBruteForce>) => [...plan.candidates, ...plan.leftOut];
+  assert.ok(!searched(planBruteForce(snapshot, request)).includes('Bladed Rounds'));
+  assert.ok(!searched(planBruteForce(snapshot, { ...request, base: { stackMode: 'max' } })).includes('Bladed Rounds'));
+  assert.ok(searched(planBruteForce(snapshot, { ...request, base: { stackMode: 'max', conditions: { aiming: 1 } } })).includes('Bladed Rounds'));
 });
