@@ -38,7 +38,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { effectiveArmor, healthModifier, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
+import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, effectiveArmor, healthModifier, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
 import { hitProfile } from './hit.ts';
 
 interface StackRule {
@@ -174,11 +174,11 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const statusDamage = 1 + (build.statusDamageBonus ?? 0);
   const elementBonus = (type: string): number =>
     type === 'gas' || type === 'blast' ? 0 : (build.elementBonuses as Record<string, number | undefined>)[type] ?? 0;
-  // Attacker-side seed of one tick, before crit (wiki DoT formula, as in dot.ts).
+  // Attacker-side seed of one tick, before crit (wiki DoT formula, as in dot.ts): the hit's
+  // modded base damage, whatever the type.
   const tickSeed = (type: string, coefficient: number): number => {
-    const component = type === 'slash' ? total : perProjectile[type as DamageType] ?? 0;
     const bonus = elementBonus(type);
-    const seed = bonus > 0 ? component / (1 + bonus) : component;
+    const seed = build.dotSeed ?? total;
     const typeBonus = type === 'toxin' ? 1 + (build.toxinStatusDamageBonus ?? 0) : 1;
     return ((seed * faction) + 1) * coefficient * (1 + bonus) * statusDamage * typeBonus * faction * hit.location;
   };
@@ -202,6 +202,11 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const blastMod = modOf('blast');
   const blastLine = new Window(Math.round(BLAST_DELAY / dt));
   const heatWindow = new Window(slots(HEAT_DURATION));
+  // Primary Debilitate: procs of each combined status still on the target, as a stack count.
+  const debilitate = Math.min(1, build.debilitateChance ?? 0);
+  const combined = debilitate > 0 ? (Object.keys(COMBINED_PARTS) as DamageType[]) : [];
+  const combinedWindows = combined.map((type) => new Window(slots(COMBINED_DURATION[type] ?? 6)));
+  const combinedProcs = new Float64Array(combined.length);
   const heatSeedWindow = new Window(slots(HEAT_DURATION));
 
   // Which status (if any) a damage type's procs feed: [stack index, tick index].
@@ -358,7 +363,20 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
       }
       for (const proc of build.forcedProcs ?? []) procHit(proc.type, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1));
       for (const proc of forced) add(proc, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1), (proc.requiresCrit ? critOnCrit : averageCrit) * ramp);
-    }
+      // Debilitate: the share of combined procs landing on 10+ stacks adds one of its base statuses.
+      combinedProcs.fill(0);
+      combined.forEach((type, c) => {
+        const i = types.indexOf(type);
+        combinedProcs[c] = (i >= 0 ? pellets * statusChance * shares[i] : 0)
+          + (build.forcedProcs ?? []).filter((proc) => proc.type === type).reduce((sum, proc) => sum + pellets * proc.chance * (proc.requiresCrit ? pCrit : 1), 0);
+        const extra = (combinedProcs[c] * debilitate * atLeastTen(combinedWindows[c].total)) / 2;
+        if (extra <= 0) return;
+        for (const part of COMBINED_PARTS[type]!) {
+          add(procTargets(part), extra, averageCrit * ramp);
+          procHit(part, extra);
+        }
+      });
+    } else combinedProcs.fill(0);
 
     // ---- damage over time this step, through the current target state (per second x dt)
     let dotHealth = 0;
@@ -441,6 +459,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     for (let i = 0; i < tickWindows.length; i++) tickWindows[i].put(next, tickWeight[i] * tickSeeds[i]);
     blastLine.put(step, blastWeight * blastSeed);
     heatWindow.put(next, heatProcs);
+    combinedWindows.forEach((window, c) => window.put(next, combinedProcs[c]));
     heatSeedWindow.put(next, heatWeight * heatSeed);
     if (heatWindow.total > 1e-9) {
       if (heatChainStart === null) {

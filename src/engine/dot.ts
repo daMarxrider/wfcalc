@@ -134,6 +134,48 @@ export function effectiveArmor(armor: number, context: DotContext): number {
   return Math.max(0, afterFlat * (1 - fraction) * corrosiveArmorMultiplier(context.corrosiveStacks ?? 0) * (1 - heat));
 }
 
+/** The base statuses each combined status is made of (wiki: Elemental Damage). */
+export const COMBINED_PARTS: Partial<Record<DamageType, [DamageType, DamageType]>> = {
+  viral: ['cold', 'toxin'],
+  corrosive: ['electricity', 'toxin'],
+  magnetic: ['cold', 'electricity'],
+  gas: ['heat', 'toxin'],
+  blast: ['heat', 'cold'],
+  radiation: ['heat', 'electricity'],
+};
+/** Seconds one stack of a combined status lasts, before Status Duration (wiki: Status Effect). */
+export const COMBINED_DURATION: Partial<Record<DamageType, number>> = { viral: 6, corrosive: 8, magnetic: 6, gas: 6, blast: 1.5, radiation: 12 };
+
+/** Chance that a Poisson count with this mean is 10 or more: a proc landing on 10+ stacks. */
+export function atLeastTen(mean: number): number {
+  if (mean <= 0) return 0;
+  let term = Math.exp(-mean);
+  let below = term;
+  for (let i = 1; i < 10; i++) {
+    term *= mean / i;
+    below += term;
+  }
+  return Math.max(0, 1 - below);
+}
+
+/**
+ * Primary Debilitate (wiki): a proc of a combined status on a target that already has 10 of its
+ * stacks has `chance` to also inflict one of the two base statuses it is made of (which one is not
+ * stated; split evenly). Procs arrive at random, so the share landing on 10+ stacks is P(N >= 10)
+ * for N ~ Poisson(rate x duration). Returns the extra base procs per unit of `rateOf`.
+ */
+export function debilitateRates(chance: number, durationScale: number, rateOf: (type: DamageType) => number): Partial<Record<DamageType, number>> {
+  const extra: Partial<Record<DamageType, number>> = {};
+  if (chance <= 0) return extra;
+  for (const [combined, parts] of Object.entries(COMBINED_PARTS) as Array<[DamageType, [DamageType, DamageType]]>) {
+    const rate = rateOf(combined);
+    if (rate <= 0) continue;
+    const added = (rate * Math.min(1, chance) * atLeastTen(rate * (COMBINED_DURATION[combined] ?? 6) * durationScale)) / 2;
+    for (const part of parts) extra[part] = (extra[part] ?? 0) + added;
+  }
+  return extra;
+}
+
 /**
  * Computes the sustained damage per second from status procs alone.
  * `flatFactionMultiplier` is the faction bonus already resolved by the caller.
@@ -177,35 +219,35 @@ export function computeDot(
     forcedWeight.set(proc.type, (forcedWeight.get(proc.type) ?? 0) + rate * (proc.requiresCrit ? critOnCrit : averageCrit));
   }
 
+  const naturalRate = (type: DamageType): number =>
+    statusPerProjectile * ((build.damage.perProjectile[type] ?? 0) / perProjectileTotal) * build.multishot * pullsPerSecond;
+  const debilitated = debilitateRates(build.debilitateChance ?? 0, 1 + Math.max(-0.9, build.statusDurationBonus ?? 0),
+    (type) => naturalRate(type) + (forced.get(type) ?? 0));
+
   for (const type of DOT_TYPES) {
     const coefficient = TICK_COEFFICIENT[type];
     const ticks = TICK_COUNT[type];
     const dotType = TICK_DAMAGE_TYPE[type];
 
-    // Bleed takes the whole modded damage as its seed; the others use their own component.
-    const component = type === 'slash' ? perProjectileTotal : build.damage.perProjectile[type] ?? 0;
-    if (component <= 0) continue;
-
     // Proc share: the status roll is weighted by each type's damage share.
-    const share = type === 'slash'
-      ? (build.damage.perProjectile.slash ?? 0) / perProjectileTotal
-      : component / perProjectileTotal;
-    // A purely forced proc (no damage of that type on the weapon) still deals its DoT.
-    if (share <= 0 && (forced.get(type) ?? 0) <= 0) continue;
+    const share = (build.damage.perProjectile[type] ?? 0) / perProjectileTotal;
+    // A purely forced or Debilitate proc (no damage of that type on the weapon) still deals its DoT.
+    const extra = debilitated[type] ?? 0;
+    if (share <= 0 && (forced.get(type) ?? 0) <= 0 && extra <= 0) continue;
 
-    const procsPerProjectile = statusPerProjectile * share;
-    const naturalPerSecond = procsPerProjectile * build.multishot * pullsPerSecond;
-    const procsPerSecond = naturalPerSecond + (forced.get(type) ?? 0);
+    const naturalPerSecond = naturalRate(type);
+    const procsPerSecond = naturalPerSecond + (forced.get(type) ?? 0) + extra;
     // Procs per second weighted by the crit multiplier each one carries.
-    const critWeighted = naturalPerSecond * averageCrit + (forcedWeight.get(type) ?? 0);
+    const critWeighted = (naturalPerSecond + extra) * averageCrit + (forcedWeight.get(type) ?? 0);
 
-    // The wiki separates the seed (damage before the elemental bonus) from the elemental
-    // multiplier: (seed + 1) × C × (1 + element bonus) × … Combined types (Gas, Blast) are
-    // explicitly NOT buffed by their component mods, so their bonus stays 0.
+    // Every type is seeded by the hit's modded base damage, all types summed, before physical
+    // and elemental mods (wiki: Damage/Calculation); that type's elemental mods multiply after:
+    // (seed + 1) × C × (1 + element bonus) × … Combined types (Gas, Blast) are explicitly NOT
+    // buffed by their component mods, so their bonus stays 0.
     const elementalBonus = (type === 'gas' || type === 'blast')
       ? 0
       : (build.elementBonuses as Record<string, number | undefined>)[type] ?? 0;
-    const seed = elementalBonus > 0 ? component / (1 + elementalBonus) : component;
+    const seed = build.dotSeed ?? perProjectileTotal;
     // Faction damage scales the seed itself and is then applied again, exactly as the wiki's
     // worked examples do it: ((seed x faction) + 1) x C x (1 + element bonus) x status x faction.
     const typeBonus = type === 'toxin' ? 1 + (build.toxinStatusDamageBonus ?? 0) : 1;

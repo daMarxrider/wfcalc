@@ -12,7 +12,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { computeDot, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
+import { computeDot, debilitateRates, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import { hitProfile, type HitProfile } from './hit.ts';
 import { simulateKill, type SimulationResult } from './simulate.ts';
@@ -420,9 +420,11 @@ export function steadyStatusDebuffs(build: ResolvedBuild): Pick<DotContext, 'vir
       .reduce((sum, proc) => sum + pellets * proc.chance * (proc.requiresCrit ? Math.min(1, build.critChance) : 1), 0);
     return natural + forced;
   };
+  // Primary Debilitate adds base procs (Heat among them) on 10+ stacks of a combined status.
+  const debilitated = debilitateRates(build.debilitateChance ?? 0, duration, rate);
   const viral = Math.min(10, rate('viral') * 6 * duration);
   const corrosive = Math.min(10 + (build.corrosiveCapBonus ?? 0), rate('corrosive') * 8 * duration);
-  const heat = 0.5 * (1 - Math.exp(-rate('heat') * 6 * duration));
+  const heat = 0.5 * (1 - Math.exp(-(rate('heat') + (debilitated.heat ?? 0)) * 6 * duration));
   return {
     viralStacks: Math.max(viral, build.debuffs?.viralStacks ?? 0),
     corrosiveStacks: Math.max(corrosive, build.debuffs?.corrosiveStacks ?? 0),

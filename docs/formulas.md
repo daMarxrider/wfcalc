@@ -217,7 +217,7 @@ Notes:
 ## 6. Status damage over time (`Damage_over_Time`)
 
 ```
-tick      = (seed + 1) × C × status_damage_bonus × faction²
+tick      = (seed × faction + 1) × C × (1 + element bonus) × status_damage_bonus × faction
 total     = tick × ticks
 dot_dps   = Σ procs × crit multiplier of the proc'ing hit × total
 ```
@@ -227,7 +227,9 @@ dot_dps   = Σ procs × crit multiplier of the proc'ing hit × total
   `1 + CC × (CD − 1)`; crit-gated forced procs (Hunter Munitions) carry the multiplier of a
   critical hit, `(average − (1 − p)) / p` with `p = min(CC, 1)`, so orange/red crits count.
 
-- `seed`: the modded damage of that type (the **whole** damage for Bleed).
+- `seed`: the hit's modded base damage, every type summed, before physical and elemental mods
+  (wiki `Damage/Calculation`: "Total modded damage calculations used for DoT ignores elemental
+  and physical damage bonuses"). The type's own elemental mods multiply after the `+1`.
 - `C`: 0.35 for Slash, 0.5 for Heat / Electricity / Toxin / Gas.
 - Faction damage is applied **twice** (it is already inside the seed), as the wiki notes.
 - `ticks`: 6 for Slash/Heat/Toxin/Electricity/Gas, 1 for Blast's detonation.
