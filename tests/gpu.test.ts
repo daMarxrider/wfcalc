@@ -20,7 +20,7 @@ for (const [weapon, enemy, simulate] of cases) {
     // 150 of the 3,003 combinations (5%) go to the exact pass; with the simulation it re-ranks 200.
     const model = gpuModel(snapshot, request, simulate ? 400 : 150);
     const shortlist = cpuSearch(model).map(({ combo }) => combo.map((i: number) => model.candidates[i]));
-    const filtered = bruteForceFromCombinations(snapshot, request, shortlist, { combinations: model.combinations, elapsedMs: 0 });
+    const filtered = await bruteForceFromCombinations(snapshot, request, shortlist, { combinations: model.combinations, elapsedMs: 0 });
     assert.deepEqual(new Set(model.candidates), new Set(exact.candidates));
     assert.deepEqual(
       filtered.builds[0].mods.map((mod) => mod.name).sort(),

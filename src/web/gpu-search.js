@@ -531,6 +531,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   var mask = u32(params[${P.fixedElementMask}u]);
   for (var i = 0u; i < K; i++) {
     let at = combo[i] * STRIDE;
+    // Dense on purpose: summing only the non-zero channels (A[channel] at a data-dependent index)
+    // measured 1.7x slower on an RTX 3050 Ti.
     for (var c2 = 0u; c2 < NC; c2++) { A[c2] += vectors[at + c2]; B[c2] += vectors[at + NC + c2]; }
     let element = vectors[at + 2u * NC + 1u];
     if (element >= 0.0) { mask |= 1u << u32(element); }
@@ -593,19 +595,45 @@ export const adapterName = (adapter) => [adapter?.info?.vendor, adapter?.info?.a
  * Runs the pre-filter on the GPU. Resolves to the best `model.keep` combinations (candidate
  * indices) and a check of the shader against `proxyScore` on the winners.
  */
-export async function gpuSearch(model, { onProgress, signal, allowFallback = false } = {}) {
-  const adapter = await gpuAdapter(allowFallback);
-  if (!adapter) throw new Error('WebGPU: no hardware GPU adapter in this browser');
+// The device and the compiled shader are kept between searches with the same shader source:
+// compiling and waking the GPU otherwise cost a good part of a short search.
+let cached = null;
+
+async function devicePipeline(adapter, code) {
+  if (cached?.code === code) return cached;
+  cached?.device.destroy();
+  cached = null;
   const device = await adapter.requestDevice({
     requiredLimits: { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize },
   });
+  device.lost.then(() => { if (cached?.device === device) cached = null; });
+  const module = device.createShaderModule({ code });
+  const info = await module.getCompilationInfo();
+  const errors = info.messages.filter((message) => message.type === 'error');
+  if (errors.length) {
+    device.destroy();
+    throw new Error(`WebGPU shader: ${errors.map((message) => `${message.lineNum}: ${message.message}`).join('; ')}`);
+  }
+  const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint: 'main' } });
+  cached = { code, device, pipeline };
+  return cached;
+}
+
+export async function gpuSearch(model, { onProgress, signal, allowFallback = false } = {}) {
+  const adapter = await gpuAdapter(allowFallback);
+  if (!adapter) throw new Error('WebGPU: no hardware GPU adapter in this browser');
+  const setupStarted = performance.now();
+  const { device, pipeline } = await devicePipeline(adapter, shaderSource(model));
+  const setupMs = performance.now() - setupStarted;
+  const buffers = [];
   try {
     const n = model.candidates.length;
     const k = model.slots;
     const keep = model.keep;
     const capacity = Math.max(4 * keep, 1 << 16);
+    const track = (buffer) => { buffers.push(buffer); return buffer; };
     const storage = (data, usage = GPUBufferUsage.STORAGE) => {
-      const buffer = device.createBuffer({ size: Math.max(16, data.byteLength), usage: usage | GPUBufferUsage.COPY_DST });
+      const buffer = track(device.createBuffer({ size: Math.max(16, data.byteLength), usage: usage | GPUBufferUsage.COPY_DST }));
       device.queue.writeBuffer(buffer, 0, data);
       return buffer;
     };
@@ -615,17 +643,11 @@ export async function gpuSearch(model, { onProgress, signal, allowFallback = fal
     const vectors = storage(new Float32Array(model.vectors));
     const clash = storage(new Uint32Array(model.clash));
     const chooseBuffer = storage(choose);
-    const uniform = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    const counter = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-    const hits = device.createBuffer({ size: capacity * 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-    const readCounter = device.createBuffer({ size: 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-    const readHits = device.createBuffer({ size: capacity * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-
-    const module = device.createShaderModule({ code: shaderSource(model) });
-    const info = await module.getCompilationInfo();
-    const errors = info.messages.filter((message) => message.type === 'error');
-    if (errors.length) throw new Error(`WebGPU shader: ${errors.map((message) => `${message.lineNum}: ${message.message}`).join('; ')}`);
-    const pipeline = await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint: 'main' } });
+    const uniform = track(device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+    const counter = track(device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST }));
+    const hits = track(device.createBuffer({ size: capacity * 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC }));
+    const readCounter = track(device.createBuffer({ size: 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }));
+    const readHits = track(device.createBuffer({ size: capacity * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }));
     const group = device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
       entries: [params, vectors, clash, chooseBuffer, uniform, counter, hits].map((buffer, binding) => ({ binding, resource: { buffer } })),
@@ -634,6 +656,7 @@ export async function gpuSearch(model, { onProgress, signal, allowFallback = fal
     const top = new TopList(keep);
     const total = binomial(n, k);
     let done = 0;
+    const timing = { dispatches: 0, waitMs: 0, setupMs };
     // Batches: one top element at a time (its lower elements count C(top, k-1), always < 2^32),
     // split into dispatches of 4M threads: short enough for the driver watchdog on a slow GPU.
     const perDispatch = 1 << 22;
@@ -651,7 +674,10 @@ export async function gpuSearch(model, { onProgress, signal, allowFallback = fal
       encoder.copyBufferToBuffer(counter, 0, readCounter, 0, 4);
       encoder.copyBufferToBuffer(hits, 0, readHits, 0, capacity * 8);
       device.queue.submit([encoder.finish()]);
+      const waited = performance.now();
       await readCounter.mapAsync(GPUMapMode.READ);
+      timing.waitMs += performance.now() - waited;
+      timing.dispatches++;
       const found = new Uint32Array(readCounter.getMappedRange().slice(0))[0];
       readCounter.unmap();
       await readHits.mapAsync(GPUMapMode.READ, 0, Math.min(found, capacity) * 8 || 8);
@@ -689,8 +715,8 @@ export async function gpuSearch(model, { onProgress, signal, allowFallback = fal
       const expected = proxyScore(model, combo);
       return Math.max(worst, Math.abs(score - expected) / Math.max(1e-12, expected));
     }, 0);
-    return { winners, drift, adapter: adapterName(adapter) };
+    return { winners, drift, adapter: adapterName(adapter), timing };
   } finally {
-    device.destroy();
+    for (const buffer of buffers) buffer.destroy();
   }
 }

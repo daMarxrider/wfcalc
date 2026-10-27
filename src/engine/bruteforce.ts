@@ -776,34 +776,31 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
  * combinations its reduced model liked best, and each is checked and scored here with the real
  * engine, exactly as the CPU brute force would. `plan` must come from gpuPlan for the same request.
  */
-export function bruteForceFromCombinations(
+export async function bruteForceFromCombinations(
   snapshot: Snapshot,
   request: BruteForceRequest,
   combinations: string[][],
   gpu: { combinations: number; elapsedMs: number; adapter?: string; drift?: number },
-): BruteForceResult {
+): Promise<BruteForceResult> {
   const started = performance.now() - gpu.elapsedMs;
   const plan = gpuPlan(snapshot, request);
   const limit = request.limit ?? 5;
   const pool = plan.simulate ? Math.max(request.rerank ?? limit * 40, 200, limit) : limit;
-  const index = new Map(plan.candidates.map((name, i) => [name, i]));
-  const { clashes, fits, scoreSet } = leafScorer(snapshot, plan);
-  const top: ScoredCombination[] = [];
-  let evaluated = 0;
-  for (const names of combinations) {
-    const chosen = names.map((name) => index.get(name));
-    if (chosen.some((i) => i === undefined) || new Set(chosen).size !== chosen.length) {
-      throw new InputError('combination with a mod that is not a candidate of this search', 'invalid_argument');
-    }
-    const picked = (chosen as number[]).sort((a, b) => a - b);
-    if (picked.some((i) => picked.some((j) => clashes[i].has(j))) || !fits(picked)) continue;
-    const { best, orders } = scoreSet(picked);
-    evaluated += orders;
-    if (best && Number.isFinite(best.score)) top.push(best);
+  // Bad names are refused before any thread starts.
+  const known = new Set(plan.candidates);
+  if (combinations.some((names) => names.some((name) => !known.has(name)) || new Set(names).size !== names.length)) {
+    throw new InputError('combination with a mod that is not a candidate of this search', 'invalid_argument');
   }
-  top.sort((a, b) => b.score - a.score);
-  const result = report(snapshot, plan, top.slice(0, pool), {
-    limit, pool, workers: 1, started, combinations: gpu.combinations, evaluated,
+  // About 35 µs a build: below a few thousand combinations a thread's start-up costs more than it saves.
+  const loadable = request.snapshotPath !== undefined || snapshot === loadSnapshot();
+  const workers = loadable ? Math.max(1, Math.min(request.workers ?? availableParallelism(), 64, Math.ceil(combinations.length / 1500))) : 1;
+  const parts = workers === 1
+    ? [scoreCombinations(snapshot, plan, combinations, pool)]
+    : await scoreInWorkers(plan, request.snapshotPath, workers, combinations, pool);
+  const top = mergeTop(parts.map((part) => ({ ...part, combinations: 0 })), pool);
+  const result = report(snapshot, plan, top, {
+    limit, pool, workers, started, combinations: gpu.combinations,
+    evaluated: parts.reduce((sum, part) => sum + part.evaluated, 0),
   });
   result.device = `GPU${gpu.adapter ? `: ${gpu.adapter}` : ''}`;
   result.notes.unshift(
@@ -814,6 +811,62 @@ export function bruteForceFromCombinations(
     result.notes.unshift(`GPU and JS reduced models disagree by ${(gpu.drift * 100).toFixed(2)}%: the shader may be out of date.`);
   }
   return result;
+}
+
+/** Scores a list of combinations (candidate names) exactly; infeasible ones are skipped. */
+export function scoreCombinations(snapshot: Snapshot, plan: BruteForcePlan, combinations: string[][], limit: number): { top: ScoredCombination[]; evaluated: number } {
+  const index = new Map(plan.candidates.map((name, i) => [name, i]));
+  const { clashes, fits, scoreSet } = leafScorer(snapshot, plan);
+  const top: ScoredCombination[] = [];
+  let evaluated = 0;
+  for (const names of combinations) {
+    const picked = names.map((name) => index.get(name)!).sort((a, b) => a - b);
+    if (picked.some((i) => picked.some((j) => clashes[i].has(j))) || !fits(picked)) continue;
+    const { best, orders } = scoreSet(picked);
+    evaluated += orders;
+    if (best && Number.isFinite(best.score)) top.push(best);
+  }
+  top.sort((a, b) => b.score - a.score);
+  return { top: top.slice(0, limit), evaluated };
+}
+
+/**
+ * Warm workers for the exact pass, per snapshot path: a thread spends ~0.4 s loading the snapshot,
+ * longer than its share of a 20,000-build shortlist takes, so they are kept between requests.
+ * Unref'd, so they never keep the process alive.
+ */
+const exactPool = new Map<string, Worker[]>();
+
+/** Starts (or tops up) the exact-pass workers, e.g. while the GPU is still busy. */
+export function warmExactPool(snapshotPath?: string, workers = availableParallelism()): Worker[] {
+  const key = snapshotPath ?? '';
+  const pool = exactPool.get(key) ?? [];
+  exactPool.set(key, pool);
+  while (pool.length < Math.min(workers, 64)) {
+    const worker = new Worker(new URL('./bruteforce-worker.ts', import.meta.url), { workerData: { snapshotPath, persistent: true } });
+    worker.unref();
+    // A dead worker leaves the pool; the next request starts a fresh one.
+    worker.on('exit', () => pool.splice(pool.indexOf(worker) >>> 0, 1));
+    pool.push(worker);
+  }
+  return pool;
+}
+
+/** scoreCombinations split across warm worker threads, one slice of the list each. */
+function scoreInWorkers(plan: BruteForcePlan, snapshotPath: string | undefined, workers: number, combinations: string[][], limit: number) {
+  const pool = warmExactPool(snapshotPath, workers);
+  const size = Math.ceil(combinations.length / workers);
+  return Promise.all(pool.slice(0, workers).map((worker, shard) => new Promise<{ top: ScoredCombination[]; evaluated: number }>((resolve, reject) => {
+    const done = (message: { type: 'done'; result: { top: ScoredCombination[]; evaluated: number } } | { type: 'error'; message: string }): void => {
+      worker.off('error', failed);
+      if (message.type === 'done') resolve(message.result);
+      else reject(new Error(message.message));
+    };
+    const failed = (error: Error): void => { worker.off('message', done); reject(error); };
+    worker.once('message', done);
+    worker.once('error', failed);
+    worker.postMessage({ plan, limit, combinations: combinations.slice(shard * size, (shard + 1) * size) });
+  })));
 }
 
 /** The plan a GPU search runs on: every candidate (no shortlist), at most 64 of them (two 32-bit masks). */
