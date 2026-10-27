@@ -283,6 +283,9 @@ Everything comes from two upstreams, rebuilt into `data/snapshot.json` (1.7 MB):
   **combination order**, multishot, crit chance/damage, status chance.
 - Faction damage mods and **Roar**, applied multiplicatively against the matching faction.
 - Weapon arcanes (Primary Merciless, Melee Exposure, Cascadia Flare...) with their stacks.
+  On-status arcanes (Cascadia Flare, Primary Blight, Conjunction Voltage...) only count when the
+  build procs that status, unless you set their stacks with `--source-stacks`. Secondary Enervate
+  uses its average crit chance over the reset cycle (+10% per shot, reset after 6 big crits).
 - **Kuva/Tenet elemental bonus**: the player-chosen element, baked in as innate damage
   (which is what really decides the elemental combination on those 35 weapons).
 - **Warframe arcanes**: Arcane Avenger (flat crit chance), Arcane Acceleration, Arcane Rage,

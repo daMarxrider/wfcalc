@@ -295,6 +295,33 @@ interface Collected {
   warnings: string[];
 }
 
+/**
+ * Secondary Enervate (wiki): every shot adds +10% flat crit chance, and the bonus resets after
+ * `resets` Big Critical Hits (tier 2 and up, i.e. the part of crit chance above 100%). Damage is
+ * linear in crit chance, so the average crit chance over a reset cycle gives the average damage.
+ * The cycle is walked exactly: on shot k the bonus is (k-1) x 10%, and the cycle ends with the
+ * `resets`-th big crit. Pellets of one shot land in one tick and count as one big crit at most.
+ */
+export function enervateCritChance(critChance: number, resets: number, pellets = 1): number {
+  let bigs = [1]; // bigs[b]: chance the cycle is still running with b big crits so far
+  let shots = 0;
+  let total = 0;
+  for (let k = 0; bigs.some((p) => p > 1e-12); k++) {
+    const chance = critChance + 0.1 * k;
+    const big = 1 - Math.pow(1 - Math.min(1, Math.max(0, chance - 1)), Math.max(1, pellets));
+    const alive = bigs.reduce((sum, p) => sum + p, 0);
+    shots += alive;
+    total += alive * chance;
+    const next = new Array(resets).fill(0);
+    bigs.forEach((p, b) => {
+      next[b] += p * (1 - big);
+      if (b + 1 < resets) next[b + 1] += p * big;
+    });
+    bigs = next;
+  }
+  return total / shots;
+}
+
 /** Damage multiplier at `distance` metres from the blast centre (wiki: Damage Falloff). */
 export function falloffFactor(falloff: { start: number; end: number; reduction: number }, distance: number): number {
   if (distance <= falloff.start) return 1;
@@ -337,6 +364,24 @@ function ownStatusTypes(resolved: ResolvedBuild): number {
  * search is valued with its own elements. A second pass runs only when such a bonus is active.
  */
 export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
+  const first = resolveCounted(snapshot, build);
+  // "On Heat Status Effect" (Cascadia Flare, Primary Blight...) needs that status from this
+  // weapon, so a search does not credit it to builds that never proc it. A stack count the
+  // player sets for the source is kept: the wiki says other weapons and abilities feed it too.
+  const procs = (type: string | undefined): boolean => (type
+    ? (first.statusChance > 0 && (first.damage.perProjectile[type as DamageType] ?? 0) > 0) || first.forcedProcs.some((proc) => proc.type === type)
+    : ownStatusTypes(first) > 0);
+  const idle = first.conditionalSources.filter((source) => source.stacks > 0 && build.sourceStacks?.[source.name] === undefined
+    && source.conditions.some((condition) => {
+      const match = /^on_(?:(\w+)_)?status_effect$/.exec(condition);
+      return match !== null && !procs(match[1]);
+    }));
+  if (!idle.length) return first;
+  const sourceStacks = { ...(build.sourceStacks ?? {}), ...Object.fromEntries(idle.map((source) => [source.name, 0])) };
+  return resolveCounted(snapshot, { ...build, sourceStacks });
+}
+
+function resolveCounted(snapshot: Snapshot, build: Build): ResolvedBuild {
   if (build.conditions?.statusTypes !== undefined) return resolveOnce(snapshot, build);
   const extra = Math.max(0, Number(build.extraStatusTypes ?? 0));
   const withCount = (count: number): Build => ({ ...build, conditions: { ...(build.conditions ?? {}), statusTypes: Math.max(1, count) } });
@@ -925,12 +970,15 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   };
   const gladiatorCrit = setValue('Gladiator Set') * Math.max(0, comboMultiplier - 1);
   const vigilante = setValue('Vigilante Set');
-  const critChance = baseCritChance + gladiatorCrit;
+  const multishot = (stats.multishot ?? 1) * (1 + bonus('multishot'));
+  const enervate = sources.find((source) => source.kind === 'weaponArcane' && source.name === 'Secondary Enervate');
+  const critChance = enervate && build.stackMode !== 'none'
+    ? enervateCritChance(baseCritChance + gladiatorCrit, Math.min(enervate.rank ?? enervate.maxRank, enervate.maxRank) + 1, multishot)
+    : baseCritChance + gladiatorCrit;
   const critMultiplier = (stats.critMultiplier ?? 1) * (1 + bonus('critDamage'));
   // Not clamped to 1: the game allows above-100% status, which means a guaranteed proc plus
   // a chance of another. Clamping threw that information away.
   const statusChance = (stats.statusChance ?? 0) * (1 + bonus('statusChance')) + bonus('statusChanceFlat');
-  const multishot = (stats.multishot ?? 1) * (1 + bonus('multishot'));
   // "Fire Rate cannot be modified" (Cannonade mods) locks the rate to the weapon's own.
   const fireRateLocked = (collected.byTarget.get('fireRateLock') ?? 0) > 0;
   const fireRate = fireRateLocked ? stats.fireRate ?? 1 : (stats.fireRate ?? 1) * (1 + bonus('fireRate'));
