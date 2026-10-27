@@ -6,7 +6,7 @@
  * build is shareable) and to localStorage (so it survives closing the tab).
  */
 
-import { gpuAdapter, adapterName, gpuSearch } from './gpu-search.js';
+import { gpuAdapter, adapterName, gpuSearch, gpuRivenSearch } from './gpu-search.js';
 
 const MAX_SLOTS = 8; // plus exilus; melee also gets a stance slot that adds capacity
 const STORAGE_KEY = 'wfcalc.builds';
@@ -532,10 +532,21 @@ async function runRivenPicker() {
   const button = $('riven-run');
   button.disabled = true;
   $('riven-out').innerHTML = '<p class="hint">Trying every riven against every mod…</p>';
+  const post = async (path, data) => (await fetch(path, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data),
+  })).json();
   try {
-    const result = await (await fetch('/api/riven-picker', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
-    })).json();
+    let result = null;
+    let gpuFailure = '';
+    if (await gpuWanted()) {
+      try {
+        result = await gpuRivenPicker(payload, post);
+      } catch (error) {
+        gpuFailure = String(error.message ?? error);
+      }
+    }
+    if (!result) result = await post('/api/riven-picker', payload);
+    if (gpuFailure && !result.error) result.assumptions = [`The GPU run failed (${gpuFailure}), so this is the server's CPU result.`, ...(result.assumptions ?? [])];
     if (result.error) {
       $('riven-out').innerHTML = `<p class="error">${escapeHtml(result.error)}</p>`;
       return;
@@ -548,6 +559,36 @@ async function runRivenPicker() {
   }
 }
 
+/** GPU path: every riven on the GPU, then the best 2,000 (matching the filter) scored exactly on the server. */
+async function gpuRivenPicker(payload, post) {
+  const model = await post('/api/riven-picker/gpu-model', payload);
+  if (model.error) return model;
+  const found = await gpuRivenSearch(model, {
+    onProgress: (done, total) => { $('riven-out').innerHTML = `<p class="hint">GPU: ${fmt(done, 0)} of ${fmt(total, 0)} riven × mod pairs…</p>`; },
+  });
+  const rivens = model.rivenIndex.length / 4;
+  const specOf = (riven) => {
+    const names = model.rivenIndex.slice(riven * 4, riven * 4 + 4).map((index) => model.candidates[index].slice(1));
+    return { stats: names.slice(0, 3), malus: names[3] };
+  };
+  const replacedCounts = Object.fromEntries(model.candidates.slice(0, model.slots).map((name) => [name, 0]));
+  for (let riven = 0; riven < rivens; riven++) replacedCounts[model.candidates[found.bestSlot[riven]]]++;
+  const wanted = (spec) => payload.stats.every((id) => spec.stats.includes(id)) && (!payload.malus || spec.malus === payload.malus);
+  const order = Array.from({ length: rivens }, (_, riven) => riven).sort((a, b) => found.bestScore[b] - found.bestScore[a]);
+  const shortlist = [];
+  for (const riven of order) {
+    const spec = specOf(riven);
+    if (wanted(spec)) shortlist.push(spec);
+    if (shortlist.length >= 2000) break;
+  }
+  $('riven-out').innerHTML = `<p class="hint">Scoring the best ${fmt(shortlist.length, 0)} rivens exactly…</p>`;
+  return post('/api/riven-picker/gpu-finish', {
+    ...payload,
+    rivens: shortlist,
+    gpu: { rivens, replacedCounts, elapsedMs: found.elapsedMs, adapter: found.adapter, drift: found.drift },
+  });
+}
+
 function renderRivenResult(result) {
   const ttk = result.objective === 'ttk';
   const value = (score, kill) => (ttk ? (kill === null ? '—' : `${fmt(kill, 2)}s`) : `${fmt(score, 0)} dps`);
@@ -557,7 +598,7 @@ function renderRivenResult(result) {
       <span class="chip">${fmt(result.rivens, 0)} rivens</span>
       <span class="chip">${fmt(result.groups, 0)} distinct effects</span>
       <span class="chip">${fmt(result.evaluated, 0)} builds scored</span>
-      <span class="chip">${result.workers} threads</span>
+      <span class="chip">${escapeHtml(result.device ?? `${result.workers} threads`)}</span>
       <span class="chip">${(result.elapsedMs / 1000).toFixed(1)}s</span>
       <span class="chip fixed">now: ${value(result.baseline.score, result.baseline.timeToKill)}</span>
     </div>

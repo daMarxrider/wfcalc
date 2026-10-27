@@ -297,32 +297,21 @@ export function cpuSearch(model, limit = model.keep) {
   return top.result();
 }
 
-/** WGSL for one model; the layout constants are baked in. */
-export function shaderSource(model) {
-  const k = model.slots;
+/** The damage model in WGSL, shared by both searches; layout constants baked in. */
+function scoringWgsl() {
   // Orders of 1, 2, 3 and 4 elements, rows of 4 (unused entries 0), starting at rows 0, 1, 3, 9.
   const rows = [1, 3, 7, 15].flatMap((mask) => permutations(mask)).map((order) => [...order, 0, 0, 0].slice(0, 4));
   return /* wgsl */ `
 const NC: u32 = ${NC}u;
 const STRIDE: u32 = ${STRIDE}u;
-const K: u32 = ${k}u;
-struct Batch { top: u32, base: u32, count: u32, threshold: f32 }
-struct Hit { score: f32, rank: u32 }
 @group(0) @binding(0) var<storage, read> params: array<f32>;
 @group(0) @binding(1) var<storage, read> vectors: array<f32>;
-@group(0) @binding(2) var<storage, read> clash: array<u32>;
-@group(0) @binding(3) var<storage, read> choose: array<u32>;
-@group(0) @binding(4) var<uniform> batch: Batch;
-@group(0) @binding(5) var<storage, read_write> counter: atomic<u32>;
-@group(0) @binding(6) var<storage, read_write> hits: array<Hit>;
-@group(0) @binding(7) var<storage, read> twinOf: array<i32>;
 
 var<private> PERMS: array<u32, ${rows.length * 4}> = array<u32, ${rows.length * 4}>(${rows.flat().map((v) => `${v}u`).join(',')});
 var<private> COMBINE: array<i32, 16> = array<i32, 16>(${COMBINE.flat().join(',')});
 var<private> PERM_START: array<u32, 5> = array<u32, 5>(0u, 0u, 1u, 3u, 9u);
 var<private> PERM_COUNT: array<u32, 5> = array<u32, 5>(1u, 1u, 2u, 6u, 24u);
 
-fn binom(n: u32, r: u32) -> u32 { return choose[n * 9u + r]; }
 fn armorDr(a: f32) -> f32 {
   if (a <= 0.0) { return 0.0; }
   if (a <= 2700.0) { return min(0.9, 0.9 * sqrt(a / 2700.0)); }
@@ -500,6 +489,45 @@ fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
   return 0.0;
 }
 
+// The best score over every order of the distinct elements in mask (at most 4! = 24).
+fn bestScore(mask: u32) -> f32 {
+  var count = 0u;
+  for (var e = 0u; e < 4u; e++) { if ((mask & (1u << e)) != 0u) { count++; } }
+  var best = 0.0;
+  if (count == 0u) {
+    best = scoreOrder(array<u32, 4>(0u, 0u, 0u, 0u), 0u);
+  } else {
+    var items: array<u32, 4>;
+    var n = 0u;
+    for (var e = 0u; e < 4u; e++) { if ((mask & (1u << e)) != 0u) { items[n] = e; n++; } }
+    for (var p = 0u; p < PERM_COUNT[count]; p++) {
+      var order: array<u32, 4>;
+      for (var j = 0u; j < count; j++) { order[j] = items[PERMS[(PERM_START[count] + p) * 4u + j]]; }
+      best = max(best, scoreOrder(order, count));
+    }
+  }
+  return best;
+}
+
+`;
+}
+
+/** WGSL for the combination search of one model. */
+export function shaderSource(model) {
+  const k = model.slots;
+  return scoringWgsl() + /* wgsl */ `
+const K: u32 = ${k}u;
+struct Batch { top: u32, base: u32, count: u32, threshold: f32 }
+struct Hit { score: f32, rank: u32 }
+@group(0) @binding(2) var<storage, read> clash: array<u32>;
+@group(0) @binding(3) var<storage, read> choose: array<u32>;
+@group(0) @binding(4) var<uniform> batch: Batch;
+@group(0) @binding(5) var<storage, read_write> counter: atomic<u32>;
+@group(0) @binding(6) var<storage, read_write> hits: array<Hit>;
+@group(0) @binding(7) var<storage, read> twinOf: array<i32>;
+
+fn binom(n: u32, r: u32) -> u32 { return choose[n * 9u + r]; }
+
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
   let idx = gid.x + gid.y * groups.x * 256u;
@@ -548,26 +576,45 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let element = vectors[at + 2u * NC + 1u];
     if (element >= 0.0) { mask |= 1u << u32(element); }
   }
-  // Every order of the distinct elements (at most 4! = 24), best kept.
-  var count = 0u;
-  for (var e = 0u; e < 4u; e++) { if ((mask & (1u << e)) != 0u) { count++; } }
-  var best = 0.0;
-  if (count == 0u) {
-    best = scoreOrder(array<u32, 4>(0u, 0u, 0u, 0u), 0u);
-  } else {
-    var items: array<u32, 4>;
-    var n = 0u;
-    for (var e = 0u; e < 4u; e++) { if ((mask & (1u << e)) != 0u) { items[n] = e; n++; } }
-    for (var p = 0u; p < PERM_COUNT[count]; p++) {
-      var order: array<u32, 4>;
-      for (var j = 0u; j < count; j++) { order[j] = items[PERMS[(PERM_START[count] + p) * 4u + j]]; }
-      best = max(best, scoreOrder(order, count));
-    }
-  }
+  let best = bestScore(mask);
   if (best > batch.threshold) {
     let slot = atomicAdd(&counter, 1u);
     if (slot < arrayLength(&hits)) { hits[slot] = Hit(best, batch.base + idx); }
   }
+}
+`;
+}
+
+/**
+ * WGSL for the riven picker: thread (riven r, slot i) scores the build without its mod i plus the
+ * riven's four stat vectors (candidates slots + ... in the model).
+ */
+export function rivenShaderSource() {
+  return scoringWgsl() + /* wgsl */ `
+struct RivenBatch { base: u32, count: u32, slots: u32, pad: u32 }
+@group(0) @binding(2) var<storage, read> rivens: array<u32>;
+@group(0) @binding(3) var<uniform> rivenBatch: RivenBatch;
+@group(0) @binding(4) var<storage, read_write> scores: array<f32>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
+  let idx = gid.x + gid.y * groups.x * 256u;
+  if (idx >= rivenBatch.count) { return; }
+  let job = rivenBatch.base + idx;
+  let riven = job / rivenBatch.slots;
+  let replaced = job % rivenBatch.slots;
+  for (var c2 = 0u; c2 < NC; c2++) { A[c2] = params[${P.size}u + c2]; B[c2] = params[${P.size}u + NC + c2]; }
+  var mask = u32(params[${P.fixedElementMask}u]);
+  for (var k = 0u; k < rivenBatch.slots + 4u; k++) {
+    var m = k;
+    if (k == replaced) { continue; }
+    if (k >= rivenBatch.slots) { m = rivens[riven * 4u + (k - rivenBatch.slots)]; }
+    let at = m * STRIDE;
+    for (var c2 = 0u; c2 < NC; c2++) { A[c2] += vectors[at + c2]; B[c2] += vectors[at + NC + c2]; }
+    let element = vectors[at + 2u * NC + 1u];
+    if (element >= 0.0) { mask |= 1u << u32(element); }
+  }
+  scores[idx] = bestScore(mask);
 }
 `;
 }
@@ -728,6 +775,77 @@ export async function gpuSearch(model, { onProgress, signal, allowFallback = fal
       return Math.max(worst, Math.abs(score - expected) / Math.max(1e-12, expected));
     }, 0);
     return { winners, drift, adapter: adapterName(adapter), timing };
+  } finally {
+    for (const buffer of buffers) buffer.destroy();
+  }
+}
+
+/**
+ * The riven picker on the GPU: every riven against every replaceable mod (thread = riven x slot),
+ * scored with the reduced model. Returns, per riven, its best score and the slot it replaces.
+ */
+export async function gpuRivenSearch(model, { onProgress, signal, allowFallback = false } = {}) {
+  const adapter = await gpuAdapter(allowFallback);
+  if (!adapter) throw new Error('WebGPU: no hardware GPU adapter in this browser');
+  const started = performance.now();
+  const { device, pipeline } = await devicePipeline(adapter, rivenShaderSource());
+  const buffers = [];
+  try {
+    const slots = model.slots;
+    const rivens = model.rivenIndex.length / 4;
+    const total = rivens * slots;
+    const perDispatch = 1 << 22;
+    const storage = (data) => {
+      const buffer = device.createBuffer({ size: Math.max(16, data.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      device.queue.writeBuffer(buffer, 0, data);
+      buffers.push(buffer);
+      return buffer;
+    };
+    const params = storage(new Float32Array(model.params));
+    const vectors = storage(new Float32Array(model.vectors));
+    const indices = storage(new Uint32Array(model.rivenIndex));
+    const uniform = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const scores = device.createBuffer({ size: perDispatch * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    const readback = device.createBuffer({ size: perDispatch * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    buffers.push(uniform, scores, readback);
+    const group = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [params, vectors, indices, uniform, scores].map((buffer, binding) => ({ binding, resource: { buffer } })),
+    });
+    const bestScore = new Float32Array(rivens).fill(-1);
+    const bestSlot = new Uint8Array(rivens);
+    for (let base = 0; base < total; base += perDispatch) {
+      signal?.throwIfAborted();
+      const count = Math.min(perDispatch, total - base);
+      device.queue.writeBuffer(uniform, 0, new Uint32Array([base, count, slots, 0]));
+      const groups = Math.ceil(count / 256);
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(Math.min(groups, 65535), Math.ceil(groups / 65535));
+      pass.end();
+      encoder.copyBufferToBuffer(scores, 0, readback, 0, count * 4);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(GPUMapMode.READ, 0, count * 4);
+      const values = new Float32Array(readback.getMappedRange(0, count * 4).slice(0));
+      readback.unmap();
+      for (let k = 0; k < count; k++) {
+        const job = base + k;
+        const riven = Math.floor(job / slots);
+        if (values[k] > bestScore[riven]) { bestScore[riven] = values[k]; bestSlot[riven] = job % slots; }
+      }
+      onProgress?.(Math.min(total, base + count), total);
+    }
+    // The shader and proxyScore must agree (same check as the build search).
+    let drift = 0;
+    for (let riven = 0; riven < Math.min(rivens, 40); riven++) {
+      const slot = bestSlot[riven];
+      const combo = [...Array.from({ length: slots }, (_, i) => i).filter((i) => i !== slot), ...model.rivenIndex.slice(riven * 4, riven * 4 + 4)];
+      const expected = proxyScore({ ...model, requires: undefined }, combo);
+      drift = Math.max(drift, Math.abs(bestScore[riven] - expected) / Math.max(1e-12, expected));
+    }
+    return { bestScore, bestSlot, drift, adapter: adapterName(adapter), elapsedMs: performance.now() - started };
   } finally {
     for (const buffer of buffers) buffer.destroy();
   }
