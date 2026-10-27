@@ -13,6 +13,7 @@
  */
 import type { AbilityData, DamageType, Effect, Snapshot } from '../types.ts';
 import type { Conditions } from './build.ts';
+import { arcaneEffectsAt } from './arcanes.ts';
 
 /** Extra context a buff needs: buff stacks plus whether the shot is a weak-point hit. */
 export interface BuffContext {
@@ -204,12 +205,11 @@ export function abilityStrengthFromMods(
       warnings.push(`${arcane.name} is a ${arcane.slot} arcane, not a Warframe arcane`);
       continue;
     }
-    const rankFraction = rank === undefined || arcane.maxRank <= 0 ? 1 : Math.max(0, Math.min(1, (rank + 1) / (arcane.maxRank + 1)));
-    for (const effect of arcane.effects) {
+    for (const effect of arcaneEffectsAt(arcane, rank)) {
       if (effect.target !== 'abilityStrength') continue;
       const stacks = effect.condition ? Number(conditions[effect.condition] ?? 0) : 1;
       if (stacks <= 0) continue;
-      bonus += effect.value * rankFraction * Math.min(stacks, effect.maxStacks ?? stacks);
+      bonus += effect.value * Math.min(stacks, effect.maxStacks ?? stacks);
     }
     used.push(arcane.name);
   }

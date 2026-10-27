@@ -168,7 +168,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const types = DAMAGE_TYPES.filter((type) => (perProjectile[type] ?? 0) > 0);
   const landed = types.map((type) => (perProjectile[type] ?? 0) * hit.location);
   const healthMod = types.map((type) => modOf(type));
-  const overguardMod = types.map((type) => modOf(type, 'Overguard'));
+  const overguardMod = types.map((type) => modOf(type, 'Overguard') * (build.overguardDamageMultiplier ?? 1));
   const bypass = types.map((type) => type === 'toxin' && toxinBypass);
   const shares = types.map((type) => (perProjectile[type] ?? 0) / total);
   const statusDamage = 1 + (build.statusDamageBonus ?? 0);
@@ -333,6 +333,15 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     let heatProcs = 0;
     let heatWeight = 0;
     let blastWeight = 0;
+    // Cascadia Empowered: flat damage of the proc's type, no crit, through resistances and armour.
+    let procHealth = 0;
+    let procShield = 0;
+    const procHit = (type: DamageType, procs: number): void => {
+      if (!build.procDamage || procs <= 0) return;
+      const amount = build.procDamage * procs * faction * modOf(type);
+      procHealth += amount * armorFactor * viralMultiplier;
+      if (hasShieldPool && !(type === 'toxin' && toxinBypass)) procShield += amount * magneticMultiplier;
+    };
     if (overguard <= 0 && pulls > 0) {
       const pellets = pulls * build.multishot;
       const statusChance = build.statusChance * (1 + tauStatusBonus(tau));
@@ -343,7 +352,11 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
         if (target.blast) blastWeight += procs * crit;
       };
       // A proc's ticks scale with its hit's damage, so a ramping beam's early procs are weaker.
-      for (let i = 0; i < types.length; i++) add(typeTargets[i], pellets * statusChance * shares[i], averageCrit * ramp);
+      for (let i = 0; i < types.length; i++) {
+        add(typeTargets[i], pellets * statusChance * shares[i], averageCrit * ramp);
+        procHit(types[i], pellets * statusChance * shares[i]);
+      }
+      for (const proc of build.forcedProcs ?? []) procHit(proc.type, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1));
       for (const proc of forced) add(proc, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1), (proc.requiresCrit ? critOnCrit : averageCrit) * ramp);
     }
 
@@ -392,7 +405,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
       fraction = spent < 1 ? 1 - spent : 0;
     }
     if (fraction > 0 && shield > 0) {
-      const dealt = (toShield * volley + dotShield) * fraction;
+      const dealt = (toShield * volley + dotShield + procShield) * fraction;
       const spent = dealt >= shield && dealt > 0 ? fraction * (shield / dealt) : fraction;
       // Toxin reaches health for exactly the share of the step spent on shields.
       health -= (toxinHealth * volley + toxinDot) * spent;
@@ -402,7 +415,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
       fraction -= spent;
     }
     if (fraction > 0) {
-      const direct = (toHealth + toxinHealth) * volley * fraction;
+      const direct = ((toHealth + toxinHealth) * volley + procHealth) * fraction;
       const dot = (dotHealth + toxinDot) * fraction;
       bySource[TICKING.length + 2] += direct;
       for (let i = 0; i < tickDealt.length; i++) bySource[i] += tickDealt[i] * fraction;

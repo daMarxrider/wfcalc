@@ -33,6 +33,7 @@ import { normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
+import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot } from './arcanes.ts';
 import { InputError } from '../errors.ts';
 
 export interface BuildMod {
@@ -195,6 +196,10 @@ export interface ResolvedBuild {
   toxinStatusDamageBonus: number;
   /** Corrosion stacks allowed above the usual 10 (Emerald Archon Shard). */
   corrosiveCapBonus: number;
+  /** Multiplier on damage to Overguard (Secondary Fortifier: x8), 1 when none. */
+  overguardDamageMultiplier: number;
+  /** Flat damage per status proc, of the proc's own type (Cascadia Empowered: 750), 0 when none. */
+  procDamage: number;
   /**
    * Elemental bonus per base element (e.g. Heat 0.9 for Hellfire). The DoT layer needs it
    * to separate the seed from the elemental multiplier, which is what the wiki's worked
@@ -293,33 +298,6 @@ interface Collected {
   inactive: string[];
   unsupported: string[];
   warnings: string[];
-}
-
-/**
- * Secondary Enervate (wiki): every shot adds +10% flat crit chance, and the bonus resets after
- * `resets` Big Critical Hits (tier 2 and up, i.e. the part of crit chance above 100%). Damage is
- * linear in crit chance, so the average crit chance over a reset cycle gives the average damage.
- * The cycle is walked exactly: on shot k the bonus is (k-1) x 10%, and the cycle ends with the
- * `resets`-th big crit. Pellets of one shot land in one tick and count as one big crit at most.
- */
-export function enervateCritChance(critChance: number, resets: number, pellets = 1): number {
-  let bigs = [1]; // bigs[b]: chance the cycle is still running with b big crits so far
-  let shots = 0;
-  let total = 0;
-  for (let k = 0; bigs.some((p) => p > 1e-12); k++) {
-    const chance = critChance + 0.1 * k;
-    const big = 1 - Math.pow(1 - Math.min(1, Math.max(0, chance - 1)), Math.max(1, pellets));
-    const alive = bigs.reduce((sum, p) => sum + p, 0);
-    shots += alive;
-    total += alive * chance;
-    const next = new Array(resets).fill(0);
-    bigs.forEach((p, b) => {
-      next[b] += p * (1 - big);
-      if (b + 1 < resets) next[b + 1] += p * big;
-    });
-    bigs = next;
-  }
-  return total / shots;
 }
 
 /** Damage multiplier at `distance` metres from the blast centre (wiki: Damage Falloff). */
@@ -561,6 +539,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     const allowed = arcaneSlots[weapon.category] ?? [];
     if (arcane.slot && !allowed.includes(arcane.slot)) {
       collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.category} weapon`);
+    } else if ((arcane.slot === 'bow' && weapon.type !== 'Bow') || (arcane.slot === 'shotgun' && weapon.type !== 'Shotgun')) {
+      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.type}`);
     }
     const group = arcaneGroup(arcane.slot ?? '');
     const taken = usedArcaneGroups.get(group);
@@ -571,7 +551,9 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     }
     usedArcaneGroups.set(group, arcane.name);
     if (arcane.name === 'Primary Compression') compressionRank = Math.min(rank ?? arcane.maxRank, arcane.maxRank);
-    sources.push({ name: arcane.name, maxRank: arcane.maxRank, rank, effects: arcane.effects, partial: false, incompatible: [], kind: 'weaponArcane' });
+    // Values come at the equipped rank already (arcanes.ts), so no further rank scaling.
+    const effects = arcaneEffectsAt(arcane, rank, { heavyAttack: Boolean(build.heavyAttack) });
+    sources.push({ name: arcane.name, maxRank: 0, effects, partial: false, incompatible: [], kind: 'weaponArcane' });
   }
 
   // Incarnon evolutions: only weapons with a tree in the dataset have options.
@@ -653,12 +635,16 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane, not a Warframe arcane`);
       continue;
     }
+    const outOfScope = arcaneScopeMiss(arcane.name, weapon);
+    if (outOfScope) {
+      collected.inactive.push(`${arcane.name}: only buffs ${outOfScope}`);
+      continue;
+    }
     sources.push({
       name: arcane.name,
-      maxRank: arcane.maxRank,
-      rank,
+      maxRank: 0,
       // Ability Strength is already handled by the strength calculation above.
-      effects: arcane.effects.filter((effect) => effect.target !== 'abilityStrength'),
+      effects: arcaneEffectsAt(arcane, rank).filter((effect) => effect.target !== 'abilityStrength'),
       partial: false,
       incompatible: [],
       kind: 'warframeArcane',
@@ -835,7 +821,19 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       else compressionMultiplier = 1 + value;
     }
   }
-  const damageBonus = (1 + bonus('baseDamage') + compressionAdd) * compressionMultiplier;
+  // "Fire Rate cannot be modified" (Cannonade mods) locks the rate to the weapon's own.
+  const fireRateLocked = (collected.byTarget.get('fireRateLock') ?? 0) > 0;
+  const fireRate = fireRateLocked ? stats.fireRate ?? 1 : (stats.fireRate ?? 1) * (1 + bonus('fireRate'));
+  const reloadTime = (stats.reloadTime ?? 0) / (1 + bonus('reloadSpeed'));
+  // Magazine is an integer in game: 6 x 2.1 shows as 13, not 12.6.
+  const magazineSize = Math.max(1, Math.round((stats.magazineSize ?? 1) * (1 + bonus('magazine'))));
+  // Primary Plated Round (wiki): a full reload adds 15 x sqrt(5 x magazine) % base damage for the
+  // buff's duration; averaged over the shots, only those fired before it runs out get it.
+  const platedDuration = weapon.type === 'Bow' ? 0 : bonus('platedRound');
+  const platedRound = platedDuration > 0
+    ? 0.15 * Math.sqrt(5 * magazineSize) * Math.min(1, (platedDuration * fireRate) / magazineSize)
+    : 0;
+  const damageBonus = (1 + bonus('baseDamage') + platedRound + compressionAdd) * compressionMultiplier;
   // Flat base damage (Incarnon perks: "Increase Base Damage by +51") is spread over the
   // weapon's existing damage distribution, like any other base damage.
   const flatBase = collected.byTarget.get('baseDamageFlat') ?? 0;
@@ -932,7 +930,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
 
   // Direct Damage bonuses (Galvanized Aptitude) multiply the finished damage, so they are
   // applied after the elemental combination like faction damage.
-  const directDamageBonus = 1 + (collected.byTarget.get('directDamage') ?? 0);
+  // A separate multiplier ("x2.5 Melee Damage against Frozen enemies", Melee Careen) rides along.
+  const directDamageBonus = (1 + (collected.byTarget.get('directDamage') ?? 0)) * (collected.byTarget.get('damageMultiplier') ?? 1);
   if (directDamageBonus !== 1) {
     for (const key of Object.keys(damage) as DamageType[]) damage[key] = (damage[key] ?? 0) * directDamageBonus;
   }
@@ -970,21 +969,24 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   };
   const gladiatorCrit = setValue('Gladiator Set') * Math.max(0, comboMultiplier - 1);
   const vigilante = setValue('Vigilante Set');
-  const multishot = (stats.multishot ?? 1) * (1 + bonus('multishot'));
-  const enervate = sources.find((source) => source.kind === 'weaponArcane' && source.name === 'Secondary Enervate');
-  const critChance = enervate && build.stackMode !== 'none'
-    ? enervateCritChance(baseCritChance + gladiatorCrit, Math.min(enervate.rank ?? enervate.maxRank, enervate.maxRank) + 1, multishot)
+  const baseMultishot = (stats.multishot ?? 1) * (1 + bonus('multishot'));
+  const enervateResets = bonus('enervateResets');
+  const critChance = enervateResets > 0
+    ? enervateCritChance(baseCritChance + gladiatorCrit, enervateResets, baseMultishot,
+      enervateHitsPerShot(weapon, mode?.trigger ?? weapon.modes[0]?.trigger, baseMultishot, fireRate))
     : baseCritChance + gladiatorCrit;
-  const critMultiplier = (stats.critMultiplier ?? 1) * (1 + bonus('critDamage'));
   // Not clamped to 1: the game allows above-100% status, which means a guaranteed proc plus
   // a chance of another. Clamping threw that information away.
   const statusChance = (stats.statusChance ?? 0) * (1 + bonus('statusChance')) + bonus('statusChanceFlat');
-  // "Fire Rate cannot be modified" (Cannonade mods) locks the rate to the weapon's own.
-  const fireRateLocked = (collected.byTarget.get('fireRateLock') ?? 0) > 0;
-  const fireRate = fireRateLocked ? stats.fireRate ?? 1 : (stats.fireRate ?? 1) * (1 + bonus('fireRate'));
-  const reloadTime = (stats.reloadTime ?? 0) / (1 + bonus('reloadSpeed'));
-  // Magazine is an integer in game: 6 x 2.1 shows as 13, not 12.6.
-  const magazineSize = Math.max(1, Math.round((stats.magazineSize ?? 1) * (1 + bonus('magazine'))));
+  // Melee Doughty (wiki): +bonus x per 10% of status chance that is Puncture's damage share,
+  // rounded to one decimal, at most +50x. "Final" bonuses (Arcane Crepuscular) add after mods too.
+  const punctureShare = projectileTotal > 0 ? (damage.puncture ?? 0) / projectileTotal : 0;
+  const doughty = Math.min(50, Math.round(punctureShare * statusChance * 100 * 0.1 * bonus('doughty') * 10) / 10);
+  const critMultiplier = (stats.critMultiplier ?? 1) * (1 + bonus('critDamage')) + bonus('critDamageFlat') + doughty;
+  // Melee Duplicate (wiki): a base (yellow, tier 1) crit strikes again, rerolling crit and status,
+  // which is one more pellet on that share of hits.
+  const yellowCrit = critChance < 1 ? critChance : Math.max(0, 2 - critChance);
+  const multishot = baseMultishot * (1 + Math.min(1, bonus('duplicateChance')) * yellowCrit);
 
   const crit = Math.max(1, critMultiplier);
   // Expectation over the two cases. "Non-critical hits deal +240%" (Cull the Weak) weights
@@ -1067,6 +1069,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     usesStatusTypes,
     toxinStatusDamageBonus: shards.toxinStatusDamage,
     corrosiveCapBonus: shards.corrosiveStacks,
+    overguardDamageMultiplier: bonus('overguardDamage') || 1,
+    procDamage: bonus('procDamage'),
     elementBonuses: collected.elementBonuses.reduce<Partial<Record<BaseElement, number>>>((acc, entry) => {
       acc[entry.element] = (acc[entry.element] ?? 0) + entry.amount;
       return acc;

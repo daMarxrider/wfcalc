@@ -7,7 +7,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { enervateCritChance, falloffFactor, resolveBuild as resolveQuantized, type Build } from '../src/engine/build.ts';
+import { falloffFactor, resolveBuild as resolveQuantized, type Build } from '../src/engine/build.ts';
+import { arcaneEffectsAt, arcaneRankScale, enervateCritChance } from '../src/engine/arcanes.ts';
 import { armorDamageReduction, eximusBaseHealth, overguardForLevel, scaleEnemy } from '../src/engine/enemy.ts';
 import { elementalOrders } from '../src/engine/bruteforce.ts';
 import { hitProfile, weakPointBase } from '../src/engine/hit.ts';
@@ -432,6 +433,61 @@ test('Secondary Enervate averages its crit chance over the reset cycle', () => {
   const snap = snapshot([weapon({ impact: 100, critChance: 2.5 })], [], [], { arcanes: [enervate] });
   close(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: ['Secondary Enervate'] }).critChance, 2.75);
   close(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: [{ name: 'Secondary Enervate', rank: 0 }] }).critChance, 2.5);
+
+  // Projectile multishot is one hit per pellet: 3 pellets give 0, 30 ... 150% over six shots, +75%.
+  // Hitscan and shotgun-sidearm pellets are one hit; and at most 30 triggers a second.
+  const projectile = (extra: Partial<WeaponData> = {}, fireRate = 1): WeaponData => {
+    const base = weapon({ impact: 100, critChance: 2.5, multishot: 3, fireRate });
+    return { ...base, ...extra, modes: [{ name: 'Normal Attack', stats: base.stats, trigger: 'Projectile' }] };
+  };
+  const enervateOn = (w: WeaponData) => resolveBuild(snapshot([w], [], [], { arcanes: [enervate] }), { weapon: 'Test Weapon', mods: [], arcanes: ['Secondary Enervate'] }).critChance;
+  close(enervateOn(projectile()), 3.25);
+  close(enervateOn(projectile({ shotgunSidearm: true })), 2.75);
+  close(enervateOn({ ...projectile(), modes: [{ ...projectile().modes[0], trigger: 'Hit-Scan' }] }), 2.75);
+  close(enervateOn(projectile({}, 15)), 2.5 + 0.1 * 2 * 2.5); // 30 / 15 rps = 2 hits a shot
+});
+
+test('arcane values come from the equipped rank text, not a straight line', () => {
+  const merciless: ArcaneData = {
+    id: 'Primary Merciless', name: 'Primary Merciless', category: 'Primary Arcane', rarity: 'Rare', maxRank: 5, slot: 'primary',
+    description: '', effects: parseModEffects([['On Kill:', '+30% Damage for 4s. Stacks up to 12x.', '+30% Reload Speed']]).effects,
+    levels: [5, 10, 15, 20, 25].map((v) => `On Kill: / +${v}% Damage for 4s. Stacks up to 12x.`).concat('On Kill: / +30% Damage for 4s. Stacks up to 12x. / +30% Reload Speed'),
+  };
+  const at = (rank: number) => Object.fromEntries(arcaneEffectsAt(merciless, rank).map((e) => [e.target, e.value]));
+  assert.deepEqual(at(5), { baseDamage: 0.3, reloadSpeed: 0.3 });
+  // The reload line is a max-rank passive (DE export): rank 2 has +15% damage and no reload.
+  close(at(2).baseDamage, 0.15);
+  assert.equal(at(2).reloadSpeed, undefined);
+  // No rank text: linear, as before.
+  close(arcaneRankScale({ ...merciless, levels: undefined }, merciless.effects[0], 2), 3 / 6);
+});
+
+test('Warframe arcanes that buff one weapon class skip the others', () => {
+  const fury = arcane('Arcane Fury', 'warframe', 5, ['On Critical Hit:', '60% chance for +180% Melee Damage to Melee Weapons for 18s']);
+  const snap = snapshot([weapon({ impact: 100 })], [], [], { arcanes: [fury] });
+  const resolved = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], warframeArcanes: ['Arcane Fury'], stackMode: 'max' });
+  close(resolved.damage.projectileTotal, 100);
+  assert.ok(resolved.inactiveConditions.some((line) => line.includes('only buffs melee')));
+});
+
+test('curated arcane mechanics: Plated Round, Doughty, Duplicate, Crepuscular', () => {
+  const named = (name: string, slot: string): ArcaneData => ({ id: name, name, category: `${slot} Arcane`, rarity: 'Rare', maxRank: 5, description: '', effects: [], slot });
+  const arcanes = [named('Primary Plated Round', 'primary'), named('Melee Doughty', 'melee'), named('Melee Duplicate', 'melee'), named('Arcane Crepuscular', 'warframe')];
+  // Plated Round: 15 x sqrt(5 x 80) = +300% for a full 80-round reload (wiki table), all 80 shots
+  // inside the 10 s buff at 8 rounds/s; at 4 rounds/s only half of them.
+  const rifle = (fireRate: number) => snapshot([weapon({ impact: 100, magazineSize: 80, fireRate })], [], [], { arcanes });
+  const plated = { weapon: 'Test Weapon', mods: [], arcanes: ['Primary Plated Round'], stackMode: 'max' as const };
+  close(resolveBuild(rifle(8), plated).damage.projectileTotal, 400);
+  close(resolveBuild(rifle(4), plated).damage.projectileTotal, 250);
+  // Crepuscular: +3x added to the finished crit multiplier.
+  close(resolveBuild(rifle(8), { weapon: 'Test Weapon', mods: [], warframeArcanes: ['Arcane Crepuscular'], stackMode: 'max' }).critMultiplier, 2 + 3);
+
+  const blade = { ...weapon({ puncture: 50, slash: 50, statusChance: 0.4, critChance: 0.3 }), category: 'melee', type: 'Melee' };
+  const melee = snapshot([blade], [], [], { arcanes });
+  // Doughty: half the damage is Puncture, 40% status -> 20% Puncture status -> +2.0x at 1.0x per 10%.
+  close(resolveBuild(melee, { weapon: 'Test Weapon', mods: [], arcanes: ['Melee Doughty'] }).critMultiplier, 2 + 2);
+  // Duplicate: 30% of hits are base crits and strike again: x1.3 hits.
+  close(resolveBuild(melee, { weapon: 'Test Weapon', mods: [], arcanes: ['Melee Duplicate'] }).multishot, 1.3);
 });
 
 test('an arcane in the wrong slot only warns', () => {

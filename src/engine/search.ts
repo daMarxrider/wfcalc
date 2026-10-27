@@ -12,6 +12,7 @@
  */
 import type { Build, BuildMod } from './build.ts';
 import { ARCANE_SLOTS, resolveBuild } from './build.ts';
+import { arcaneEffectsAt } from './arcanes.ts';
 import { hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
@@ -653,12 +654,12 @@ export function search(snapshot: Snapshot, request: SearchRequest): SearchResult
   const relevant = new Set([
     'baseDamage', 'multishot', 'critChance', 'critDamage', 'statusChance', 'fireRate',
     'element', 'directDamage', 'factionDamage', 'headshotMultiplier', 'reloadSpeed',
-    'statusDamage', 'weakPointOverride',
+    'statusDamage', 'weakPointOverride', 'weakPointCritChance', 'damageMultiplier', 'doughty', 'duplicateChance',
+    'platedRound', 'enervateResets', 'overguardDamage', 'procDamage',
   ]);
   const candidates = Object.values(snapshot.arcanes).filter(
     (arcane) => arcane.slot && allowed.includes(arcane.slot)
-      // Secondary Enervate has no effect lines: build.ts models its crit cycle by name.
-      && (arcane.name === 'Secondary Enervate' || arcane.effects.some((effect) => relevant.has(String(effect.target)))),
+      && arcaneEffectsAt(arcane, arcane.maxRank, { heavyAttack: Boolean(request.base?.heavyAttack) }).some((effect) => relevant.has(String(effect.target))),
   );
   if (!candidates.length) return searchOnce(snapshot, { ...request, chooseArcane: false });
 

@@ -357,6 +357,14 @@ interface RawIncarnonForm {
   spectral: boolean;
 }
 
+/** Secondaries the wiki tags SECONDARYSHOTGUN (Detron, Bronco...): their pellets are one hit. */
+function readShotgunSidearms(): Set<string> {
+  const module = readLua('module-weapons-secondary.lua') as Loose;
+  return new Set(Object.entries<Loose>(module.Weapons ?? module)
+    .filter(([, entry]) => luaArray(entry?.CompatibilityTags).includes('SECONDARYSHOTGUN'))
+    .map(([name]) => name));
+}
+
 function readIncarnonForms(): Record<string, RawIncarnonForm> {
   const out: Record<string, RawIncarnonForm> = {};
   const files = ['module-weapons-primary.lua', 'module-weapons-secondary.lua', 'module-weapons-melee.lua'];
@@ -453,6 +461,7 @@ function buildWeapons(): Record<string, WeaponData> {
   // Raw form stats per weapon name; they are turned into full WeaponStats once the weapon's
   // own stats are known, because statsFromDamage only fills keys the base already has.
   const incarnonForms = readIncarnonForms();
+  const shotgunSidearms = readShotgunSidearms();
   for (const [file, category] of CATEGORY_FILES) {
     for (const weapon of readJson(file)) {
       const name = String(weapon.name ?? '').trim();
@@ -502,6 +511,7 @@ function buildWeapons(): Record<string, WeaponData> {
         stats,
         modes,
         hasRivenSlot: category !== 'sentinel',
+        ...(shotgunSidearms.has(name) ? { shotgunSidearm: true } : {}),
         ...(incarnonForms[name]
           ? {
               // Curated form corrections (the Ceramic Dagger fires two spectral daggers, and the
@@ -679,6 +689,7 @@ function buildArcanes(): Record<string, ArcaneData> {
       // WFCD ships one levelStats entry per rank, so max rank is length - 1.
       maxRank: Math.max(0, ranks.length - 1),
       description: ranks.length ? String(ranks[ranks.length - 1].join(' / ')) : '',
+      levels: ranks.map((lines) => lines.join(' / ')),
       effects: FLAT_CRIT_ARCANES.has(name)
         ? parsed.effects.map((effect) => (effect.target === 'critChance' ? { ...effect, op: 'flat' as const } : effect))
         : parsed.effects,
