@@ -21,6 +21,7 @@ import { availableBuffs } from './engine/buffs.ts';
 import { search } from './engine/search.ts';
 import { bruteForce } from './engine/bruteforce.ts';
 import { SHARD_BONUSES } from './engine/shards.ts';
+import { RIVEN_ATTRIBUTES } from './engine/riven.ts';
 import { abilityCast } from './engine/ability.ts';
 import { buildFromJson } from './request.ts';
 import { InputError } from './errors.ts';
@@ -340,6 +341,7 @@ const server = createServer(async (req, res) => {
       return json(res, 200, result);
     }
     if (url.pathname === '/api/shards') return json(res, 200, SHARD_BONUSES);
+    if (url.pathname === '/api/riven-stats') return json(res, 200, RIVEN_ATTRIBUTES.map(({ id, label }) => ({ id, label })));
     if (url.pathname === '/api/snipers') {
       return json(res, 200, Object.fromEntries(Object.entries(snapshot.snipers ?? {}).map(([name, data]) => [name, {
         minimumCombo: data.minimumCombo,

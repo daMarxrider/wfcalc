@@ -198,6 +198,7 @@
           <input id="strength-input" type="range" min="40" max="500" step="5" value="100" /></label>
       </div>
       <datalist id="frame-list"></datalist>
+      <datalist id="riven-stat-list"></datalist>
       <label class="field"><span>Warframe mods</span>
         <input id="framemods-input" placeholder="Intensify, Blind Rage" autocomplete="off" /></label>
       <label class="field"><span>Warframe arcanes</span>
@@ -212,7 +213,7 @@
     <details>
       <summary>Riven, Incarnon &amp; combo</summary>
       <label class="field"><span>Riven stats: card values, − marks the malus</span>
-        <input id="riven-input" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
+        <input id="riven-input" list="riven-stat-list" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
       <p class="hint">Faction stats as the multiplier (faction-grineer=1.24); ids: wfcalc rivens. A stat without “=value” is estimated from
         disposition, roll and rank below.</p>
       <div class="row">
@@ -333,7 +334,7 @@
       <h3>Riven <span class="hint">· kept in its slot; the other mods are brute forced around it</span></h3>
       <div class="compare-grid">
         <label class="field wide-field"><span>Stats (card values, − marks the malus)</span>
-          <input id="find-riven-input" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
+          <input id="find-riven-input" list="riven-stat-list" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
         <label class="field"><span>Drain</span>
           <input id="find-riven-drain" type="number" min="0" max="30" step="1" placeholder="16" /></label>
         <label class="field"><span>Polarity</span>
