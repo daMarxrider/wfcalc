@@ -220,8 +220,9 @@ every candidate mod was enumerated, false when a shortlist was), `candidates`, `
 - `arcanes`: weapon arcanes; the slot must match the weapon category.
 - `buffs`: registry ids from `GET /api/buffs`; `abilityStrength` is a percentage (100 = unmodded).
 - `riven` is resolved against the weapon's own disposition; `roll` (0.9-1.1) and `rank` (0-8) are optional.
-- `incarnon` picks evolution tiers (`"EVO2:0"` = first option of tier EVO2; see `GET /api/incarnons`);
-  `"form"` uses the transformed profile with no perks.
+- `incarnon` picks evolution tiers (`"EVO2:0"` = first option of tier EVO2, or `"EVO2:Name"`; see
+  `GET /api/incarnons`). Perks also work untransformed; add `"form"` to switch to the transformed
+  profile (alone: the form with no perks).
 - `elementBonus` is the Kuva/Tenet bonus (`value` as a fraction or a percentage).
 - `conditions.covenantDamage` feeds Harrow's Covenant (damage prevented).
 - `eximus` adds the level-scaled Eximus Overguard; `overguard` sets an explicit amount instead.

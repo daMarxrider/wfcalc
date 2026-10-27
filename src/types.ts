@@ -246,6 +246,12 @@ export interface Effect {
   maxStacks?: number;
   /** Converted-into damage type, for `convert` effects. */
   convertsTo?: DamageType;
+  /** Incarnon "Increase Base X by +N": added to the weapon's base stat, before mods multiply it. */
+  base?: boolean;
+  /** Incarnon perks that work only in the Incarnon form, or only outside it. */
+  form?: 'incarnon' | 'normal';
+  /** "With Critical Chance Below 50%": applies only while the build's crit chance is under this. */
+  critChanceBelow?: number;
   /** Original text, for display. */
   raw: string;
 }

@@ -25,12 +25,12 @@
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import type { Build, BuildMod } from './build.ts';
-import { resolveBuild, statsForMode, weaponElementBonus } from './build.ts';
+import { incarnonFormOn, resolveBuild, statsForMode, weaponElementBonus } from './build.ts';
 import { hitEnemy } from './damage.ts';
 import type { SimulationResult } from './simulate.ts';
 import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
 import type { AttenuationProfile } from './attenuation.ts';
-import { DAMAGE_TARGETS, fitMods, search, searchableMods } from './search.ts';
+import { DAMAGE_TARGETS, drawbackTwins, fitMods, isDrawback, search, searchableMods } from './search.ts';
 import { InputError } from '../errors.ts';
 import { rivenAsMod } from './riven.ts';
 import { loadSnapshot, modsForWeapon } from '../data.ts';
@@ -222,7 +222,7 @@ export function modElement(mod: ModData | undefined): BaseElement | null {
 
 /** Innate base elements of the profile the build fires, in the hierarchy's HCET order. */
 function innateElements(weapon: WeaponData, base: Partial<Build>): BaseElement[] {
-  const stats = base.incarnon?.length && weapon.incarnonForm ? weapon.incarnonForm : statsForMode(weapon, base.mode).stats;
+  const stats = incarnonFormOn(weapon, base) && weapon.incarnonForm ? weapon.incarnonForm : statsForMode(weapon, base.mode).stats;
   const bonus = weaponElementBonus(weapon, base.elementBonus);
   return BASE_ELEMENTS.filter((element) => (stats[element] ?? 0) > 0 || bonus?.type === element);
 }
@@ -435,6 +435,12 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
     candidates = ranked.filter((name) => keep.has(name));
     exhaustive = candidates.length === ranked.length;
   }
+  // A kept drawback twin (Heavy Caliber) is only usable next to its clean mod (Serration): keep both.
+  const shortlistTwins = drawbackTwins(all);
+  for (const name of [...candidates]) {
+    const clean = shortlistTwins.get(name);
+    if (clean && !candidates.includes(clean)) candidates.push(clean);
+  }
   const leftOut = ranked.filter((name) => !candidates.includes(name));
 
   assumptions.push(`${capacity} capacity${capacity === 60 ? ' (Orokin Catalyst)' : ''}${maxForma !== null ? `, at most ${maxForma} Forma` : ''}`);
@@ -501,9 +507,6 @@ function scaleTarget(
   return scaleEnemy(snapshot, enemy, level, { eximus: request.eximus, overguard: request.overguard, steelPath: request.steelPath });
 }
 
-/** Stats where a negative value helps, so it is no drawback. */
-const LOWER_IS_BETTER = new Set(['recoil', 'spread']);
-
 /**
  * Between builds that are equally fast: fewer drawbacks first, then less drain. Heavy Caliber and
  * Serration both add +165% damage; Heavy Caliber also costs accuracy and 2 more capacity, so the
@@ -515,7 +518,7 @@ function tiePenalty(snapshot: Snapshot, mods: BuildMod[]): number {
     const mod = snapshot.mods[name];
     if (!mod) continue;
     penalty += (mod.baseDrain ?? 0) + mod.maxRank;
-    penalty += 100 * mod.effects.filter((effect) => effect.value < 0 && !LOWER_IS_BETTER.has(String(effect.target))).length;
+    penalty += 100 * mod.effects.filter(isDrawback).length;
   }
   return penalty;
 }
@@ -564,7 +567,7 @@ export function runShard(
   limit = 5,
   onProgress?: (done: number) => void,
 ): ShardResult {
-  const { mods, clashes, fits, scoreSet } = leafScorer(snapshot, plan);
+  const { mods, clashes, fits, scoreSet, twinsOk } = leafScorer(snapshot, plan);
   const top: ScoredCombination[] = [];
   const keep = (candidate: ScoredCombination): void => {
     if (top.length >= limit && candidate.score <= top[top.length - 1].score) return;
@@ -587,6 +590,7 @@ export function runShard(
   const visit = (chosen: number[]): void => {
     const current = leaf++;
     if (current % shards !== shard) return;
+    if (!twinsOk(chosen)) return;
     const { best, orders } = scoreSet(chosen);
     evaluated += orders;
     if (best && Number.isFinite(best.score)) keep(best);
@@ -621,6 +625,19 @@ export function runShard(
   walk([], 0);
   onProgress?.(covered);
   return { top, evaluated, combinations: leaf };
+}
+
+/**
+ * For each candidate, the candidate index of the clean mod it is a drawback twin of (Heavy Caliber
+ * -> Serration), or -1: such a twin is only allowed in a set that also holds that clean mod. A
+ * clean mod that is fixed is always there, and one that is not available leaves the twin free.
+ */
+export function twinRequirements(snapshot: Snapshot, plan: BruteForcePlan): number[] {
+  const twins = drawbackTwins([...plan.candidates, ...plan.fixed.map((mod) => mod.name)].map((name) => snapshot.mods[name]));
+  return plan.candidates.map((name) => {
+    const clean = twins.get(name);
+    return clean ? plan.candidates.indexOf(clean) : -1;
+  });
 }
 
 /** What scoring one set of candidates (by index) needs: its feasibility and its best elemental order. */
@@ -679,7 +696,9 @@ function leafScorer(snapshot: Snapshot, plan: BruteForcePlan) {
     }
     return { best, orders };
   };
-  return { mods, clashes, fits, scoreSet };
+  const requires = twinRequirements(snapshot, plan);
+  const twinsOk = (chosen: number[]): boolean => chosen.every((i) => requires[i] < 0 || chosen.includes(requires[i]));
+  return { mods, clashes, fits, scoreSet, twinsOk };
 }
 
 /** Full report for one winning combination. */
@@ -836,12 +855,12 @@ export async function bruteForceFromCombinations(
 /** Scores a list of combinations (candidate names) exactly; infeasible ones are skipped. */
 export function scoreCombinations(snapshot: Snapshot, plan: BruteForcePlan, combinations: string[][], limit: number): { top: ScoredCombination[]; evaluated: number } {
   const index = new Map(plan.candidates.map((name, i) => [name, i]));
-  const { clashes, fits, scoreSet } = leafScorer(snapshot, plan);
+  const { clashes, fits, scoreSet, twinsOk } = leafScorer(snapshot, plan);
   const top: ScoredCombination[] = [];
   let evaluated = 0;
   for (const names of combinations) {
     const picked = names.map((name) => index.get(name)!).sort((a, b) => a - b);
-    if (picked.some((i) => picked.some((j) => clashes[i].has(j))) || !fits(picked)) continue;
+    if (picked.some((i) => picked.some((j) => clashes[i].has(j))) || !twinsOk(picked) || !fits(picked)) continue;
     const { best, orders } = scoreSet(picked);
     evaluated += orders;
     if (best && Number.isFinite(best.score)) top.push(best);

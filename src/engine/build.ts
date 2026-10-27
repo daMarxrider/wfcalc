@@ -315,6 +315,8 @@ interface Collected {
   elementMultipliers: Map<DamageType, number>;
   forcedProcs: Array<{ type: DamageType; chance: number; requiresCrit: boolean }>;
   conversions: Array<{ from: BaseElement; to: DamageType; share: number }>;
+  /** Incarnon "Increase Base X" bonuses, and bonuses gated on the build's own crit chance. */
+  baseAdds: Array<{ target: string; value: number; base: boolean; critChanceBelow?: number; label: string }>;
   inactive: string[];
   unsupported: string[];
   warnings: string[];
@@ -377,6 +379,22 @@ export function statsForMode(weapon: WeaponData, modeName?: string): { stats: We
     if (mode) return { stats: mode.stats, mode };
   }
   return { stats: weapon.stats, mode: null };
+}
+
+/** Where an Incarnon "Increase Base X" bonus lands in the weapon's stats. */
+const BASE_STAT: Record<string, keyof WeaponStats> = {
+  critChance: 'critChance', statusChance: 'statusChance', critDamage: 'critMultiplier',
+  multishot: 'multishot', magazine: 'magazineSize', fireRate: 'fireRate',
+};
+
+/**
+ * The Incarnon form is on when the player switches it on ("form") or picks the weapon's Incarnon
+ * fire mode. Evolutions alone do not transform the weapon: in game they also work untransformed.
+ */
+export function incarnonFormOn(weapon: WeaponData, build: Pick<Build, 'incarnon' | 'mode'>): boolean {
+  if (!weapon.incarnonForm) return false;
+  if ((build.incarnon ?? []).some((choice) => normalizeName(choice) === 'form')) return true;
+  return /incarnon/i.test(statsForMode(weapon, build.mode).mode?.name ?? '');
 }
 
 /** Status types this build itself puts on a target: the types it procs, forced procs included. */
@@ -460,7 +478,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   // The Incarnon form replaces the weapon's stats outright, and mods apply on top of it, which
   // is what the game does. Applying perks to the base profile was an approximation.
   const incarnonLines: string[] = [];
-  const incarnonFormActive = Boolean(build.incarnon?.length && weapon.incarnonForm);
+  const incarnonFormActive = incarnonFormOn(weapon, build);
   const spectralForm = Boolean(incarnonFormActive && weapon.incarnonFormSpectral);
   if (incarnonFormActive && weapon.incarnonForm) {
     stats = { ...weapon.incarnonForm };
@@ -505,7 +523,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const aoeDistance = build.aoeDistance;
   // The Incarnon form carries its own radial second hit with its own falloff; the base
   // weapon's radial mode must not be applied on top of it.
-  const incarnonForm = Boolean(build.incarnon?.length && weapon.incarnonForm);
+  const incarnonForm = incarnonFormActive;
   const radial = incarnonForm ? null : mode ? (mode.trigger === 'AoE' ? mode : null) : summedRadial(weapon);
   const radialFactor = radial?.falloff && aoeDistance !== undefined && aoeDistance >= 0 ? falloffFactor(radial.falloff, aoeDistance) : 1;
   if (aoeDistance !== undefined && aoeDistance >= 0 && !incarnonForm) {
@@ -541,6 +559,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     elementMultipliers: new Map(),
     forcedProcs: [],
     conversions: [],
+    baseAdds: [],
     inactive: [],
     unsupported: [],
     warnings: [],
@@ -639,8 +658,9 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     for (const choice of build.incarnon) {
       // "form" uses the transformed profile with no evolution perks, for weapons whose tree is
       // not in the dataset (Okina Prime shares Okina's on the wiki but has no page of its own).
+      // "form" is the transformation switch (Evo 1), not a perk.
       if (normalizeName(choice) === 'form') {
-        incarnonLines.push('form only, no evolution perks');
+        if (build.incarnon.length === 1) incarnonLines.push('form only, no evolution perks');
         continue;
       }
       // Accepts "EVO2", "EVO2:1" (option index) and "EVO2:Lone Blade" (option name).
@@ -795,6 +815,11 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
         collected.inactive.push(`${source.name}: ${effect.raw}`);
         continue;
       }
+      // Incarnon perks scoped to one form (wiki: "for Incarnon Form", "does not apply to the Incarnon form").
+      if (effect.form && (effect.form === 'incarnon') !== incarnonFormActive) {
+        collected.inactive.push(`${source.name}: ${effect.raw} (${effect.form === 'incarnon' ? 'Incarnon form only' : 'not in the Incarnon form'})`);
+        continue;
+      }
       if (effect.perStatusType) usesStatusTypes = true;
       // A melee Incarnon form fires spectral projectiles, and the wiki states those hits take
       // no melee damage bonus: Pressure Point, Arcane Fury, the stance and the combo
@@ -813,6 +838,12 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       const setFactor = 1 + amplifyFor(source.set, source.name);
       const directOnly = effect.perStatusType ? directShare : 1;
       const value = effect.value * rankFraction * stacks * comboFactor * bowFactor * setFactor * directOnly;
+      // Incarnon "Increase Base Critical Chance by +16%": the weapon's base stat grows before mods
+      // multiply it. A crit-chance gate ("With Critical Chance Below 50%") waits for the final crit.
+      if (effect.base || effect.critChanceBelow !== undefined) {
+        collected.baseAdds.push({ target: effect.target, value, base: Boolean(effect.base), critChanceBelow: effect.critChanceBelow, label: `${source.name}: ${effect.raw}` });
+        continue;
+      }
       // Per-status-type damage: on most attacks it joins the Serration bucket and skips the final
       // multipliers (wiki: Condition Overload (Mechanic), "Adding"); listed attacks multiply.
       if (effect.perStatusType && effect.op === 'add' && (effect.target === 'directDamage' || effect.target === 'baseDamage')) {
@@ -874,6 +905,12 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
 
   const bonus = (target: string): number => collected.byTarget.get(target) ?? 0;
+  // Base-stat bonuses (Incarnon) go into the profile the mods then multiply.
+  for (const add of collected.baseAdds) {
+    const key = BASE_STAT[add.target];
+    if (!add.base || add.critChanceBelow !== undefined || !key) continue;
+    stats = { ...stats, [key]: (stats[key] ?? 0) + add.value };
+  }
 
 
   // ---------------------------------------------------------------- base damage
@@ -1070,7 +1107,20 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   // rounded to one decimal, at most +50x. "Final" bonuses (Arcane Crepuscular) add after mods too.
   const punctureShare = projectileTotal > 0 ? (damage.puncture ?? 0) / projectileTotal : 0;
   const doughty = Math.min(50, Math.round(punctureShare * statusChance * 100 * 0.1 * bonus('doughty') * 10) / 10);
-  const critMultiplier = (stats.critMultiplier ?? 1) * (1 + bonus('critDamage')) + bonus('critDamageFlat') + doughty;
+  // Prelude of Might: "With Critical Chance Below 50%: +3x base critical multiplier", read against
+  // the build's own crit chance (wiki: affected by mods and Puncture alike).
+  let gatedCritBase = 0;
+  let gatedCritBonus = 0;
+  for (const add of collected.baseAdds) {
+    if (add.critChanceBelow === undefined || add.target !== 'critDamage') continue;
+    if (critChance >= add.critChanceBelow) {
+      collected.inactive.push(`${add.label} (crit chance ${(critChance * 100).toFixed(0)}% is not below ${(add.critChanceBelow * 100).toFixed(0)}%)`);
+      continue;
+    }
+    if (add.base) gatedCritBase += add.value;
+    else gatedCritBonus += add.value;
+  }
+  const critMultiplier = ((stats.critMultiplier ?? 1) + gatedCritBase) * (1 + bonus('critDamage') + gatedCritBonus) + bonus('critDamageFlat') + doughty;
   // Melee Duplicate (wiki): a base (yellow, tier 1) crit strikes again, rerolling crit and status,
   // which is one more pellet on that share of hits.
   const yellowCrit = critChance < 1 ? critChance : Math.max(0, 2 - critChance);

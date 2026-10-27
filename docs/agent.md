@@ -168,12 +168,15 @@ State these when they matter instead of guessing:
 - **The stance slot is not searched; the quick search leaves the Exilus slot empty.** Brute force fills the Exilus slot with the Exilus mod that does most for the greedy builds (Vigilante Supplies counts through its set bonus); pin one with `--fixed` to choose.
 - **Melee assumes a 12x combo** (220 hits), because Blood Rush and Weeping Wounds are worth
   nothing at 1x. Pass `--combo-hits 0` to score raw swings; the assumption is reported.
-- **The Incarnon form is never assumed.** The search reports that the weapon has one and leaves
-  it alone unless `--incarnon auto` is passed; that replaces the profile with the transformed
-  weapon and tries every combination of perks (exact: the largest tree has 18). Perks with no
-  parsed stats are invisible; read the tree with `wfcalc incarnon <weapon>`. `--incarnon form`
-  uses the transformed profile with no perks, which is the way in for the five melee forms
-  (their attacks are the wiki's "Spectral Axe/Dagger/Blade"). The form's AoE/explosion is a
+- **The Incarnon form is never assumed.** Evolutions (`--incarnon "EVO2:Name,EVO4:1"`) work on
+  the untransformed weapon too, as in game; `form` in the same list switches to the transformed
+  profile (alone it is the form with no perks, the way in for the five melee forms, whose attacks
+  are the wiki's "Spectral Axe/Dagger/Blade"). `--incarnon auto` tries every combination of
+  perks, with and without the form (exact: the largest tree has 18). Perks carry the wiki's
+  per-variant values, conditions ("On Kill:", "With Critical Chance Below 50%:") and form scope
+  ("for Incarnon Form", "does not apply to the Incarnon form"); "Increase Base X" raises the base
+  stat before mods. Perks with no parsed stats are invisible; read the tree with
+  `wfcalc incarnon <weapon>`. The form's AoE/explosion is a
   second hit on the same shot and **is** included at the blast centre; `--aoe-distance` applies
   its falloff. Direct-only multipliers (Condition Overload, Galvanized Aptitude) are scaled by
   the direct share so they do not inflate the radial hit. Spectral direct

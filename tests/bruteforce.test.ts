@@ -375,3 +375,21 @@ test('equally fast builds: the one without a drawback wins (Serration over Heavy
     assert.equal(result.builds[1].timeToKill, result.builds[0].timeToKill);
   }
 });
+
+test('a drawback twin (Heavy Caliber = Serration - accuracy) is only used next to its clean mod', async () => {
+  const request = { weapon: 'Braton Prime', enemy: 'Bombard', level: 150, capacity: 60, maxForma: 0, pool: 14, simulate: false, limit: 5, workers: 1 };
+  const result = await bruteForce(snapshot, request);
+  for (const build of result.builds) {
+    const names = build.mods.map((mod) => mod.name);
+    if (names.includes('Heavy Caliber')) assert.ok(names.includes('Serration'), names.join(', '));
+  }
+  // Without Serration (not owned), Heavy Caliber is free to take its place.
+  const withoutSerration = await bruteForce(snapshot, { ...request, exclude: ['Serration'] });
+  assert.ok(withoutSerration.builds[0].mods.some((mod) => mod.name === 'Heavy Caliber'));
+  // The quick search follows the same rule.
+  const quick = search(snapshot, { weapon: 'Braton Prime', enemy: 'Bombard', level: 150, capacity: 60, maxForma: 0, limit: 3 });
+  for (const build of quick.builds) {
+    const names = build.mods.map((mod) => mod.name);
+    if (names.includes('Heavy Caliber')) assert.ok(names.includes('Serration'), names.join(', '));
+  }
+});
