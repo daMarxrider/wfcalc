@@ -498,7 +498,7 @@ function exilusCost(snapshot: Snapshot, weapon: WeaponData, exilus: BuildMod | n
   return mod.polarity && mod.polarity === weapon.exilusPolarity ? Math.ceil(full / 2) : full;
 }
 
-function scaleTarget(
+export function scaleTarget(
   snapshot: Snapshot,
   request: { eximus?: boolean; overguard?: number; steelPath?: boolean },
   enemy: Snapshot['enemies'][string],
@@ -524,7 +524,7 @@ function tiePenalty(snapshot: Snapshot, mods: BuildMod[]): number {
 }
 
 /** Score of one mod list: higher is better for either objective. Invalid builds score -Infinity. */
-function makeScorer(
+export function makeScorer(
   snapshot: Snapshot,
   weapon: string,
   base: Partial<Build>,
@@ -891,12 +891,12 @@ export function warmExactPool(snapshotPath?: string, workers = availableParallel
   return pool;
 }
 
-/** scoreCombinations split across warm worker threads, one slice of the list each. */
-function scoreInWorkers(plan: BruteForcePlan, snapshotPath: string | undefined, workers: number, combinations: string[][], limit: number) {
-  const pool = warmExactPool(snapshotPath, workers);
-  const size = Math.ceil(combinations.length / workers);
-  return Promise.all(pool.slice(0, workers).map((worker, shard) => new Promise<{ top: ScoredCombination[]; evaluated: number }>((resolve, reject) => {
-    const done = (message: { type: 'done'; result: { top: ScoredCombination[]; evaluated: number } } | { type: 'error'; message: string }): void => {
+/** Runs one job per warm worker (see bruteforce-worker.ts for the job kinds) and collects the results. */
+export function runOnPool<T>(snapshotPath: string | undefined, jobs: object[]): Promise<T[]> {
+  const pool = warmExactPool(snapshotPath, jobs.length);
+  return Promise.all(jobs.map((job, shard) => new Promise<T>((resolve, reject) => {
+    const worker = pool[shard];
+    const done = (message: { type: 'done'; result: T } | { type: 'error'; message: string }): void => {
       worker.off('error', failed);
       if (message.type === 'done') resolve(message.result);
       else reject(new Error(message.message));
@@ -904,8 +904,15 @@ function scoreInWorkers(plan: BruteForcePlan, snapshotPath: string | undefined, 
     const failed = (error: Error): void => { worker.off('message', done); reject(error); };
     worker.once('message', done);
     worker.once('error', failed);
-    worker.postMessage({ plan, limit, combinations: combinations.slice(shard * size, (shard + 1) * size) });
+    worker.postMessage(job);
   })));
+}
+
+/** scoreCombinations split across warm worker threads, one slice of the list each. */
+function scoreInWorkers(plan: BruteForcePlan, snapshotPath: string | undefined, workers: number, combinations: string[][], limit: number) {
+  const size = Math.ceil(combinations.length / workers);
+  return runOnPool<{ top: ScoredCombination[]; evaluated: number }>(snapshotPath, Array.from({ length: workers }, (_, shard) => (
+    { kind: 'combinations', plan, limit, combinations: combinations.slice(shard * size, (shard + 1) * size) })));
 }
 
 /** The plan a GPU search runs on: every candidate (no shortlist), at most 64 of them (two 32-bit masks). */

@@ -5,6 +5,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { loadSnapshot } from '../data.ts';
 import { runShard, scoreCombinations, type BruteForcePlan } from './bruteforce.ts';
+import { rivenShard, type RivenShardJob } from './riven-picker.ts';
 
 const { plan, snapshotPath, shard, shards, limit, persistent } = workerData as {
   plan: BruteForcePlan;
@@ -18,9 +19,10 @@ const { plan, snapshotPath, shard, shards, limit, persistent } = workerData as {
 
 const snapshot = loadSnapshot(snapshotPath);
 if (persistent) {
-  parentPort!.on('message', (job: { plan: BruteForcePlan; limit: number; combinations: string[][] }) => {
+  parentPort!.on('message', (job: ({ kind: 'combinations'; plan: BruteForcePlan; limit: number; combinations: string[][] }) | RivenShardJob) => {
     try {
-      parentPort!.postMessage({ type: 'done', result: scoreCombinations(snapshot, job.plan, job.combinations, job.limit) });
+      const result = job.kind === 'riven' ? rivenShard(snapshot, job) : scoreCombinations(snapshot, job.plan, job.combinations, job.limit);
+      parentPort!.postMessage({ type: 'done', result });
     } catch (error) {
       parentPort!.postMessage({ type: 'error', message: String((error as Error).message ?? error) });
     }
