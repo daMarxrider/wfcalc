@@ -155,7 +155,6 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const healthClass = scaled.enemy.healthClass;
   const faction = options.factionMultiplier;
   const hit = hitProfile(build, scaled.enemy.faction);
-  const head = hit.zone === 'head';
   const debuffs = options.debuffs;
   const hasArmor = scaled.pools.some((pool) => pool.category === 'armor') && scaled.armor > 0;
   const hasShieldPool = scaled.pools.some((pool) => pool.category === 'shield');
@@ -296,10 +295,10 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const magneticMultiplier = amplifier(magnetic);
     end = { viral, corrosive, heatStrip: strip, magnetic, cold, puncture, armor };
 
-    // Crit with Cold and Puncture, additive after mods; head crits double the multiplier.
+    // Crit with Cold and Puncture, additive after mods; critical headshots double the multiplier.
     const critChance = hit.critChance + punctureCritBonus(puncture);
     const critDamage = Math.max(1, build.critMultiplier + coldCritBonus(cold));
-    const perTier = head ? 2 * critDamage - 1 : critDamage - 1;
+    const perTier = hit.critHeadshot ? 2 * critDamage - 1 : critDamage - 1;
     const averageCrit = 1 + critChance * perTier;
     const pCrit = Math.min(1, critChance);
     const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;

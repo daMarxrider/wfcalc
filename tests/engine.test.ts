@@ -1202,6 +1202,10 @@ test('head crits double the critical multiplier; weak point crit chance only cou
   const body = hitProfile(build(snap, ['Primary Acuity'], { hit: 'body' }), 'grineer');
   close(body.critChance, 0.2);
   close(body.averageCrit, 1.2);
+  // Corpus heads cannot be crit-headshot (wiki: Weak Point): still 3x, but crits stay x2.
+  const corpus = hitProfile(build(snap, ['Primary Acuity'], { hit: 'head' }), 'corpus');
+  close(corpus.location, 3);
+  close(corpus.averageCrit, 1 + 0.9 * (2 - 1));
 });
 
 test('stack modes: none turns conditions off, max uses each cap, a non-stacking effect counts once', () => {
