@@ -22,9 +22,10 @@ const GOLDEN = {
   // Since Hunter Munitions is searchable (category-wide "Primary" mods) and status ticks inherit
   // the crit multiplier (wiki: Damage_over_Time), crit-fed Bleed dominates against 2700 armour.
   // Times come from the fight simulation: statuses build up from zero instead of starting at
-  // their steady state.
-  somaSearchTtk: '4.21s',
-  somaSearchDps: '28,154.5 dps',
+  // their steady state. Bleed seeds from the modded base damage only (wiki: Damage/Calculation),
+  // not from the elemental damage on top, which made the old 4.21s too optimistic.
+  somaSearchTtk: '7.34s',
+  somaSearchDps: '16,142.7 dps',
   brammaTotal: 'total 205.4 dps with status',
   brammaTtk: 'ttk 576.74s',
   somaStrippedTtk: 'ttk 128.54s',
