@@ -342,3 +342,23 @@ test('brute force leaves aiming-only mods (Bladed Rounds) out unless aiming is o
   assert.ok(!searched(planBruteForce(snapshot, { ...request, base: { stackMode: 'max' } })).includes('Bladed Rounds'));
   assert.ok(searched(planBruteForce(snapshot, { ...request, base: { stackMode: 'max', conditions: { aiming: 1 } } })).includes('Bladed Rounds'));
 });
+
+test('brute force uses the Incarnon evolutions picked on the Build tab', async () => {
+  const request = { weapon: 'Soma Prime', enemy: 'Bombard', pool: 10, simulate: false, limit: 1, workers: 1 };
+  const plain = await bruteForce(snapshot, request);
+  const evolved = await bruteForce(snapshot, { ...request, base: { incarnon: ['EVO4:Fatal Affliction'] } });
+  assert.ok(evolved.assumptions.some((line) => line.includes('EVO4:Fatal Affliction')));
+  // The Incarnon form profile plus the perk change what the best build does.
+  assert.notEqual(evolved.builds[0].timeToKill, plain.builds[0].timeToKill);
+  assert.ok(evolved.builds[0].warnings.every((warning) => !/unknown Incarnon option/.test(warning)));
+});
+
+test('every Incarnon evolution has its wiki icon and a real name', () => {
+  for (const [weapon, options] of Object.entries(snapshot.incarnons)) {
+    for (const option of options) {
+      assert.ok(option.image && /^[A-Za-z0-9._'()-]+\.(png|jpe?g|webp)$/i.test(option.image), `${weapon} ${option.name}: icon ${option.image}`);
+      // A name the parser took from a bullet ("+100%") instead of the perk's cell.
+      assert.ok(/^[A-Za-z]/.test(option.name), `${weapon} ${option.tier}: name "${option.name}"`);
+    }
+  }
+});

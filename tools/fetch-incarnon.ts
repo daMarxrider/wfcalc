@@ -37,6 +37,8 @@ function clean(text: string): string {
 interface IncarnonOption {
   tier: string;
   name: string;
+  /** The perk's icon on the wiki ("IncarnonCritChanceCritDamage.png"), next to its name. */
+  image?: string;
   effects: Array<{ target: string; element?: string; faction?: string; op: string; value: number; raw: string; flat?: boolean; perStatusType?: boolean }>;
   text: string[];
 }
@@ -59,7 +61,10 @@ function parseEvolutions(wikitext: string): IncarnonOption[] {
     // The option name is the first bolded phrase of the row. Apostrophes are allowed inside
     // ("Templar's Wrath"): excluding them made the match fall through to the first bullet's
     // number, which is how "EVO2: +150" ended up in the data.
-    const nameMatch = /'''(.{2,60}?)'''/.exec(row);
+    // The name is the cell text right before the perk's icon; not every page bolds it (Burston's
+    // "Ready Retaliation" is plain, and the first bold text there is "+100%" in its bullet).
+    const iconCell = /\|([^|\n]*?)\[\[File:([^|\]]+)/.exec(row);
+    const nameMatch = iconCell && clean(iconCell[1]) ? { index: iconCell.index, 1: iconCell[1] } : /'''(.{2,60}?)'''/.exec(row);
     if (!nameMatch) continue;
     const name = clean(nameMatch[1]);
     if (!name || /Evolution Challenge|Incarnon Form$/i.test(name)) continue;
@@ -107,7 +112,10 @@ function parseEvolutions(wikitext: string): IncarnonOption[] {
       }
     }
 
-    if (bullets.length) options.push({ tier, name, effects, text: bullets });
+    // The icon follows the bolded name: '''Critical Parallel''' [[File:IncarnonCritChanceCritDamage.png|64px|center]]
+    const imageMatch = iconCell ? [iconCell[0], iconCell[2]] : /\[\[File:([^|\]]+)/.exec(row.slice(nameMatch.index));
+    const image = imageMatch ? imageMatch[1].trim().replace(/ /g, '_') : undefined;
+    if (bullets.length) options.push({ tier, name, ...(image ? { image } : {}), effects, text: bullets });
   }
   return options;
 }
