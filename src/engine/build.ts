@@ -311,6 +311,20 @@ interface Collected {
   warnings: string[];
 }
 
+/**
+ * The AoE explosion the arsenal block adds to the direct hit (Kuva Zarr: 50 impact + 673 blast),
+ * or null when the block is the direct hit alone (an alt-fire explosion, shotgun falloff).
+ */
+function summedRadial(weapon: WeaponData): WeaponMode | null {
+  const [direct, ...rest] = weapon.modes;
+  const radial = rest.find((candidate) => candidate.trigger === 'AoE' && candidate.falloff);
+  if (!direct || !radial || direct.trigger === 'AoE') return null;
+  const total = DAMAGE_TYPES.reduce((sum, type) => sum + (weapon.stats[type] ?? 0), 0);
+  return DAMAGE_TYPES.every((type) => Math.abs((weapon.stats[type] ?? 0) - (direct.stats[type] ?? 0) - (radial.stats[type] ?? 0)) <= 0.01 * total + 0.01)
+    ? radial
+    : null;
+}
+
 /** Damage multiplier at `distance` metres from the blast centre (wiki: Damage Falloff). */
 export function falloffFactor(falloff: { start: number; end: number; reduction: number }, distance: number): number {
   if (distance <= falloff.start) return 1;
@@ -459,11 +473,6 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       incarnonLines.push(`${extra.name} included${build.aoeDistance !== undefined ? ` at ${build.aoeDistance} m` : ' at the blast centre'}`);
     }
   }
-  // Direct-only multipliers (Condition Overload, Galvanized Aptitude) must not scale the
-  // radial second hit. We approximate by their share of the transformed profile's base damage.
-  const directShare = build.incarnon?.length && weapon.incarnonForm && weapon.incarnonFormExtra?.length
-    ? weapon.incarnonFormDirectShare ?? 1
-    : 1;
 
   // Kuva/Tenet/Coda bonus element: worth 25-60% of base damage, baked in before anything else
   // so it combines like innate damage, and counts as base damage for mods and status seeds.
@@ -487,10 +496,12 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const aoeDistance = build.aoeDistance;
   // The Incarnon form carries its own radial second hit with its own falloff; the base
   // weapon's radial mode must not be applied on top of it.
-  if (aoeDistance !== undefined && aoeDistance >= 0 && !(build.incarnon?.length && weapon.incarnonForm)) {
-    const radial = weapon.modes.find((candidate) => candidate.falloff);
+  const incarnonForm = Boolean(build.incarnon?.length && weapon.incarnonForm);
+  const radial = incarnonForm ? null : mode ? (mode.trigger === 'AoE' ? mode : null) : summedRadial(weapon);
+  const radialFactor = radial?.falloff && aoeDistance !== undefined && aoeDistance >= 0 ? falloffFactor(radial.falloff, aoeDistance) : 1;
+  if (aoeDistance !== undefined && aoeDistance >= 0 && !incarnonForm) {
     if (radial && radial.falloff) {
-      const factor = falloffFactor(radial.falloff, aoeDistance);
+      const factor = radialFactor;
       const adjusted: WeaponStats = { ...stats };
       for (const type of DAMAGE_TYPES) {
         const component = radial.stats[type] ?? 0;
@@ -502,6 +513,16 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       aoeWarning = `no AoE falloff data for ${weapon.name}`;
     }
   }
+
+  // Direct-only multipliers (Condition Overload, Galvanized Aptitude) must not scale the
+  // radial hit (wiki: "never worked on AoE"). They are linear, so scaling the bonus by the
+  // direct share of base damage gives the exact total.
+  const baseSum = (block: WeaponStats): number => DAMAGE_TYPES.reduce((sum, type) => sum + (block[type] ?? 0), 0);
+  const radialLeft = radial ? baseSum(radial.stats) * radialFactor : 0;
+  const directPart = radial ? Math.max(0, baseSum(resolvedMode.stats) - baseSum(radial.stats)) : 0;
+  const directShare = incarnonForm
+    ? (weapon.incarnonFormExtra?.length ? weapon.incarnonFormDirectShare ?? 1 : 1)
+    : radialLeft > 0 ? directPart / (directPart + radialLeft) : 1;
 
   // ------------------------------------------------------------ gather effects
   const collected: Collected = {

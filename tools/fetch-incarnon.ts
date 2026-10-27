@@ -37,7 +37,7 @@ function clean(text: string): string {
 interface IncarnonOption {
   tier: string;
   name: string;
-  effects: Array<{ target: string; element?: string; faction?: string; op: string; value: number; raw: string; flat?: boolean }>;
+  effects: Array<{ target: string; element?: string; faction?: string; op: string; value: number; raw: string; flat?: boolean; perStatusType?: boolean }>;
   text: string[];
 }
 
@@ -75,7 +75,9 @@ function parseEvolutions(wikitext: string): IncarnonOption[] {
     for (const bullet of bullets) {
       // A bullet can hold several stats: "Increase Base Damage by +51."
       for (const sentence of bullet.split(/\.\s+|,\s+(?=[+-]?\d)/)) {
-        const text = sentence.replace(/^increase |^gain |^adds? /i, '').trim();
+        // Swift Punishment's sprint-speed gate is met by the perk itself (wiki), so it is dropped.
+        const text = sentence.replace(/^with sprint speed [\d.]+ or higher:\s*/i, '').replace(/^increase |^gain |^adds? /i, '').trim();
+        const perStatusType = /\bper status type\b/i.test(text);
         // Two shapes exist: "+60% Damage" and "Increase Base Damage by +51".
         const byMatch = /^(.*?)\s+by\s+([+-]?\d+(?:[.,]\d+)?)\s*(%|x)?/i.exec(text);
         const number = byMatch
@@ -86,6 +88,7 @@ function parseEvolutions(wikitext: string): IncarnonOption[] {
           number.rest
             .replace(/\bon last shot in magazine\b/i, '')
             .replace(/\bbase\b/i, '')
+            .replace(/\s*per status type affecting the target\.?$/i, '')
             .replace(/\s+/g, ' ')
             .trim(),
         );
@@ -99,6 +102,7 @@ function parseEvolutions(wikitext: string): IncarnonOption[] {
           value: unit === '%' ? number.value / 100 : unit === 'x' ? number.value - 1 : number.value,
           raw: sentence.trim(),
           ...(unit === null ? { flat: true } : {}),
+          ...(perStatusType ? { perStatusType: true } : {}),
         });
       }
     }

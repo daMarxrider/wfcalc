@@ -641,7 +641,8 @@ test('AoE distance replaces the radial portion of the arsenal damage', () => {
   const radial = 900;
   const weaponWithAoe = weapon({ impact: direct + radial });
   weaponWithAoe.modes = [
-    { name: 'Radial Attack', stats: stats({ impact: radial }), trigger: null, falloff: { start: 0, end: 10, reduction: 0.9 } },
+    { name: 'Direct Hit', stats: stats({ impact: direct }), trigger: 'Projectile' },
+    { name: 'Radial Attack', stats: stats({ impact: radial }), trigger: 'AoE', falloff: { start: 0, end: 10, reduction: 0.9 } },
   ];
   const snap = snapshot([weaponWithAoe], []);
   const centre = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], aoeDistance: 0 });
@@ -649,6 +650,23 @@ test('AoE distance replaces the radial portion of the arsenal damage', () => {
   close(centre.damage.projectileTotal, direct + radial);
   // Halfway: radial keeps 1 - 0.45 of its damage.
   close(edge.damage.projectileTotal, direct + radial * (1 - 0.9 * 0.5));
+});
+
+test('Direct Damage per status type skips the AoE explosion (wiki: never worked on AoE)', () => {
+  const galvanizedAptitude = mod('Galvanized Aptitude', 10, [
+    '+80% Status Chance', 'On Kill:', '+40% Direct Damage per Status Type affecting the target for 20s. Stacks up to 2x.',
+  ]);
+  const launcher = weapon({ impact: 100, blast: 900 });
+  launcher.modes = [
+    { name: 'Direct Hit', stats: stats({ impact: 100 }), trigger: 'Projectile' },
+    { name: 'Explosion', stats: stats({ blast: 900 }), trigger: 'AoE', falloff: { start: 0, end: 10, reduction: 0.9 } },
+  ];
+  const snap = snapshot([launcher], [galvanizedAptitude]);
+  const conditions = { onKill: 2, statusTypes: 3 };
+  // Only the 100 direct damage takes the +240%.
+  close(resolveBuild(snap, { weapon: 'Test Weapon', mods: ['Galvanized Aptitude'], conditions }).damage.projectileTotal, 100 * 3.4 + 900);
+  const edge = resolveBuild(snap, { weapon: 'Test Weapon', mods: ['Galvanized Aptitude'], conditions, aoeDistance: 5 });
+  close(edge.damage.projectileTotal, 100 * 3.4 + 900 * 0.55);
 });
 
 test('Incarnon options can be picked by name or by tier index', () => {
