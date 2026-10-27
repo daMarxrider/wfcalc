@@ -19,7 +19,7 @@ const browser = [process.env.WFCALC_BROWSER, 'brave', 'chromium', 'google-chrome
   .find((name) => spawnSync('which', [name]).status === 0);
 
 const REQUESTS = [
-  { weapon: 'Soma Prime', enemy: 'Bombard', level: 150, pool: 14, simulate: false, limit: 1 },
+  { weapon: 'Soma Prime', enemy: 'Bombard', level: 150, pool: 14, simulate: false, limit: 1, form: 'normal' },
   { weapon: 'Hek', enemy: 'Corpus Tech', level: 150, pool: 14, simulate: true, limit: 1 },
 ];
 

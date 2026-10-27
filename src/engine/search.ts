@@ -466,12 +466,12 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   /**
    * Tries every combination of perks and keeps the best. A greedy tier-by-tier walk is not
    * enough: the perks interact (the Incarnon profile alone can score worse than the base
-   * weapon, and only the full set overtakes it). Trees are small — the largest is 36
-   * combinations with the form on and off — so exhausting them is both affordable and exact.
+   * weapon, and only the full set overtakes it). Trees are small — the largest is 18
+   * combinations — so exhausting them is both affordable and exact.
    */
   const chooseIncarnon = (): void => {
-    // The form is a choice of its own: perks also work on the untransformed weapon.
-    const combinations: string[][] = weapon.incarnonForm ? [[], ['form']] : [[]];
+    // The form is the player's choice (base.incarnon carries "form"), never the search's.
+    const combinations: string[][] = [[]];
     for (const tier of incarnonTiers) {
       const grown: string[][] = [];
       for (const prefix of combinations) {
@@ -480,6 +480,9 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
       combinations.length = 0;
       combinations.push(...grown);
     }
+    // The form switch the player set stays as it is.
+    const form = incarnonSelection.filter((choice) => choice.toLowerCase() === 'form');
+    for (const combination of combinations) combination.unshift(...form);
     let best = incarnonSelection;
     let bestScore = -Infinity;
     for (const combination of combinations) {
@@ -496,7 +499,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   let current = firstPass.names;
   currentMods = current;
 
-  if (incarnonTiers.length && request.chooseIncarnon && base.incarnon === undefined) {
+  if (incarnonTiers.length && request.chooseIncarnon && (base.incarnon ?? []).every((choice) => choice.toLowerCase() === 'form')) {
     const beforeChoice = incarnonSelection.join('+');
     chooseIncarnon();
     // A different set of perks can favour different mods, so the mods are searched again.

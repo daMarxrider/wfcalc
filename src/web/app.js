@@ -403,6 +403,7 @@ const parseNameList = (text) =>
 function showTab(name) {
   for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.tab === name);
   for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.toggle('active', panel.id === `tab-${name}`);
+  if (name === 'find') renderFindForm();
 }
 
 /** ---------- Incarnon evolutions ---------- */
@@ -1526,13 +1527,14 @@ async function runFind() {
     $('find-out').innerHTML = '<p class="hint">Pick a weapon in Build first, or type one above.</p>';
     return;
   }
+  if (!formChosen()) return;
   if (findMethod() === 'bruteforce') return runBruteForce(weapon);
   const chooseIncarnon = $('find-incarnon').checked;
   const base = buildPayload({ contributions: false });
   // The search chooses the mods (and, if asked, the evolutions): do not pin them here.
   delete base.mods;
-  if (chooseIncarnon) delete base.incarnon;
-  else base.incarnon = await incarnonPicksFor(weapon);
+  base.incarnon = (chooseIncarnon ? [] : await incarnonPicksFor(weapon)).filter((entry) => !sameName(entry, 'form'));
+  if (findForm() === 'incarnon') base.incarnon.push('form');
   const names = (text) => text.split(',').map((name) => name.trim()).filter(Boolean);
   const payload = {
     weapon,
@@ -1562,6 +1564,25 @@ async function runFind() {
   renderFind(result);
 }
 
+/** Weapons with an Incarnon form need the player's normal/form choice before any search. */
+const findWeaponName = () => $('find-weapon').value.trim() || state.weapon;
+function renderFindForm() {
+  const hasForm = Boolean(weaponData.get(findWeaponName())?.incarnonForm);
+  $('find-form-box').hidden = !hasForm;
+}
+/** "normal", "incarnon", or null when the weapon has a form and none was chosen. */
+const findForm = () => {
+  if (!weaponData.get(findWeaponName())?.incarnonForm) return 'normal';
+  return document.querySelector('input[name="find-form"]:checked')?.value ?? null;
+};
+/** Shows the prompt and returns false when the form still has to be chosen. */
+function formChosen() {
+  if (findForm()) return true;
+  $('find-out').innerHTML = '<p class="error">This weapon has an Incarnon form: choose “normal” or “Incarnon form” above, then search.</p>';
+  $('find-form-box').scrollIntoView({ block: 'center', behavior: 'smooth' });
+  return false;
+}
+
 const findLevel = () => effectiveLevel(Number($('find-level').value) || 150, $('find-sp').checked, $('find-sp-offset').checked);
 
 async function runBruteForce(weapon) {
@@ -1573,6 +1594,7 @@ async function runBruteForce(weapon) {
   delete base.steelPath;
   base.incarnon = await incarnonPicksFor(weapon);
   const payload = {
+    form: findForm(),
     weapon,
     objective: $('find-objective').value,
     enemy: $('find-enemy').value.trim() || 'Bombard',
@@ -2089,11 +2111,17 @@ function bindEvents() {
     await loadModsForWeapon();
     renderSlots();
     await renderIncarnonPicker({ weaponChanged: true });
+    renderFindForm();
     recalc();
   });
 
   $('mod-filter').addEventListener('input', () => renderModList());
   $('find-all').addEventListener('change', (event) => { $('find-max-evals').disabled = event.target.checked; });
+  // A new weapon needs its form chosen again.
+  $('find-weapon').addEventListener('change', () => {
+    for (const radio of document.querySelectorAll('input[name="find-form"]')) radio.checked = false;
+    renderFindForm();
+  });
   $('filter-polarity').addEventListener('change', () => renderLibrary());
   $('filter-sort').addEventListener('change', () => renderLibrary());
   $('filter-type').addEventListener('change', () => renderLibrary());
