@@ -34,6 +34,7 @@ import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
 import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot } from './arcanes.ts';
+import { debilitateRates } from './dot.ts';
 import { InputError } from '../errors.ts';
 
 export interface BuildMod {
@@ -196,6 +197,13 @@ export interface ResolvedBuild {
   toxinStatusDamageBonus: number;
   /** Corrosion stacks allowed above the usual 10 (Emerald Archon Shard). */
   corrosiveCapBonus: number;
+  /**
+   * Seed of a status tick from this weapon (wiki: Damage/Calculation, Damage Over Time): the
+   * hit's modded base damage, all types, before physical and elemental mods and quantization.
+   */
+  dotSeed: number;
+  /** Primary Debilitate's chance to add a base status on 10+ combined stacks, 0 when none. */
+  debilitateChance: number;
   /** Multiplier on damage to Overguard (Secondary Fortifier: x8), 1 when none. */
   overguardDamageMultiplier: number;
   /** Flat damage per status proc, of the proc's own type (Cascadia Empowered: 750), 0 when none. */
@@ -332,6 +340,15 @@ function ownStatusTypes(resolved: ResolvedBuild): number {
     ? Object.entries(resolved.damage.perProjectile).filter(([type, amount]) => amount > 0 && type !== 'true').map(([type]) => type)
     : []);
   for (const proc of resolved.forcedProcs ?? []) types.add(proc.type);
+  // Primary Debilitate's base statuses count once they are up more often than not.
+  const total = resolved.damage.projectileTotal || 1;
+  const rate = (type: DamageType): number => resolved.fireRate * resolved.multishot
+    * (resolved.statusChance * ((resolved.damage.perProjectile[type] ?? 0) / total)
+      + (resolved.forcedProcs ?? []).filter((proc) => proc.type === type).reduce((sum, proc) => sum + proc.chance, 0));
+  const durationScale = 1 + Math.max(-0.9, resolved.statusDurationBonus ?? 0);
+  for (const [type, extra] of Object.entries(debilitateRates(resolved.debilitateChance ?? 0, durationScale, rate))) {
+    if (1 - Math.exp(-(extra ?? 0) * 6 * durationScale) >= 0.5) types.add(type);
+  }
   return types.size;
 }
 
@@ -1069,6 +1086,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     usesStatusTypes,
     toxinStatusDamageBonus: shards.toxinStatusDamage,
     corrosiveCapBonus: shards.corrosiveStacks,
+    dotSeed: (baseTotal + flatBase) * damageBonus * sniperComboMultiplier,
+    debilitateChance: bonus('debilitate'),
     overguardDamageMultiplier: bonus('overguardDamage') || 1,
     procDamage: bonus('procDamage'),
     elementBonuses: collected.elementBonuses.reduce<Partial<Record<BaseElement, number>>>((acc, entry) => {

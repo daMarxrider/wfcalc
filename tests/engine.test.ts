@@ -763,6 +763,37 @@ test('wiki DoT example: Heat, 40 seed with +60% Heat -> 32.8 per tick', () => {
   close(heat!.tickDamage, 32.8, 1e-3);
 });
 
+test('wiki DoT example: the seed is the whole modded base damage, not the type share', () => {
+  // Supra Vandal (wiki): 40 base damage over Impact/Puncture/Slash, Thermite Rounds adds 24 Heat.
+  // Heat still seeds from all 40: (40 + 1) x 0.5 x 1.6 = 32.8. Bleed seeds from 40 too, not the
+  // 64 that includes Heat: (40 + 1) x 0.35 = 14.35.
+  const snap = snapshot([weapon({ impact: 4, puncture: 30, slash: 6 })], [thermite], [dummy]);
+  const hit = hitEnemy(snap, build(snap, ['Thermite Rounds']), scaleEnemy(snap, dummy, 1));
+  close(hit.dot.find((entry) => entry.type === 'heat')!.tickDamage, 32.8, 1e-3);
+  close(hit.dot.find((entry) => entry.type === 'slash')!.tickDamage, 14.35, 1e-3);
+});
+
+test('Primary Debilitate adds base statuses on 10+ stacks of a combined one', () => {
+  const debilitate: ArcaneData = { id: 'Primary Debilitate', name: 'Primary Debilitate', category: 'Primary Arcane', rarity: 'Rare', maxRank: 5, description: '', effects: [], slot: 'primary' };
+  // Pure Gas, 100% status, 10 shots/s: 60 Gas procs alive over 6 s, so every proc lands on 10+.
+  const snap = snapshot([weapon({ gas: 100, statusChance: 1, fireRate: 10 })], [], [dummy], { arcanes: [debilitate] });
+  const dotOf = (arcanes: string[]) => hitEnemy(snap, build(snap, [], { arcanes }), scaleEnemy(snap, dummy, 1)).dot;
+  assert.equal(dotOf([]).some((entry) => entry.type === 'heat'), false);
+  const withArcane = dotOf(['Primary Debilitate']);
+  // Half of the 10 Gas procs a second turn into Heat, the other half into Toxin.
+  close(withArcane.find((entry) => entry.type === 'heat')!.procsPerSecond, 5, 1e-3);
+  close(withArcane.find((entry) => entry.type === 'toxin')!.procsPerSecond, 5, 1e-3);
+  // Seeded by the hit's base damage like any proc: (100 + 1) x 0.5.
+  close(withArcane.find((entry) => entry.type === 'heat')!.tickDamage, 50.5, 1e-3);
+  // At a low proc rate the stacks rarely reach 10: almost nothing extra.
+  const slow = snapshot([weapon({ gas: 100, statusChance: 0.1, fireRate: 1 })], [], [dummy], { arcanes: [debilitate] });
+  const sparse = hitEnemy(slow, build(slow, [], { arcanes: ['Primary Debilitate'] }), scaleEnemy(slow, dummy, 1)).dot;
+  assert.ok((sparse.find((entry) => entry.type === 'heat')?.procsPerSecond ?? 0) < 1e-6);
+  // The simulated fight sees the extra Heat as well: a shorter kill.
+  const fight = (arcanes: string[]) => hitEnemy(snap, build(snap, [], { arcanes }), scaleEnemy(snap, dummy, 1), { simulate: true }).timeToKill ?? Infinity;
+  assert.ok(fight(['Primary Debilitate']) < fight([]));
+});
+
 test('wiki DoT example: Toxin, 40 seed, +225% Toxin and +55% faction -> 158.68 per tick', () => {
   // ((40 x 1.55) + 1) x 0.5 x 3.25 x 1.55 = 158.68
   const toxinBig = mod('Primed Infected Clip', 10, ['+225% Toxin'], { classes: ['Rifle'] });
