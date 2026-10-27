@@ -309,3 +309,9 @@ test('a riven with its card values: exact stats, a slot and its drain in the bru
     assert.ok(build.riven.some((line) => line.includes('142.3')));
   }
 });
+
+test('a fixed Exilus mod the wiki list misses (Galvanized Acceleration) goes in the Exilus slot', () => {
+  const plan = planBruteForce(snapshot, { weapon: 'Kuva Kohm', enemy: 'Bombard', fixed: ['Galvanized Acceleration'] });
+  assert.equal(plan.exilus?.name, 'Galvanized Acceleration');
+  assert.ok(!plan.fixed.some((mod) => mod.name === 'Galvanized Acceleration'));
+});
