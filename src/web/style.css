@@ -691,6 +691,7 @@ input:hover, select:hover { border-color: var(--border-strong); }
 @media (prefers-reduced-motion: reduce) { .working::after { animation: none; } }
 .field > label > span { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
 .inline-pair { display: flex; align-items: center; gap: 12px; }
+.status-picks { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .field.wide-field { grid-column: span 2; }
 .compare-grid .switch input { height: 20px; }
 .inline-pair input:disabled { opacity: .45; cursor: not-allowed; }

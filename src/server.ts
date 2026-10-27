@@ -389,6 +389,7 @@ const server = createServer(async (req, res) => {
           maxForma: body.maxForma === null || body.maxForma === undefined ? null : Number(body.maxForma),
           fixed,
           exclude: asList(body.exclude),
+          requireStatus: asList(body.requireStatus),
           pool: body.pool !== undefined ? Number(body.pool) : undefined,
           maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
           allCombinations: body.allCombinations === true,

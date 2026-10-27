@@ -163,6 +163,7 @@ arcanes, riven), plus:
 | Field | Meaning |
 |---|---|
 | `steelPath` | `true`: target health and shields x2.5 (`level` is the actual enemy level) |
+| `requireStatus` | damage types every build must carry, e.g. `["blast"]`; others are dropped |
 | `fixed` | Mods always equipped: `["Serration", {"name": "Hunter Munitions", "rank": 3}]` |
 | `maxEvaluations` | Combination budget that sizes the shortlist (default 2,000,000) |
 | `pool` | Force a shortlist of this many candidate mods |

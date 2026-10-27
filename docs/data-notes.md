@@ -120,9 +120,9 @@ Cloudflare. Do not use it.
     `1 / max(charge_time)` from the attacks array. The validator caught this one — it was
     making Lanka's DPS zero.
 
-26. **"Direct Damage" is not "Damage".** Galvanized Aptitude/Savvy/Shot use the `directDamage`
-    bucket, which multiplies after base damage mods. Mapping the text to `baseDamage` makes
-    the mod additive with Serration and understates the result by ~28%.
+26. **"Direct Damage" depends on the attack.** Galvanized Aptitude/Savvy/Shot parse to
+    `directDamage`; the engine then adds it to Serration's bucket or multiplies, per the wiki's
+    Condition Overload (Mechanic) table (`src/engine/overload.ts`). Overframe always multiplies.
 
 27. **Overframe is reachable around Cloudflare**, which makes it an oracle: `/api/v1/builds/<id>`
     (no challenge) and `static.overframe.gg/_next/static/chunks/db/{mods,items}.<hash>.js`.
