@@ -156,6 +156,15 @@ test('progress counts pruned branches, so it ends exactly at the planned total',
   assert.ok(seen.every(([d], i) => i === 0 || d >= seen[i - 1][0]));
 });
 
+test('aborting the signal stops the worker threads and rejects at once', async () => {
+  const stop = new AbortController();
+  const started = performance.now();
+  const run = bruteForce(loadSnapshot(), { weapon: 'Lex Prime', enemy: 'Heavy Gunner', level: 100, workers: 2, signal: stop.signal, onProgress: () => stop.abort(new Error('stopped')) });
+  await assert.rejects(run, /stopped/);
+  // A full Lex Prime run takes seconds per worker; the stop lands right after the first progress.
+  assert.ok(performance.now() - started < 8000);
+});
+
 test('capacity prunes: with 30 capacity and no Forma every result fits', async () => {
   const snapshot = testSnapshot(pool);
   const result = await bruteForce(snapshot, { weapon: 'Test Rifle', enemy: 'Heavy', capacity: 30, maxForma: 0, limit: 5 });
