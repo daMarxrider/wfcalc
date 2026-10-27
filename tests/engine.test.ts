@@ -536,16 +536,31 @@ test('buff registry resolves the curated values from the dataset', () => {
   close(buffEffects(snap, vex, 100)[0].value, 2.75);
 });
 
-test('riven values follow base × disposition × weight', () => {
+test('riven values follow base × disposition (1.2 for every weapon) × weight', () => {
   const snap = snapshot([weapon({ impact: 100 })], []);
-  // Two bonuses and no malus -> weight 0.99 (wiki: Attribute Value Formula).
+  // Two bonuses and no malus -> weight 0.99 (wiki: Attribute Value Formula). Disposition is retired
+  // at 1.2, whatever the weapon data still says.
   const riven = rivenEffects(snap, snap.weapons['Test Weapon'], { stats: ['damage', 'multishot'] });
-  close(riven.effects[0].value, 1.65 * 1 * 0.99, 1e-9);
-  close(riven.effects[1].value, 0.9 * 1 * 0.99, 1e-9);
+  close(riven.effects[0].value, 1.65 * 1.2 * 0.99, 1e-9);
+  close(riven.effects[1].value, 0.9 * 1.2 * 0.99, 1e-9);
   // Adding a malus switches to the 2+1 weights: 1.2375 for bonuses, -0.495 for the malus.
   const withMalus = rivenEffects(snap, snap.weapons['Test Weapon'], { stats: ['damage', 'multishot'], malus: 'zoom' });
-  close(withMalus.effects[0].value, 1.65 * 1.2375, 1e-9);
-  close(withMalus.effects[2].value, 0.5999 * -0.495, 1e-9);
+  close(withMalus.effects[0].value, 1.65 * 1.2 * 1.2375, 1e-9);
+  close(withMalus.effects[2].value, 0.5999 * 1.2 * -0.495, 1e-9);
+});
+
+test('a riven negative stat is always a drawback: a recoil malus adds recoil', () => {
+  const snap = snapshot([weapon({ impact: 100 })], []);
+  snap.rivenStats.rifle = { ...snap.rivenStats.rifle, Recoil: 0.9 };
+  const test = snap.weapons['Test Weapon'];
+  // Less recoil is the good direction, so the bonus is negative and the malus positive.
+  assert.ok(rivenEffects(snap, test, { stats: ['recoil', 'damage'] }).effects[0].value < 0);
+  assert.ok(rivenEffects(snap, test, { stats: ['damage', 'multishot'], malus: 'recoil' }).effects[2].value > 0);
+  assert.ok(rivenEffects(snap, test, { stats: ['damage', 'multishot'], malus: 'recoil', values: { recoil: 60 } }).effects[2].value > 0);
+  // Elemental stats never roll negative.
+  const heat = rivenEffects(snap, test, { stats: ['damage', 'multishot'], malus: 'heat' });
+  assert.equal(heat.effects.length, 2);
+  assert.ok(heat.warnings.some((warning) => /cannot be a riven's negative stat/.test(warning)));
 });
 
 test('riven stat rank scales from rank 0 to rank 8', () => {

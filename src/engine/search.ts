@@ -17,6 +17,7 @@ import { hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import type { ModData, Snapshot, WeaponData } from '../types.ts';
+import { LOWER_IS_BETTER } from '../types.ts';
 import { modsForWeapon } from '../data.ts';
 
 /** Effect axes that can change damage, and so are worth searching over. */
@@ -27,8 +28,7 @@ export const DAMAGE_TARGETS = new Set([
   'convert', 'ammoMax',
 ]);
 
-/** Stats where a negative value helps (less recoil), so it is no drawback. */
-export const LOWER_IS_BETTER = new Set(['recoil', 'spread']);
+export { LOWER_IS_BETTER };
 export const isDrawback = (effect: { value: number; target: unknown }): boolean =>
   effect.value < 0 && !LOWER_IS_BETTER.has(String(effect.target));
 

@@ -18,6 +18,10 @@
  * the disposition multiplier is the game's own value (`omegaAttenuation`).
  */
 import type { DamageType, Effect, Faction, ModData, Snapshot, WeaponData } from '../types.ts';
+import { LOWER_IS_BETTER } from '../types.ts';
+
+/** Riven disposition is retired: every weapon rolls at 1.20x (wiki: Riven Mods). */
+export const RIVEN_DISPOSITION = 1.2;
 
 export interface RivenSpec {
   /** Attribute ids, see RIVEN_ATTRIBUTES. Two or three bonuses. */
@@ -61,10 +65,15 @@ export interface RivenAttribute {
   faction?: Faction;
   /** True when the wiki value is a flat amount (metres, seconds) instead of a fraction. */
   flat?: boolean;
+  /** Never rolls as the negative stat (wiki: "—" in the malus column). */
+  noMalus?: boolean;
+  /** A spliced stat (Riven Splicer): always positive, at most one per riven. */
+  spliced?: boolean;
 }
 
 const ELEMENT_ATTRIBUTES = ['heat', 'cold', 'electricity', 'toxin'] as const;
 const PHYSICAL_ATTRIBUTES = ['impact', 'puncture', 'slash'] as const;
+const COMBINED_ATTRIBUTES = ['blast', 'corrosive', 'gas', 'magnetic', 'radiation', 'viral'] as const;
 const FACTION_ATTRIBUTES: Array<[string, Faction]> = [
   ['corpus', 'corpus'],
   ['grineer', 'grineer'],
@@ -86,7 +95,7 @@ export const RIVEN_ATTRIBUTES: RivenAttribute[] = [
   { id: 'reload', label: 'Reload Speed', target: 'reloadSpeed' },
   { id: 'magazine', label: 'Magazine Capacity', target: 'magazine' },
   { id: 'ammo', label: 'Ammo Maximum', target: 'ammoMax' },
-  { id: 'punch', label: 'Punch Through', target: 'punchThrough', flat: true },
+  { id: 'punch', label: 'Punch Through', target: 'punchThrough', flat: true, noMalus: true },
   { id: 'zoom', label: 'Zoom', target: 'zoom' },
   { id: 'recoil', label: 'Recoil', target: 'recoil' },
   { id: 'proj-speed', label: 'Projectile Speed', target: 'projectileSpeed' },
@@ -95,7 +104,21 @@ export const RIVEN_ATTRIBUTES: RivenAttribute[] = [
     label: `${element[0].toUpperCase()}${element.slice(1)} Damage`,
     target: 'element',
     element: element as DamageType,
+    noMalus: true,
   })),
+  // Spliced stats (wiki: Riven Mods, Splicing): always positive, one per riven.
+  ...COMBINED_ATTRIBUTES.map((element) => ({
+    id: element,
+    label: `${element[0].toUpperCase()}${element.slice(1)} Damage`,
+    target: 'element',
+    element: element as DamageType,
+    noMalus: true,
+    spliced: true,
+  })),
+  { id: 'status-damage', label: 'Status Damage', target: 'statusDamage', noMalus: true, spliced: true },
+  { id: 'weakpoint-damage', label: 'Weakpoint Damage', target: 'weakPointDamage', noMalus: true, spliced: true },
+  { id: 'weakpoint-crit', label: 'Weakpoint Critical Chance', target: 'weakPointCritChance', noMalus: true, spliced: true },
+  { id: 'ammo-efficiency', label: 'Ammo Efficiency', target: 'ammoEfficiency', noMalus: true, spliced: true },
   ...PHYSICAL_ATTRIBUTES.map((type) => ({
     id: type,
     label: `${type[0].toUpperCase()}${type.slice(1)} Damage`,
@@ -153,7 +176,8 @@ export function rivenEffects(snapshot: Snapshot, weapon: WeaponData, spec: Riven
   const effects: Effect[] = [];
   const lines: string[] = [];
 
-  const disposition = weapon.dispositionMultiplier ?? 1;
+  // Old per-weapon dispositions in the data are ignored: the game uses 1.2 for every weapon now.
+  const disposition = RIVEN_DISPOSITION;
   const table = snapshot.rivenStats[rivenClass(weapon)] ?? {};
   const roll = Math.min(1.1, Math.max(0.9, spec.roll ?? 1));
   const rank = Math.max(0, Math.min(8, spec.rank ?? 8));
@@ -170,13 +194,17 @@ export function rivenEffects(snapshot: Snapshot, weapon: WeaponData, spec: Riven
       warnings.push(`unknown riven attribute: ${id}`);
       return;
     }
+    if (negative && attribute.noMalus) {
+      warnings.push(`${attribute.label} cannot be a riven's negative stat; ignored`);
+      return;
+    }
     const given = spec.values?.[id] ?? spec.values?.[attribute.id];
     let value: number;
     if (given !== undefined && Number.isFinite(given)) {
       // The player's own riven: the card value as printed, its sign set by bonus or malus.
       const magnitude = Math.abs(given);
       const fraction = attribute.faction ? (magnitude < 3 ? magnitude - 1 : magnitude / 100) : attribute.flat ? magnitude : magnitude / 100;
-      value = negative ? (attribute.faction ? -Math.abs(fraction) : -fraction) : fraction;
+      value = negative ? -fraction : fraction;
     } else {
       const base = table[attribute.label];
       if (base === undefined || base === 0) {
@@ -185,8 +213,11 @@ export function rivenEffects(snapshot: Snapshot, weapon: WeaponData, spec: Riven
       }
       const weight = negative ? weights.malus : weights.bonus;
       if (weight === 0) return;
-      value = base * disposition * weight * roll * rankScale;
+      value = base * disposition * Math.abs(weight) * roll * rankScale * (negative ? -1 : 1);
     }
+    // The negative stat is always a drawback: less recoil is good, so a recoil malus adds recoil
+    // and a recoil bonus removes it.
+    if (LOWER_IS_BETTER.has(attribute.target)) value = -value;
     const raw = `${attribute.label} ${value >= 0 ? '+' : ''}${(value * 100).toFixed(1)}%`;
     lines.push(raw);
     effects.push({
@@ -200,6 +231,8 @@ export function rivenEffects(snapshot: Snapshot, weapon: WeaponData, spec: Riven
     });
   };
 
+  const spliced = [...stats, spec.malus ?? ''].filter((id) => findRivenAttribute(id)?.spliced);
+  if (spliced.length > 1) warnings.push(`a riven carries one spliced stat; this one has ${spliced.length}`);
   for (const id of stats) build(id, false);
   if (spec.malus) build(spec.malus, true);
 
