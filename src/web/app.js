@@ -251,7 +251,7 @@ const parseRivenInput = (text) => {
   return stats.length ? { stats, malus, ...(Object.keys(values).length ? { values } : {}) } : null;
 };
 
-/** Stat ids that can finish the last token of a riven text, each as the whole text with it filled in. */
+/** Stat ids that can finish the last token of a riven text: `value` is the whole text with it filled in. */
 const rivenSuggestions = (text, attributes) => {
   const head = text.slice(0, text.lastIndexOf(',') + 1);
   const last = text.slice(head.length).trimStart();
@@ -262,7 +262,7 @@ const rivenSuggestions = (text, attributes) => {
   const used = new Set(head.split(',').map((part) => part.trim().replace(/^-/, '').split('=')[0].trim()));
   return attributes
     .filter((attribute) => !used.has(attribute.id) && attribute.id.startsWith(last.slice(sign.length).toLowerCase()))
-    .map((attribute) => ({ value: `${lead}${sign}${attribute.id}`, label: attribute.label }));
+    .map((attribute) => ({ value: `${lead}${sign}${attribute.id}`, name: `${sign}${attribute.id}`, label: attribute.label }));
 };
 
 /** Names that finish the last entry of a "Serration, Split Chamber:R3" list, skipping ones already listed. */
@@ -275,7 +275,7 @@ const nameSuggestions = (text, names) => {
   const used = new Set(head.split(',').map((part) => part.split(':')[0].trim().toLowerCase()));
   return names
     .filter((name) => !used.has(name.toLowerCase()) && name.toLowerCase().startsWith(last))
-    .map((name) => ({ value: `${lead}${name}`, label: '' }));
+    .map((name) => ({ value: `${lead}${name}`, name }));
 };
 
 /** Mod names that fit a weapon, fetched once per weapon. */
@@ -288,12 +288,96 @@ const modNamesFor = (weapon) => {
   return modNameCache.get(weapon);
 };
 
-/** Fills the shared datalist from `suggest(text)` as the input is typed in. */
-const autocomplete = (input, suggest) => input.addEventListener('input', async () => {
-  const options = await suggest(input.value);
-  if (document.activeElement !== input) return;
-  $('complete-list').replaceChildren(...options.map((option) => new Option(option.label, option.value)));
-});
+/** The one suggestion menu, shared by every autocompleted input: shows `name`, inserts `value`. */
+const completeMenu = document.createElement('ul');
+completeMenu.id = 'complete-menu';
+completeMenu.className = 'complete-menu';
+completeMenu.setAttribute('role', 'listbox');
+completeMenu.hidden = true;
+document.body.append(completeMenu);
+let completeOwner = null;
+let completeActive = -1;
+
+const hideCompletions = () => {
+  completeMenu.hidden = true;
+  completeOwner?.setAttribute('aria-expanded', 'false');
+  completeOwner?.removeAttribute('aria-activedescendant');
+  completeOwner = null;
+};
+
+const highlightCompletion = (index) => {
+  const items = completeMenu.children;
+  completeActive = index;
+  for (const [i, item] of [...items].entries()) item.setAttribute('aria-selected', String(i === index));
+  if (items[index]) {
+    completeOwner.setAttribute('aria-activedescendant', items[index].id);
+    items[index].scrollIntoView({ block: 'nearest' });
+  }
+};
+
+/** Pins the menu under its input; the menu is fixed, so it follows on scroll. */
+const placeCompletions = () => {
+  if (!completeOwner) return;
+  const box = completeOwner.getBoundingClientRect();
+  Object.assign(completeMenu.style, { left: `${box.left}px`, top: `${box.bottom + 4}px`, minWidth: `${Math.min(box.width, 320)}px` });
+};
+
+const pickCompletion = (input, value) => {
+  input.value = value;
+  hideCompletions();
+  // A value set from code fires no change on blur; the fields recalc on change.
+  input.dispatchEvent(new Event('input'));
+  input.dispatchEvent(new Event('change'));
+};
+
+/** Shows `suggest(text)` under the input as it is typed in; arrows + Enter or a click pick one. */
+const autocomplete = (input, suggest) => {
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-controls', 'complete-menu');
+  input.addEventListener('input', async () => {
+    // A picked entry matches itself again; nothing is left to offer then.
+    const options = (await suggest(input.value)).filter((option) => option.value !== input.value);
+    if (document.activeElement !== input) return;
+    if (!options.length) return hideCompletions();
+    completeMenu.replaceChildren(...options.map((option, i) => {
+      const item = document.createElement('li');
+      item.id = `complete-${i}`;
+      item.setAttribute('role', 'option');
+      item.textContent = option.name;
+      if (option.label) item.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: option.label }));
+      // mousedown, not click: the input must keep focus.
+      item.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        pickCompletion(input, option.value);
+      });
+      return item;
+    }));
+    completeOwner = input;
+    placeCompletions();
+    input.setAttribute('aria-expanded', 'true');
+    completeMenu.hidden = false;
+    highlightCompletion(-1);
+  });
+  input.addEventListener('keydown', (event) => {
+    if (completeOwner !== input) return;
+    const count = completeMenu.children.length;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      highlightCompletion((completeActive + (event.key === 'ArrowDown' ? 1 : count - 1) + (completeActive < 0 && event.key === 'ArrowUp' ? 1 : 0)) % count);
+    } else if (event.key === 'Enter' && completeActive >= 0) {
+      // Before the field's own Enter handling (the slot editor commits on Enter).
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      completeMenu.children[completeActive].dispatchEvent(new MouseEvent('mousedown', { cancelable: true }));
+    } else if (event.key === 'Escape') {
+      event.stopImmediatePropagation();
+      hideCompletions();
+    }
+  });
+  input.addEventListener('blur', hideCompletions);
+};
+window.addEventListener('scroll', placeCompletions, true);
+window.addEventListener('resize', placeCompletions);
 
 /** The riven back as text, values included. */
 const rivenText = (riven) => (riven
@@ -623,7 +707,6 @@ function renderSlots() {
       const index = Number(label.dataset.index);
       const input = document.createElement('input');
       input.className = 'mod-name editing';
-      input.setAttribute('list', 'complete-list');
       autocomplete(input, (text) => nameSuggestions(text, allMods.map((mod) => mod.name)
         .filter((name) => equippedIndex(name, index) < 0)));
       input.value = state.mods[index].name ?? '';
