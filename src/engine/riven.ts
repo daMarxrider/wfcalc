@@ -204,7 +204,8 @@ export function rivenEffects(snapshot: Snapshot, weapon: WeaponData, spec: Riven
       // The player's own riven: the card value as printed, its sign set by bonus or malus.
       const magnitude = Math.abs(given);
       const fraction = attribute.faction ? (magnitude < 3 ? magnitude - 1 : magnitude / 100) : attribute.flat ? magnitude : magnitude / 100;
-      value = negative ? -fraction : fraction;
+      // A faction malus card reads x0.64 (fraction -0.36): the magnitude is what the sign applies to.
+      value = negative ? -Math.abs(fraction) : Math.abs(fraction);
     } else {
       const base = table[attribute.label];
       if (base === undefined || base === 0) {

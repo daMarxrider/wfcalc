@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadSnapshot } from '../src/data.ts';
 import { bruteForce } from '../src/engine/bruteforce.ts';
+import { rivenPicker } from '../src/engine/riven-picker.ts';
 
 const browser = [process.env.WFCALC_BROWSER, 'brave', 'chromium', 'google-chrome-stable', 'google-chrome']
   .filter((name): name is string => Boolean(name))
@@ -92,6 +93,24 @@ test('GPU mode (WGSL in a browser + exact pass) finds the CPU brute force\'s win
       assert.deepEqual(gpu.build.mods.map((mod: { name: string }) => mod.name).sort(), cpu.builds[0].mods.map((mod) => mod.name).sort(), request.weapon);
       assert.ok(Math.abs(gpu.build.timeToKill - cpu.builds[0].timeToKill!) < 1e-9, request.weapon);
     }
+    // Riven picker: the riven shader on every riven x slot, then the exact pass, against the CPU picker.
+    const riven = { weapon: 'Soma Prime', form: 'normal', mods: [{ name: 'Serration' }, { name: 'Split Chamber' }, { name: 'Point Strike' }], enemy: 'Bombard', level: 150, stats: [], limit: 1 };
+    const gpuRiven = await evaluate(debugPort, `http://127.0.0.1:${appPort}/`, `(async () => {
+      const { gpuRivenSearch } = await import('/gpu-search.js');
+      const post = (path, body) => fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+      const body = ${JSON.stringify(riven)};
+      const model = await post('/api/riven-picker/gpu-model', body);
+      const found = await gpuRivenSearch(model, { allowFallback: true });
+      const count = model.rivenIndex.length / 4;
+      const order = Array.from({ length: count }, (_, r) => r).sort((a, b) => found.bestScore[b] - found.bestScore[a]).slice(0, 500);
+      const rivens = order.map((r) => { const names = model.rivenIndex.slice(r * 4, r * 4 + 4).map((i) => model.candidates[i].slice(1)); return { stats: names.slice(0, 3), malus: names[3] }; });
+      const result = await post('/api/riven-picker/gpu-finish', { ...body, rivens, gpu: { rivens: count, replacedCounts: {}, elapsedMs: 0 } });
+      return { drift: found.drift, pick: result.picks?.[0], error: result.error };
+    })()`);
+    const cpuRiven = await rivenPicker(snapshot, { ...riven, limit: 1, workers: 1, base: { mods: [] } });
+    assert.equal(gpuRiven.error, undefined);
+    assert.ok(gpuRiven.drift < 1e-4, `riven shader drift ${gpuRiven.drift}`);
+    assert.ok(Math.abs(gpuRiven.pick.score - cpuRiven.picks[0].score) < 1e-9 * cpuRiven.picks[0].score, 'GPU riven pick matches the CPU one');
   } finally {
     // The browser writes to its profile until it has exited.
     const closed = new Promise((resolve) => chrome.once('exit', resolve));

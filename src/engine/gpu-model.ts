@@ -7,11 +7,11 @@
  */
 import type { Build, BuildMod } from './build.ts';
 import { resolveBuild } from './build.ts';
-import { gpuPlan, modElement, twinRequirements, type BruteForceRequest } from './bruteforce.ts';
+import { gpuPlan, modElement, twinRequirements, type BruteForcePlan, type BruteForceRequest } from './bruteforce.ts';
 import { effectiveArmor } from './dot.ts';
 import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
-import { rivenAsMod } from './riven.ts';
+import { rivenAsMod, type RivenSpec } from './riven.ts';
 import { BASE_ELEMENTS, DAMAGE_TYPES, type Snapshot } from '../types.ts';
 import { CH, CHANNELS, P, STRIDE, binomial } from '../web/gpu-search.js';
 
@@ -34,17 +34,35 @@ const SETS = { vigilante: 'Vigilante Set', gladiator: 'Gladiator Set' } as const
 
 export function gpuModel(snapshot: Snapshot, request: BruteForceRequest, keep = 20_000): GpuModel {
   const plan = gpuPlan(snapshot, request);
+  return vectorModel(snapshot, plan, plan.candidates.map((name) => ({ name, mods: [{ name }] })), keep, twinRequirements(snapshot, plan));
+}
+
+/** What a model needs from a plan: the target, the fixed loadout and the capacity. */
+export type ModelPlan = Pick<BruteForcePlan, 'weapon' | 'enemy' | 'fixed' | 'exilus' | 'base' | 'level' | 'eximus'
+  | 'overguard' | 'steelPath' | 'simulate' | 'requireStatus' | 'capacity' | 'freeSlots'>;
+
+/** One vector of the model: a mod, or a riven stat (as a one-stat riven with the given value). */
+export interface ModelItem {
+  name: string;
+  mods?: BuildMod[];
+  riven?: RivenSpec;
+  /** Base element index for the elemental order (heat 0 ... toxin 3), when not read off the mod. */
+  element?: number;
+}
+
+/** The flat arrays for a set of items over a plan's fixed loadout (see src/web/gpu-search.js). */
+export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelItem[], keep: number, requires: number[]): GpuModel {
   const weapon = snapshot.weapons[plan.weapon];
   const enemy = snapshot.enemies[plan.enemy];
   const baseMods: BuildMod[] = [...plan.fixed, ...(plan.exilus ? [plan.exilus] : [])];
   const faction = (enemy.faction ?? '').toLowerCase();
 
-  const resolve = (mods: BuildMod[], statusTypes: number) => resolveBuild(snapshot, {
-    ...plan.base, weapon: weapon.name, mods, quantize: false,
+  const resolve = (mods: BuildMod[], statusTypes: number, riven?: RivenSpec) => resolveBuild(snapshot, {
+    ...plan.base, weapon: weapon.name, mods, quantize: false, ...(riven ? { riven } : {}),
     conditions: { ...(plan.base.conditions ?? {}), statusTypes },
   } as Build);
-  const channels = (mods: BuildMod[], statusTypes: number): number[] => {
-    const resolved = resolve(mods, statusTypes);
+  const channels = (mods: BuildMod[], statusTypes: number, riven?: RivenSpec): number[] => {
+    const resolved = resolve(mods, statusTypes, riven);
     const totals = resolved.bonusTotals;
     const out = new Array<number>(NC).fill(0);
     for (const name of ['baseDamage', 'overloadAdd', 'directDamage', 'critChance', 'critChanceFlat', 'critDamage', 'critDamageFlat',
@@ -73,14 +91,14 @@ export function gpuModel(snapshot: Snapshot, request: BruteForceRequest, keep = 
     return Math.ceil(((mod.baseDrain ?? 0) + mod.maxRank) / 2);
   };
   const vectors: number[] = [];
-  for (const name of plan.candidates) {
-    const mods = [...baseMods, { name }];
+  for (const item of items) {
+    const mods = [...baseMods, ...(item.mods ?? [])];
     let a: number[];
     let b: number[];
-    let drain = halfCost(name);
+    let drain = (item.mods ?? []).reduce((sum, mod) => sum + halfCost(mod.name), 0);
     try {
-      a = channels(mods, 1);
-      b = channels(mods, 2).map((value, c) => value - a[c] - baseB[c]);
+      a = channels(mods, 1, item.riven);
+      b = channels(mods, 2, item.riven).map((value, c) => value - a[c] - baseB[c]);
       a = a.map((value, c) => value - baseA[c]);
     } catch {
       // The engine refuses this mod with the fixed ones: it can never be part of a build.
@@ -88,20 +106,21 @@ export function gpuModel(snapshot: Snapshot, request: BruteForceRequest, keep = 
       b = new Array<number>(NC).fill(0);
       drain = 1e9;
     }
-    const element = modElement(snapshot.mods[name]);
-    vectors.push(...a, ...b, drain, element ? BASE_ELEMENTS.indexOf(element) : -1);
+    const element = item.element ?? (item.mods?.length === 1 ? modElement(snapshot.mods[item.mods[0].name]) : null);
+    vectors.push(...a, ...b, drain, typeof element === 'number' ? element : element ? BASE_ELEMENTS.indexOf(element) : -1);
   }
-  if (vectors.length !== plan.candidates.length * STRIDE) throw new Error('gpu model: vector size mismatch');
+  if (vectors.length !== items.length * STRIDE) throw new Error('gpu model: vector size mismatch');
 
   // Incompatible pairs as two 32-bit masks per candidate, set both ways whichever mod names the other.
-  const index = new Map(plan.candidates.map((name, i) => [name, i]));
-  const clash = new Array<number>(2 * plan.candidates.length).fill(0);
+  const names = items.map((item) => item.name);
+  const index = new Map(names.map((name, i) => [name, i]));
+  const clash = new Array<number>(2 * items.length).fill(0);
   const mark = (i: number, j: number): void => {
     const word = 2 * i + (j < 32 ? 0 : 1);
     clash[word] = (clash[word] | (1 << (j % 32))) >>> 0;
   };
-  plan.candidates.forEach((name, i) => {
-    for (const other of snapshot.mods[name].incompatible) {
+  names.forEach((name, i) => {
+    for (const other of snapshot.mods[name]?.incompatible ?? []) {
       const j = index.get(other);
       if (j !== undefined) { mark(i, j); mark(j, i); }
     }
@@ -171,15 +190,15 @@ export function gpuModel(snapshot: Snapshot, request: BruteForceRequest, keep = 
   // The exact ranking uses steady-state status stacks only when the fight is simulated.
   params[P.steady] = plan.simulate ? 1 : 0;
 
-  const slots = Math.min(plan.freeSlots, plan.candidates.length);
+  const slots = Math.min(plan.freeSlots, items.length);
   return {
-    candidates: plan.candidates,
+    candidates: names,
     slots,
     keep,
-    combinations: binomial(plan.candidates.length, slots),
+    combinations: binomial(items.length, slots),
     params: [...params, ...baseA, ...baseB],
     vectors,
     clash,
-    requires: twinRequirements(snapshot, plan),
+    requires,
   };
 }

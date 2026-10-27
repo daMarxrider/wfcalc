@@ -83,6 +83,8 @@ export interface Build {
   quantize?: boolean;
   /** Riven mod stats for this weapon. */
   riven?: RivenSpec;
+  /** The riven's position among the mods (0 = first slot), which decides where its elements pair; default after them. */
+  rivenSlot?: number;
   /** Status debuffs on the target, in DotContext terms (viralStacks, corrosiveStacks). */
   debuffs?: {
     viralStacks?: number; corrosiveStacks?: number; armorStrip?: number;
@@ -615,6 +617,9 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     });
   }
 
+  // The riven can sit between the mods (rivenSlot): its elements then pair in that slot's place.
+  const modSourceCount = sources.length;
+
   // Weapon arcanes: the slot has to match the weapon (Primary/Secondary/Melee/Bow/Shotgun), and
   // a weapon holds one arcane per slot type. Arch-guns are the exception with two: one Primary
   // and one Secondary arcane, each unlocked by an Archgun Arcane Adapter (wiki: Arcane Enhancement).
@@ -692,7 +697,9 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   if (build.riven) {
     const riven = rivenEffects(snapshot, weapon, build.riven);
     for (const warning of riven.warnings) collected.warnings.push(`riven: ${warning}`);
-    sources.push({ name: 'Riven', maxRank: 0, effects: riven.effects, partial: false, incompatible: [], kind: 'riven' });
+    const source: (typeof sources)[number] = { name: 'Riven', maxRank: 0, effects: riven.effects, partial: false, incompatible: [], kind: 'riven' };
+    if (build.rivenSlot !== undefined) sources.splice(Math.max(0, Math.min(build.rivenSlot, modSourceCount)), 0, source);
+    else sources.push(source);
     rivenLines.push(...riven.lines);
   }
 

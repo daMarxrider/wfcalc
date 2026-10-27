@@ -16,10 +16,11 @@
  * Capacity is not checked: the riven takes the replaced mod's slot whatever the drain.
  */
 import type { Build, BuildMod } from './build.ts';
-import { modElement, makeScorer, scaleTarget, runOnPool } from './bruteforce.ts';
+import { elementalOrders, modElement, makeScorer, scaleTarget, runOnPool } from './bruteforce.ts';
 import { rivenClass, rivenEffects, RIVEN_ATTRIBUTES, type RivenSpec } from './riven.ts';
 import { searchableMods } from './search.ts';
-import { ELEMENT_COMBINATIONS, type Snapshot } from '../types.ts';
+import { BASE_ELEMENTS, ELEMENT_COMBINATIONS, type BaseElement, type Snapshot } from '../types.ts';
+import { vectorModel, type GpuModel, type ModelItem, type ModelPlan } from './gpu-model.ts';
 import { InputError } from '../errors.ts';
 import { availableParallelism } from 'node:os';
 import { loadSnapshot } from '../data.ts';
@@ -41,6 +42,9 @@ export interface RivenPickerRequest {
   stats?: string[];
   /** Only rivens with this negative stat. */
   malus?: string;
+  /** GPU finish: score only these rivens exactly (the GPU's best), with its counts over all rivens. */
+  rivens?: Array<{ stats: string[]; malus: string }>;
+  gpu?: { rivens: number; replacedCounts: Record<string, number>; elapsedMs: number; adapter?: string };
   workers?: number;
   snapshotPath?: string;
 }
@@ -76,10 +80,15 @@ export interface RivenPickerResult {
   elapsedMs: number;
   /** The best riven groups, best first: one row per distinct effect on this target. */
   picks: RivenPick[];
+  /** Where the rivens were scored, when not on the server's threads ("GPU: <adapter>"). */
+  device?: string;
   /** For every build mod, how many of all rivens replace it. */
   replacedCounts: Record<string, number>;
   assumptions: string[];
 }
+
+/** Placeholder for the riven while elemental orders are tried. */
+const RIVEN_SLOT = '\u0000riven';
 
 /** Stats that never change damage in this engine. */
 const NEUTRAL_TARGETS = new Set(['zoom', 'recoil', 'ammoMax', 'ammoEfficiency', 'projectileSpeed', 'punchThrough']);
@@ -140,12 +149,24 @@ export function rivenShard(snapshot: Snapshot, job: RivenShardJob): RivenShardRe
   let evaluated = 0;
   const picks: RivenShardResult['picks'] = [];
   for (const riven of job.rivens) {
-    const scoreOf = makeScorer(snapshot, weapon.name, { ...(request.base ?? {}), riven }, scaled, objective, null, 'steady');
     const ttkOf = (score: number): number | null => (objective === 'ttk' && score > 0 && Number.isFinite(score) ? 1 / score : null);
+    // The riven takes slot i; players arrange mods freely, so every distinct elemental order of
+    // the kept mods plus the riven is tried, the riven placed by its own element.
+    const rivenElement = riven.stats.map((id) => RIVEN_ATTRIBUTES.find((attribute) => attribute.id === id)?.element)
+      .find((element) => element && (BASE_ELEMENTS as readonly string[]).includes(element)) as BaseElement | undefined;
+    const placed = (kept: BuildMod[]): number => {
+      let top = -Infinity;
+      for (const order of elementalOrders([...kept, { name: RIVEN_SLOT }], (name) => (name === RIVEN_SLOT ? rivenElement ?? null : modElement(snapshot.mods[name])), [])) {
+        const slot = order.findIndex((mod) => mod.name === RIVEN_SLOT);
+        const scorer = makeScorer(snapshot, weapon.name, { ...(request.base ?? {}), riven, rivenSlot: slot }, scaled, objective, null, 'steady');
+        top = Math.max(top, scorer(order.filter((mod) => mod.name !== RIVEN_SLOT), null));
+        evaluated++;
+      }
+      return top;
+    };
     let best = { index: -1, score: -Infinity };
     mods.forEach((_, index) => {
-      const score = scoreOf(mods.filter((__, i) => i !== index), null);
-      evaluated++;
+      const score = placed(mods.filter((__, i) => i !== index));
       if (score > best.score) best = { index, score };
     });
     if (best.index < 0) continue;
@@ -164,8 +185,7 @@ export function rivenShard(snapshot: Snapshot, job: RivenShardJob): RivenShardRe
         if (!element || !parts.includes(element)) continue;
         for (const candidate of pool) {
           if (snapshot.mods[candidate]?.incompatible.some((name) => kept.some((mod) => mod.name === name))) continue;
-          const score = scoreOf(kept.map((mod) => (mod === out ? { name: candidate } : mod)), null);
-          evaluated++;
+          const score = placed(kept.map((mod) => (mod === out ? { name: candidate } : mod)));
           if (score > (swap?.score ?? best.score)) swap = { out: out.name, in: candidate, score, timeToKill: ttkOf(score) };
         }
       }
@@ -190,7 +210,12 @@ export async function rivenPicker(snapshot: Snapshot, request: RivenPickerReques
   const base: Partial<Build> = { ...(request.base ?? {}), riven: undefined, mods: [] };
   const job = { ...request, mods, base, objective, enemy: enemyName };
 
-  const rivens = enumerateRivens(snapshot, weapon.name);
+  const every = enumerateRivens(snapshot, weapon.name);
+  // GPU finish: only the rivens the GPU ranked best, checked against what the weapon can roll.
+  const known = new Map(every.map((riven) => [`${riven.stats.join(',')}/${riven.malus}`, riven]));
+  const rivens = request.rivens
+    ? request.rivens.map((riven) => known.get(`${riven.stats.join(',')}/${riven.malus}`)).filter((riven): riven is RivenSpec => Boolean(riven))
+    : every;
   const faction = (enemy.faction ?? '').toLowerCase();
   const groups = new Map<string, RivenSpec[]>();
   for (const riven of rivens) {
@@ -236,23 +261,88 @@ export async function rivenPicker(snapshot: Snapshot, request: RivenPickerReques
 
   const scaled = scaleTarget(snapshot, { steelPath: request.steelPath, eximus: request.eximus }, enemy, request.level ?? 150);
   const baselineScore = makeScorer(snapshot, weapon.name, base, scaled, objective, null, 'steady')(mods, null);
+  const assumptions = [
+    'Riven values: +3 -1 layout, best roll, rank 8, disposition 1.2 (wiki); the negative stat at its worst',
+    'At most one spliced stat per riven; capacity is not checked (the riven takes the replaced slot)',
+    `Scored with steady-state status stacks against ${enemyName} level ${request.level ?? 150}`,
+  ];
+  if (request.gpu) {
+    assumptions.unshift(`GPU pre-filter${request.gpu.adapter ? ` on ${request.gpu.adapter}` : ''}: all ${request.gpu.rivens.toLocaleString('en-US')} rivens `
+      + `scored with a reduced model; the best ${rivens.length.toLocaleString('en-US')} exactly. The replaced-mod shares come from the reduced model.`);
+  }
   return {
     weapon: weapon.name,
     enemy: enemyName,
     level: request.level ?? 150,
     objective,
     baseline: { score: baselineScore, timeToKill: objective === 'ttk' && baselineScore > 0 ? 1 / baselineScore : null },
-    rivens: rivens.length,
+    rivens: request.gpu?.rivens ?? rivens.length,
     groups: representatives.length,
     evaluated: shards.reduce((sum, shard) => sum + shard.evaluated, 0),
     workers,
-    elapsedMs: Math.round(performance.now() - started),
+    elapsedMs: Math.round(performance.now() - started + (request.gpu?.elapsedMs ?? 0)),
     picks,
-    replacedCounts,
-    assumptions: [
-      'Riven values: +3 -1 layout, best roll, rank 8, disposition 1.2 (wiki); the negative stat at its worst',
-      'At most one spliced stat per riven; capacity is not checked (the riven takes the replaced slot)',
-      `Scored with steady-state status stacks against ${enemyName} level ${request.level ?? 150}`,
-    ],
+    replacedCounts: request.gpu?.replacedCounts ?? replacedCounts,
+    assumptions,
+    ...(request.gpu ? { device: `GPU${request.gpu.adapter ? `: ${request.gpu.adapter}` : ''}` } : {}),
+  };
+}
+
+/** Value of a riven stat at its best (bonus) or worst (malus), in the units a riven card shows. */
+function cardValue(snapshot: Snapshot, weaponName: string, id: string, negative: boolean): number {
+  const attribute = RIVEN_ATTRIBUTES.find((entry) => entry.id === id)!;
+  const base = snapshot.rivenStats[rivenClass(snapshot.weapons[weaponName])]?.[attribute.label] ?? 0;
+  const value = base * 1.2 * (negative ? 0.75 : 0.9375) * 1.1;
+  return attribute.faction ? (negative ? 1 - value : 1 + value) : attribute.flat ? value : value * 100;
+}
+
+export interface RivenGpuModel extends GpuModel {
+  /** Build mods first (the replaceable slots), then one vector per riven stat and sign. */
+  slots: number;
+  /** Per riven, four candidate indices: three positive stat vectors and the negative one. */
+  rivenIndex: number[];
+  rivenSpecs: Array<{ stats: string[]; malus: string }>;
+}
+
+/**
+ * The GPU riven picker's model: the build mods and one vector per riven stat (positive at its
+ * best, negative at its worst), so a riven is the sum of four vectors (see src/web/gpu-search.js).
+ */
+export function rivenGpuModel(snapshot: Snapshot, request: RivenPickerRequest): RivenGpuModel {
+  const weapon = snapshot.weapons[request.weapon];
+  if (!weapon) throw new InputError(`unknown weapon: ${request.weapon}`, 'unknown_weapon');
+  const enemyName = request.enemy ?? 'Bombard';
+  if (!snapshot.enemies[enemyName]) throw new InputError(`unknown enemy: ${enemyName}`, 'unknown_enemy');
+  const mods = request.mods.filter((mod) => mod.name && snapshot.mods[mod.name]);
+  if (!mods.length) throw new InputError('the build has no mods to replace', 'invalid_argument');
+  const rivens = enumerateRivens(snapshot, weapon.name);
+  const ids = [...new Set(rivens.flatMap((riven) => riven.stats))];
+  const maluses = [...new Set(rivens.map((riven) => riven.malus!))];
+  const items: ModelItem[] = [
+    ...mods.map((mod) => ({ name: mod.name, mods: [mod] })),
+    ...ids.map((id) => {
+      const element = RIVEN_ATTRIBUTES.find((entry) => entry.id === id)?.element;
+      return {
+        name: `+${id}`,
+        riven: { stats: [id], values: { [id]: cardValue(snapshot, weapon.name, id, false) } },
+        // A base element on the riven takes part in the elemental order like a mod's.
+        element: element && BASE_ELEMENTS.includes(element as never) ? BASE_ELEMENTS.indexOf(element as never) : -1,
+      };
+    }),
+    ...maluses.map((id) => ({ name: `-${id}`, riven: { stats: [], malus: id, values: { [id]: cardValue(snapshot, weapon.name, id, true) } } })),
+  ];
+  const plan: ModelPlan = {
+    weapon: weapon.name, enemy: enemyName, fixed: [], exilus: null,
+    base: { ...(request.base ?? {}), riven: undefined, mods: [] },
+    level: request.level ?? 150, eximus: Boolean(request.eximus), overguard: undefined, steelPath: Boolean(request.steelPath),
+    simulate: true, requireStatus: [], capacity: 1e9, freeSlots: 0,
+  };
+  const model = vectorModel(snapshot, plan, items, 0, items.map(() => -1));
+  const position = new Map(items.map((item, i) => [item.name, i]));
+  return {
+    ...model,
+    slots: mods.length,
+    rivenIndex: rivens.flatMap((riven) => [...riven.stats.map((id) => position.get(`+${id}`)!), position.get(`-${riven.malus}`)!]),
+    rivenSpecs: rivens.map((riven) => ({ stats: riven.stats, malus: riven.malus! })),
   };
 }

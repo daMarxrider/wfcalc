@@ -558,6 +558,9 @@ test('a riven negative stat is always a drawback: a recoil malus adds recoil', (
   assert.ok(rivenEffects(snap, test, { stats: ['recoil', 'damage'] }).effects[0].value < 0);
   assert.ok(rivenEffects(snap, test, { stats: ['damage', 'multishot'], malus: 'recoil' }).effects[2].value > 0);
   assert.ok(rivenEffects(snap, test, { stats: ['damage', 'multishot'], malus: 'recoil', values: { recoil: 60 } }).effects[2].value > 0);
+  // A typed faction malus (card x0.64) lowers faction damage.
+  const faction = rivenEffects(snap, test, { stats: ['damage', 'multishot'], malus: 'faction-grineer', values: { 'faction-grineer': 0.64 } });
+  close(faction.effects[2].value, -0.36, 1e-9);
   // Elemental stats never roll negative.
   const heat = rivenEffects(snap, test, { stats: ['damage', 'multishot'], malus: 'heat' });
   assert.equal(heat.effects.length, 2);
