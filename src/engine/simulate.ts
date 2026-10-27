@@ -7,7 +7,8 @@
  *
  *   - shots follow the trigger: magazine at the fire rate, then the reload
  *   - every shot adds expected procs per damage type (status chance x multishot x share, plus
- *     forced procs such as Hunter Munitions), never while Overguard is up (status immunity)
+ *     forced procs such as Hunter Munitions). Overguard makes the target immune to statuses
+ *     except Magnetic and Cold, and Cold then stops at 4 stacks (wiki: Overguard, Cold Damage)
  *   - each status lives for its own duration (Status Duration stretches it) with its own cap,
  *     and feeds back into damage (wiki: Status Effect):
  *       Viral      +100% then +25%/stack to +325% damage to health, 6 s, 10 stacks
@@ -19,8 +20,12 @@
  *                  procs in the last duration window); its stacks blend from the procs in the
  *                  window (sparse procs, no refresh) to everything since the chain began (dense
  *                  procs keep refreshing)
- *       Magnetic   +100% then +25%/stack to +325% damage to shields and Overguard, 6 s
- *       Cold       +0.1 then +0.05/stack crit multiplier to +0.5 (9 stacks), additive after mods
+ *       Magnetic   +100% then +25%/stack to +325% damage to shields and Overguard, 6 s; when
+ *                  shields or Overguard break, a forced Electricity proc deals 3% of that pool's
+ *                  maximum per Magnetic stack (30% at 10) over 6 s
+ *       Cold       +0.1 then +0.05/stack crit multiplier to +0.5 (9 stacks), additive after mods;
+ *                  the 10th stack freezes the target for 3 s at +1.0, no Cold stacks while frozen,
+ *                  3 left afterwards
  *       Puncture   +5% crit chance per stack to +25%, additive after mods, 10 s
  *       Tau        +10% status chance per stack to +100%, 8 s
  *       Blast      30% of the hit's base damage, 1.5 s after the proc
@@ -32,8 +37,8 @@
  * Continuous (beam) weapons ramp from 20% damage to full over 0.6 s on target and decay after
  * 0.8 s off it (wiki: Continuous Weapon).
  *
- * Electricity's chain to nearby enemies, Gas's cloud on others and Magnetic's burst when shields
- * break are not modelled: this is the single target's time to kill.
+ * Electricity's chain to nearby enemies, Gas's cloud on others and Blast's detonation on others are
+ * not modelled: this is the single target's time to kill.
  */
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
@@ -64,6 +69,15 @@ const HEAT_FIRST_TICK = 1;
 const HEAT_RAMP_UP = [0.15, 0.3, 0.4, 0.5];
 const HEAT_RAMP_DOWN = [0.4, 0.3, 0.15, 0];
 const BLAST_COEFFICIENT = 0.3;
+/** Cold (wiki: Cold Damage): 10 stacks freeze for 3 s at +1.0 crit multiplier, then 3 stacks remain. */
+const COLD_FREEZE_STACKS = 10;
+const COLD_FREEZE_SECONDS = 3;
+const COLD_FROZEN_BONUS = 1;
+const COLD_AFTER_FREEZE = 3;
+/** Bosses and Overguarded enemies take at most 4 Cold stacks. */
+const COLD_OVERGUARD_CAP = 4;
+/** Magnetic on shield/Overguard break: 3% of the pool's maximum per stack, as Electricity over 6 s. */
+const MAGNETIC_BREAK_SHARE = 0.03;
 
 /**
  * Continuous weapons ramp up (wiki: Continuous Weapon): damage starts at 20% and reaches 100%
@@ -135,6 +149,11 @@ class Window {
     this.total += amount - this.slots[index];
     this.slots[index] = amount;
     if (this.total < 1e-12) this.total = 0;
+  }
+  /** Empties the window (stacks consumed at once). */
+  clear(): void {
+    this.slots.fill(0);
+    this.total = 0;
   }
   /** What was put `length` steps ago (a fixed delay line). */
   due(step: number): number {
@@ -226,6 +245,11 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const iCold = stackIndex.get('cold')!;
   const iPuncture = stackIndex.get('puncture')!;
   const iTau = stackIndex.get('tau')!;
+  const iElectricity = tickIndex.get('electricity')!;
+  // Cold's freeze: until when the target is frozen (null: not frozen).
+  let frozenUntil: number | null = null;
+  // Electricity damage per second from Magnetic break procs, added to the next step's ticks.
+  let breakRate = 0;
 
   let overguard = scaled.overguard;
   let shield = scaled.shield;
@@ -280,7 +304,18 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
 
   while (t < maxSeconds) {
     // ---- target state at the start of this step
-    const stacks = (i: number): number => Math.min(stackCaps[i], stackWindows[i].total);
+    const immune = overguard > 0;
+    const stacks = (i: number): number => Math.min(i === iCold && immune ? COLD_OVERGUARD_CAP : stackCaps[i], stackWindows[i].total);
+    // The 10th Cold stack freezes the target; the stacks are spent and 3 come back afterwards.
+    if (frozenUntil !== null && t >= frozenUntil) {
+      frozenUntil = null;
+      stackWindows[iCold].put(step, COLD_AFTER_FREEZE);
+    }
+    if (frozenUntil === null && !immune && stackWindows[iCold].total >= COLD_FREEZE_STACKS) {
+      frozenUntil = t + COLD_FREEZE_SECONDS * durationScale;
+      stackWindows[iCold].clear();
+    }
+    const frozen = frozenUntil !== null;
     const viral = Math.max(stacks(iViral), debuffs.viralStacks ?? 0);
     const corrosive = Math.max(stacks(iCorrosive), debuffs.corrosiveStacks ?? 0);
     const magnetic = stacks(iMagnetic);
@@ -293,11 +328,11 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const armorFactor = hasArmor ? 1 - armorDamageReduction(armor) : 1;
     const viralMultiplier = amplifier(viral);
     const magneticMultiplier = amplifier(magnetic);
-    end = { viral, corrosive, heatStrip: strip, magnetic, cold, puncture, armor };
+    end = { viral, corrosive, heatStrip: strip, magnetic, cold: frozen ? COLD_FREEZE_STACKS : cold, puncture, armor };
 
     // Crit with Cold and Puncture, additive after mods; critical headshots double the multiplier.
     const critChance = hit.critChance + punctureCritBonus(puncture);
-    const critDamage = Math.max(1, build.critMultiplier + coldCritBonus(cold));
+    const critDamage = Math.max(1, build.critMultiplier + (frozen ? COLD_FROZEN_BONUS : coldCritBonus(cold)));
     const perTier = hit.critHeadshot ? 2 * critDamage - 1 : critDamage - 1;
     const averageCrit = 1 + (critChance + Math.min(1, critChance) * build.critTierBonus) * perTier;
     const pCrit = Math.min(1, critChance);
@@ -331,7 +366,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     }
     const volley = pulls * build.multishot * averageCrit * faction * ramp;
 
-    // ---- procs this step (none while Overguard is up: status immunity)
+    // ---- procs this step (under Overguard only Magnetic and Cold land; no Cold while frozen)
     stackProcs.fill(0);
     tickWeight.fill(0);
     let heatProcs = 0;
@@ -341,15 +376,17 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     let procHealth = 0;
     let procShield = 0;
     const procHit = (type: DamageType, procs: number): void => {
-      if (!build.procDamage || procs <= 0) return;
+      if (!build.procDamage || procs <= 0 || immune) return;
       const amount = build.procDamage * procs * faction * modOf(type);
       procHealth += amount * armorFactor * viralMultiplier;
       if (hasShieldPool && !(type === 'toxin' && toxinBypass)) procShield += amount * magneticMultiplier;
     };
-    if (overguard <= 0 && pulls > 0) {
+    if (pulls > 0) {
       const pellets = pulls * build.multishot;
       const statusChance = build.statusChance * (1 + tauStatusBonus(tau));
       const add = (target: { stack: number; tick: number; heat: boolean; blast: boolean }, procs: number, crit: number): void => {
+        if (target.stack === iCold && frozen) return;
+        if (immune && target.stack !== iMagnetic && target.stack !== iCold) return;
         if (target.stack >= 0) stackProcs[target.stack] += procs;
         if (target.tick >= 0) tickWeight[target.tick] += procs * crit;
         if (target.heat) { heatProcs += procs; heatWeight += procs * crit; }
@@ -364,7 +401,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
       for (const proc of forced) add(proc, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1), (proc.requiresCrit ? critOnCrit : averageCrit) * ramp);
       // Debilitate: the share of combined procs landing on 10+ stacks adds one of its base statuses.
       combinedProcs.fill(0);
-      combined.forEach((type, c) => {
+      if (!immune) combined.forEach((type, c) => {
         const i = types.indexOf(type);
         combinedProcs[c] = (i >= 0 ? pellets * statusChance * shares[i] : 0)
           + (build.forcedProcs ?? []).filter((proc) => proc.type === type).reduce((sum, proc) => sum + pellets * proc.chance * (proc.requiresCrit ? pCrit : 1), 0);
@@ -413,6 +450,8 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     }
 
     // ---- apply: Overguard, then shields, then health (Toxin skips shields)
+    const overguardBefore = overguard;
+    const shieldBefore = shield;
     let fraction = 1;
     if (overguard > 0) {
       const dealt = toOverguard * volley;
@@ -445,6 +484,14 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
       }
     }
     if (health <= 0 && killedAt === null) killedAt = t + dt;
+    // Magnetic: a pool that broke this step deals 3% of its maximum per stack as Electricity over 6 s,
+    // through the target's state at each tick like any other Electricity proc.
+    const broken = (overguardBefore > 0 && overguard <= 0 ? scaled.overguard : 0) + (shieldBefore > 0 && shield <= 0 ? scaled.shield : 0);
+    // The hits that broke the pool count their own Magnetic procs too (a step can be seconds long).
+    const magneticAtBreak = Math.min(stackCaps[iMagnetic], stackWindows[iMagnetic].total + stackProcs[iMagnetic]);
+    breakRate = broken > 0 && magneticAtBreak > 0
+      ? (MAGNETIC_BREAK_SHARE * magneticAtBreak * broken) / (DOT_DURATION * durationScale)
+      : 0;
 
     if (step % sampleEvery === 0 || killedAt !== null) {
       timeline.push({ t, overguard, shield, health: Math.max(0, health), viral, corrosive, heatStrip: strip, armor });
@@ -455,7 +502,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const next = step + 1;
     for (let i = 0; i < stackWindows.length; i++) stackWindows[i].put(next, stackProcs[i]);
     // Each proc carries its own hit's crit multiplier into its ticks.
-    for (let i = 0; i < tickWindows.length; i++) tickWindows[i].put(next, tickWeight[i] * tickSeeds[i]);
+    for (let i = 0; i < tickWindows.length; i++) tickWindows[i].put(next, tickWeight[i] * tickSeeds[i] + (i === iElectricity ? breakRate : 0));
     blastLine.put(step, blastWeight * blastSeed);
     heatWindow.put(next, heatProcs);
     combinedWindows.forEach((window, c) => window.put(next, combinedProcs[c]));
