@@ -405,6 +405,86 @@ function showTab(name) {
   for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.toggle('active', panel.id === `tab-${name}`);
 }
 
+/** ---------- Incarnon evolutions ---------- */
+
+const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+
+const incarnonCache = new Map();
+const incarnonOptions = (weapon) => {
+  if (!incarnonCache.has(weapon)) {
+    incarnonCache.set(weapon, fetch(`/api/incarnons?weapon=${encodeURIComponent(weapon)}`)
+      .then((response) => (response.ok ? response.json() : []))
+      .catch(() => []));
+  }
+  return incarnonCache.get(weapon);
+};
+const sameName = (a, b) => String(a).toLowerCase().replace(/[^a-z0-9]/g, '') === String(b).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** The option a saved entry picks, read the way the engine reads it: "EVO2:Name", "EVO2:1" (index in the tier) or "Name". */
+function chosenOption(entry, options) {
+  const separator = entry.indexOf(':');
+  const tier = separator >= 0 ? entry.slice(0, separator) : null;
+  const rest = separator >= 0 ? entry.slice(separator + 1) : entry;
+  const sameTier = options.filter((option) => !tier || sameName(option.tier, tier));
+  return sameTier.find((option) => sameName(option.name, rest))
+    ?? (/^\d+$/.test(rest) ? sameTier[Number(rest)] : undefined)
+    ?? (!tier ? options.find((option) => sameName(option.name, entry)) : undefined);
+}
+
+/** The Build tab's picks that exist on `weapon` (the Find tab can search another weapon than the Build tab's). */
+async function incarnonPicksFor(weapon) {
+  const picks = state.incarnon ?? [];
+  if (!picks.length || weapon === state.weapon) return picks;
+  const options = await incarnonOptions(weapon);
+  return picks.filter((entry) => (sameName(entry, 'form') ? options.length > 0 : chosenOption(entry, options)));
+}
+
+/** One row of icon cards per evolution tier, plus the form switch; the picks live in state.incarnon. */
+async function renderIncarnonPicker({ weaponChanged = false } = {}) {
+  const box = $('incarnon-picker');
+  const weapon = state.weapon;
+  if (!weapon) { box.innerHTML = ''; return; }
+  const options = await incarnonOptions(weapon);
+  if (weapon !== state.weapon) return; // another weapon was picked meanwhile
+  // A new weapon keeps only the picks its own tree has (Soma -> Soma Prime keeps them all).
+  if (weaponChanged) state.incarnon = (state.incarnon ?? []).filter((entry) => sameName(entry, 'form') || chosenOption(entry, options));
+  const picks = state.incarnon ?? [];
+  if (!options.length) {
+    box.innerHTML = '<p class="hint">No Incarnon evolutions for this weapon in the data.</p>';
+    return;
+  }
+  const picked = new Set(picks.map((entry) => chosenOption(entry, options)).filter(Boolean));
+  const tiers = [...new Set(options.map((option) => option.tier))];
+  const card = (attributes, image, label, selected, title) => `<button type="button" class="evo-option${selected ? ' selected' : ''}" aria-pressed="${selected}" title="${escapeHtml(title)}" ${attributes}>
+      ${image ? `<img src="/card/${encodeURIComponent(image)}" alt="" loading="lazy" />` : '<span class="evo-glyph" aria-hidden="true">✦</span>'}
+      <span>${escapeHtml(label)}</span></button>`;
+  box.innerHTML = `
+    <div class="evo-row"><span class="evo-tier">Form</span><div class="evo-options">
+      ${card('data-evo-form', null, picks.length ? 'Incarnon form on' : 'Incarnon form off', picks.length > 0,
+        'Turns the Incarnon form on or off. Off also drops the evolutions below.')}</div></div>
+    ${tiers.map((tier) => `<div class="evo-row"><span class="evo-tier">${escapeHtml(tier.replace(/^EVO/i, 'Evo '))}</span><div class="evo-options">
+      ${options.filter((option) => option.tier === tier).map((option) => card(
+        `data-evo-tier="${escapeHtml(tier)}" data-evo-name="${escapeHtml(option.name)}"`, option.image, option.name, picked.has(option),
+        [option.name, ...option.text].join('\n'))).join('')}
+    </div></div>`).join('')}`;
+  box.querySelector('[data-evo-form]').onclick = () => {
+    state.incarnon = picks.length ? [] : ['form'];
+    void renderIncarnonPicker();
+    recalc();
+  };
+  for (const button of box.querySelectorAll('[data-evo-tier]')) {
+    button.onclick = () => {
+      const { evoTier: tier, evoName: name } = button.dataset;
+      const option = options.find((candidate) => candidate.tier === tier && candidate.name === name);
+      // One pick per tier: drop this tier's pick (and the bare "form" switch), then add this one unless it was the pick.
+      const kept = picks.filter((entry) => !sameName(entry, 'form') && chosenOption(entry, options)?.tier !== tier);
+      state.incarnon = picked.has(option) ? kept : [...kept, `${tier}:${name}`];
+      void renderIncarnonPicker();
+      recalc();
+    };
+  }
+}
+
 /** ---------- settings ---------- */
 
 // A per-browser preference: storage can be missing (private windows), so every access is guarded.
@@ -1451,6 +1531,7 @@ async function runFind() {
   // The search chooses the mods (and, if asked, the evolutions): do not pin them here.
   delete base.mods;
   if (chooseIncarnon) delete base.incarnon;
+  else base.incarnon = await incarnonPicksFor(weapon);
   const names = (text) => text.split(',').map((name) => name.trim()).filter(Boolean);
   const payload = {
     weapon,
@@ -1489,6 +1570,7 @@ async function runBruteForce(weapon) {
   delete base.mods;
   delete base.level;
   delete base.steelPath;
+  base.incarnon = await incarnonPicksFor(weapon);
   const payload = {
     weapon,
     objective: $('find-objective').value,
@@ -1840,7 +1922,7 @@ const TIPS = {
   'riven-polarity': 'The riven\'s polarity: half drain in a matching slot, +25% in a mismatched one.',
   'riven-roll': 'For stats without a value: the random roll, 0.9 (worst) to 1.1 (best).',
   'riven-rank': 'For stats without a value: the riven\'s rank, 8 = full value.',
-  'incarnon-input': 'Incarnon evolutions as TIER:option, e.g. EVO2:0,EVO4:1. Turns on the Incarnon form.',
+  'incarnon-picker': 'Pick one evolution per tier; any pick turns on the Incarnon form. Click a picked one again to drop it. The Find tab uses these as they are.',
   'combo-input': 'Melee combo counter hits.',
   'heavy': 'Count a heavy attack (spends the combo for its multiplier).',
   'aoe-input': 'Distance from the blast centre, for explosion falloff.',
@@ -1958,7 +2040,7 @@ function syncInputs() {
   $('roll-value').textContent = Number(state.rivenRoll ?? 1).toFixed(2);
   $('riven-rank').value = String(state.rivenRank ?? 8);
   $('rinkrank-value').textContent = String(state.rivenRank ?? 8);
-  $('incarnon-input').value = (state.incarnon ?? []).join(',');
+  void renderIncarnonPicker();
   $('combo-input').value = String(state.comboHits ?? 0);
   $('combo-value').textContent = String(state.comboHits ?? 0);
   $('heavy').checked = Boolean(state.heavyAttack);
@@ -2005,6 +2087,7 @@ function bindEvents() {
     allMods = [];
     await loadModsForWeapon();
     renderSlots();
+    await renderIncarnonPicker({ weaponChanged: true });
     recalc();
   });
 
@@ -2181,10 +2264,6 @@ function bindEvents() {
   $('riven-rank').addEventListener('input', (event) => {
     state.rivenRank = Number(event.target.value);
     $('rinkrank-value').textContent = String(state.rivenRank);
-    recalc();
-  });
-  $('incarnon-input').addEventListener('change', (event) => {
-    state.incarnon = event.target.value.split(',').map((part) => part.trim()).filter(Boolean);
     recalc();
   });
   $('combo-input').addEventListener('input', (event) => {

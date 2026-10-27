@@ -395,6 +395,8 @@ export interface DamageAbilityData {
 export interface IncarnonOption {
   tier: string;
   name: string;
+  /** The perk's icon file on the wiki, served through /card/. */
+  image?: string;
   /** Effects the parser could map; perks that are mechanics keep their text only. */
   effects: Array<{
     target: string;

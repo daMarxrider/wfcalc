@@ -522,8 +522,11 @@ const server = createServer(async (req, res) => {
     // Full mod cards from the wiki: frame, name and stat baked in. Cached on first use,
     // which keeps the tool offline after the first look at a mod.
     if (url.pathname.startsWith('/card/')) {
-      const file = url.pathname.slice(6);
-      if (!/^[A-Za-z0-9._-]+\.(png|jpe?g|webp)$/i.test(file)) {
+      // Wiki file names can hold parentheses and apostrophes ("IncarnonReloadSpeed(xWhite).png");
+      // still no slashes, so the name cannot leave the cache folder.
+      let file = '';
+      try { file = decodeURIComponent(url.pathname.slice(6)); } catch { /* malformed escape: rejected below */ }
+      if (!/^[A-Za-z0-9._'()-]+\.(png|jpe?g|webp)$/i.test(file) || file.startsWith('.')) {
         return json(res, 400, { error: 'bad card name' });
       }
       await mkdir(CARD_ROOT, { recursive: true });
