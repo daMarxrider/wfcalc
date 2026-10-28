@@ -176,6 +176,25 @@ export function debilitateRates(chance: number, durationScale: number, rateOf: (
   return extra;
 }
 
+/**
+ * Status procs per second of a damage type, at `pullsPerSecond` trigger pulls: natural ones
+ * (status chance x the type's share of the damage, per pellet) and forced ones (Hunter
+ * Munitions), whose crit-only kind lands at `critChance`.
+ */
+export function procRates(
+  build: Pick<ResolvedBuild, 'damage' | 'statusChance' | 'multishot' | 'forcedProcs'>,
+  pullsPerSecond: number,
+  critChance: number,
+): (type: DamageType) => { natural: number; forced: number } {
+  const total = build.damage.projectileTotal || 1;
+  const pellets = pullsPerSecond * build.multishot;
+  const crit = Math.min(1, Math.max(0, critChance));
+  return (type) => ({
+    natural: pellets * build.statusChance * ((build.damage.perProjectile[type] ?? 0) / total),
+    forced: (build.forcedProcs ?? []).reduce((sum, proc) => sum + (proc.type === type ? pellets * proc.chance * (proc.requiresCrit ? crit : 1) : 0), 0),
+  });
+}
+
 /** Statuses Secondary Encumber picks from, uniformly and independent of the weapon (wiki). */
 export const ENCUMBER_TYPES: DamageType[] = ['impact', 'puncture', 'slash', 'heat', 'cold', 'electricity', 'toxin', 'blast', 'corrosive', 'magnetic', 'viral', 'gas', 'radiation'];
 
@@ -222,7 +241,6 @@ export function computeDot(
   // Trigger pulls per second, ignoring reloads: DoT keeps ticking between magazines anyway.
   const pullsPerSecond = build.fireRate;
   const perProjectileTotal = build.damage.projectileTotal || 1;
-  const statusPerProjectile = build.statusChance;
   const statusDamageBonus = 1 + (build.statusDamageBonus ?? 0);
 
   const entries: DotEntry[] = [];
@@ -236,20 +254,11 @@ export function computeDot(
   const pCrit = Math.min(1, hit.critChance);
   const critOnCrit = hit.critOnCrit;
 
-  // Forced procs (Hunter Munitions): extra proc rate of a type, sometimes gated on crits.
-  // Kept as damage-weighted rates: `forced` counts procs, `forcedWeight` procs x crit multiplier.
-  const forced = new Map<DamageType, number>();
-  const forcedWeight = new Map<DamageType, number>();
-  for (const proc of build.forcedProcs ?? []) {
-    const rate = build.multishot * pullsPerSecond * proc.chance * (proc.requiresCrit ? pCrit : 1);
-    if (rate <= 0) continue;
-    forced.set(proc.type, (forced.get(proc.type) ?? 0) + rate);
-    forcedWeight.set(proc.type, (forcedWeight.get(proc.type) ?? 0) + rate * (proc.requiresCrit ? critOnCrit : averageCrit));
-  }
-
-  const naturalRate = (type: DamageType): number =>
-    statusPerProjectile * ((build.damage.perProjectile[type] ?? 0) / perProjectileTotal) * build.multishot * pullsPerSecond;
-  const debilitated = arcaneProcRates(build, pullsPerSecond, (type) => naturalRate(type) + (forced.get(type) ?? 0));
+  // Forced procs (Hunter Munitions): extra proc rate of a type, sometimes gated on crits. A
+  // crit-only one carries a critical hit's multiplier, every other proc the average one.
+  const rates = procRates(build, pullsPerSecond, pCrit);
+  const critOnly = procRates({ ...build, forcedProcs: (build.forcedProcs ?? []).filter((proc) => proc.requiresCrit) }, pullsPerSecond, pCrit);
+  const debilitated = arcaneProcRates(build, pullsPerSecond, (type) => rates(type).natural + rates(type).forced);
 
   for (const type of DOT_TYPES) {
     const coefficient = TICK_COEFFICIENT[type];
@@ -260,12 +269,13 @@ export function computeDot(
     const share = (build.damage.perProjectile[type] ?? 0) / perProjectileTotal;
     // A purely forced, Encumber or Debilitate proc (no damage of that type on the weapon) still deals its DoT.
     const extra = debilitated[type] ?? 0;
-    if (share <= 0 && (forced.get(type) ?? 0) <= 0 && extra <= 0) continue;
+    const { natural, forced } = rates(type);
+    if (share <= 0 && forced <= 0 && extra <= 0) continue;
 
-    const naturalPerSecond = naturalRate(type);
-    const procsPerSecond = naturalPerSecond + (forced.get(type) ?? 0) + extra;
+    const procsPerSecond = natural + forced + extra;
     // Procs per second weighted by the crit multiplier each one carries.
-    const critWeighted = (naturalPerSecond + extra) * averageCrit + (forcedWeight.get(type) ?? 0);
+    const onCrit = critOnly(type).forced;
+    const critWeighted = (natural + extra + forced - onCrit) * averageCrit + onCrit * critOnCrit;
 
     // Every type is seeded by the hit's modded base damage, all types summed, before physical
     // and elemental mods (wiki: Damage/Calculation); that type's elemental mods multiply after:

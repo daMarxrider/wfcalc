@@ -160,3 +160,13 @@ test('GET /api/riven-stats and /api/frame-mods list what the UI autocompletes', 
     assert.ok(frameMods.includes('Intensify') && frameMods.includes('Blind Rage'), 'the frame-mods field suggests strength mods');
   });
 });
+
+test('a body that is not JSON is the caller\'s mistake: 400, not 500', async () => {
+  await withServer(async (base) => {
+    for (const route of ['/api/calc', '/api/bruteforce', '/api/riven-picker']) {
+      const response = await fetch(`${base}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"weapon": "Lex",' });
+      assert.equal(response.status, 400, route);
+      assert.equal(((await response.json()) as any).code, 'invalid_json');
+    }
+  });
+});

@@ -34,7 +34,7 @@ import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
 import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, type ResidualElement } from './arcanes.ts';
-import { arcaneProcRates } from './dot.ts';
+import { arcaneProcRates, procRates } from './dot.ts';
 import { InputError } from '../errors.ts';
 import { overloadMultiplies } from './overload.ts';
 
@@ -428,11 +428,9 @@ function ownStatusTypes(resolved: ResolvedBuild): number {
 
 /** Procs per second arcanes add to the build's own (dot.ts arcaneProcRates). */
 function arcaneExtraProcs(resolved: ResolvedBuild): Partial<Record<DamageType, number>> {
-  const total = resolved.damage.projectileTotal || 1;
-  const rate = (type: DamageType): number => resolved.fireRate * resolved.multishot
-    * (resolved.statusChance * ((resolved.damage.perProjectile[type] ?? 0) / total)
-      + (resolved.forcedProcs ?? []).filter((proc) => proc.type === type).reduce((sum, proc) => sum + proc.chance, 0));
-  return arcaneProcRates(resolved, resolved.fireRate, rate);
+  // Crit chance 1: crit-only forced procs count at their full chance here (see dot.ts procRates).
+  const rates = procRates(resolved, resolved.fireRate, 1);
+  return arcaneProcRates(resolved, resolved.fireRate, (type) => rates(type).natural + rates(type).forced);
 }
 
 /**

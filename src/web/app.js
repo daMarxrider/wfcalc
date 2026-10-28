@@ -1309,7 +1309,7 @@ function renderWeaponMeta(result) {
 
 function renderResults(result) {
   if (result.error) {
-    $('stats').innerHTML = `<p class="error">${result.error}${result.suggestions?.length ? ` — did you mean ${result.suggestions.join(', ')}?` : ''}</p>`;
+    $('stats').innerHTML = `<p class="error">${escapeHtml(result.error)}${result.suggestions?.length ? ` — did you mean ${escapeHtml(result.suggestions.join(', '))}?` : ''}</p>`;
     $('weapon-summary').innerHTML = '';
     $('damage-bars').innerHTML = '';
     $('contributions').innerHTML = '';
@@ -1462,7 +1462,8 @@ function renderResults(result) {
     const conflict = exilusConflict(mod?.name, index);
     if (conflict) notes.push(conflict);
   }
-  $('notes').innerHTML = notes.map((note) => `<p>· ${note}</p>`).join('');
+  // Notes repeat names from the build, which a shared link sets: text, never markup.
+  $('notes').innerHTML = notes.map((note) => `<p>· ${escapeHtml(note)}</p>`).join('');
 }
 
 /** ---------- conditional stacks and the fight ---------- */
@@ -1478,7 +1479,7 @@ function renderStackList(sources) {
     .map((source) => {
       const pinned = state.sourceStacks?.[source.name];
       return `<label class="stack-item">
-        <span class="name" title="${source.name}: ${source.conditions.join(', ')}">${source.name} <small>${SOURCE_KIND[source.kind] ?? source.kind}</small></span>
+        <span class="name" title="${escapeHtml(`${source.name}: ${source.conditions.join(', ')}`)}">${escapeHtml(source.name)} <small>${SOURCE_KIND[source.kind] ?? source.kind}</small></span>
         <input type="number" min="0" max="${source.cap}" step="1" data-source="${source.name}"
           value="${pinned ?? ''}" placeholder="${source.stacks}" title="empty: follow the mode" />
         <span class="cap">/ ${source.cap}</span>
@@ -1608,7 +1609,7 @@ async function runCompare() {
   ]);
 
   if (a.error || b.error) {
-    $('compare-out').innerHTML = `<p class="error">${a.error ?? b.error}</p>`;
+    $('compare-out').innerHTML = `<p class="error">${escapeHtml(a.error ?? b.error)}</p>`;
     return;
   }
   const rows = [
@@ -1687,7 +1688,7 @@ async function runFind() {
   });
   const result = await response.json();
   if (result.error) {
-    $('find-out').innerHTML = `<p class="error">${result.error}</p>`;
+    $('find-out').innerHTML = `<p class="error">${escapeHtml(result.error)}</p>`;
     return;
   }
   renderFind(result);
@@ -1781,14 +1782,14 @@ async function runBruteForce(weapon) {
       result.notes = [`The GPU search failed (${gpuFailure}), so this result comes from the server's CPU brute force.`, ...(result.notes ?? [])];
     }
     if (!result || result.error) {
-      $('find-out').innerHTML = `<p class="error">${result?.error ?? 'the search ended without a result'}</p>`;
+      $('find-out').innerHTML = `<p class="error">${escapeHtml(result?.error ?? 'the search ended without a result')}</p>`;
       return;
     }
     renderFind(result);
   } catch (error) {
     $('find-out').innerHTML = stopper.signal.aborted
       ? `<p class="hint">Stopped after ${((performance.now() - started) / 1000).toFixed(0)}s, at ${$('find-pct')?.textContent ?? '0%'}. No build was kept: the best ones are only known at the end.</p>`
-      : `<p class="error">${String(error.message ?? error)}</p>`;
+      : `<p class="error">${escapeHtml(error.message ?? error)}</p>`;
   } finally {
     clearInterval(clock);
     button.disabled = false;
@@ -1879,7 +1880,7 @@ function renderFind(result) {
         </div>
         <div class="build-mods">${build.mods
           .map((mod) => (mod.name === 'Riven'
-            ? `<span class="chip fixed" title="riven, kept in its slot">Riven: ${(build.riven ?? []).join(', ')}</span>`
+            ? `<span class="chip fixed" title="riven, kept in its slot">Riven: ${escapeHtml((build.riven ?? []).join(', '))}</span>`
             : `<span class="chip${mod.fixed ? ' fixed' : ''}" ${mod.fixed ? 'title="fixed mod"' : ''}>${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}</span>`))
           .join('')}${build.exilus ? `<span class="chip fixed">${build.exilus.name} R${build.exilus.rank} · exilus</span>` : ''}</div>
         ${build.statusAtKill ? `<div class="meta">${[
@@ -1890,12 +1891,12 @@ function renderFind(result) {
           build.damageBySource ? Object.entries(build.damageBySource).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 3)
             .map(([source, value]) => `<span class="chip subtle">${source} ${pct(value / Object.values(build.damageBySource).reduce((a, b) => a + b, 0))}</span>`).join('') : ''}</div>` : ''}
         ${build.incarnonNames?.length ? `<div class="meta">${build.incarnonNames.map((name) => `<span class="chip subtle">${name}</span>`).join('')}</div>` : ''}
-        ${build.partialMods?.length ? `<p class="hint">lower bound: ${build.partialMods.join(', ')}</p>` : ''}
-        ${build.warnings?.length ? `<p class="hint">${build.warnings.join(' · ')}</p>` : ''}
+        ${build.partialMods?.length ? `<p class="hint">lower bound: ${escapeHtml(build.partialMods.join(', '))}</p>` : ''}
+        ${build.warnings?.length ? `<p class="hint">${escapeHtml(build.warnings.join(' · '))}</p>` : ''}
       </div>`)
       .join('') || '<p class="hint">No build fits those limits.</p>'}
-    ${(result.assumptions ?? []).map((line) => `<p class="hint">· ${line}</p>`).join('')}
-    ${(result.notes ?? []).map((line) => `<p class="hint">· ${line}</p>`).join('')}
+    ${(result.assumptions ?? []).map((line) => `<p class="hint">· ${escapeHtml(line)}</p>`).join('')}
+    ${(result.notes ?? []).map((line) => `<p class="hint">· ${escapeHtml(line)}</p>`).join('')}
     ${brute && !result.exhaustive && result.leftOut?.length ? `<p class="hint">· Left out: ${result.leftOut.join(', ')}</p>` : ''}`;
 
   for (const button of $('find-out').querySelectorAll('[data-find-load]')) {
@@ -1952,7 +1953,7 @@ async function runAbility() {
   try {
     renderAbility(await getJson(`/api/ability?${params}`));
   } catch (error) {
-    $('ability-out').innerHTML = `<p class="error">${String(error.message ?? error)}</p>`;
+    $('ability-out').innerHTML = `<p class="error">${escapeHtml(error.message ?? error)}</p>`;
   }
 }
 
@@ -1980,7 +1981,7 @@ function renderAbility(result) {
       ${result.target ? `<div class="kpi"><span>armour removes</span><b>${pct(result.target.armorReduction)}</b></div>` : ''}
       ${result.target?.castsToKill !== null && result.target ? `<div class="kpi accent"><span>casts to kill</span><b>${fmt(result.target.castsToKill, 0)}</b></div>` : ''}
     </div>
-    ${(result.notes ?? []).map((note) => `<p class="hint">· ${note}</p>`).join('')}`;
+    ${(result.notes ?? []).map((note) => `<p class="hint">· ${escapeHtml(note)}</p>`).join('')}`;
 }
 
 /** ---------- library ---------- */
