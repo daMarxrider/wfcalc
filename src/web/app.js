@@ -546,7 +546,7 @@ async function runRivenPicker() {
       }
     }
     if (!result) result = await post('/api/riven-picker', payload);
-    if (gpuFailure && !result.error) result.assumptions = [`The GPU run failed (${gpuFailure}), so this is the server's CPU result.`, ...(result.assumptions ?? [])];
+    if (gpuFailure && !result.error) result.assumptions = [await gpuFailed(gpuFailure), ...(result.assumptions ?? [])];
     if (result.error) {
       $('riven-out').innerHTML = `<p class="error">${escapeHtml(result.error)}</p>`;
       return;
@@ -636,6 +636,18 @@ async function initSettings() {
     : 'No hardware WebGPU in this browser, so brute force runs on the server. On Linux, Chrome and Brave need '
       + '"Unsafe WebGPU Support" and "Vulkan" in chrome://flags (brave://flags), and under Wayland also the '
       + '--ozone-platform=x11 start flag: Vulkan on a Wayland window leaves the browser invisible.';
+}
+
+/**
+ * After a GPU run failed: look for the GPU again (the browser may have dropped it since the page
+ * loaded, e.g. when its GPU process crashed), refresh the Settings line, and say what happened.
+ */
+async function gpuFailed(message) {
+  adapterLookup = null;
+  await initSettings();
+  const gone = !(await findAdapter());
+  return `The GPU run failed (${message}), so this is the server's CPU result, at CPU speed.`
+    + (gone ? ' The browser no longer offers a GPU: its GPU process probably crashed in this session (brave://gpu then shows "Vulkan: Disabled"). Restart the browser to get it back.' : '');
 }
 
 /** True when the brute force should run on the GPU: switched on and a GPU is there. */
@@ -1779,7 +1791,7 @@ async function runBruteForce(weapon) {
     }
     if (!result) result = await serverBruteForce(payload, stopper.signal, showProgress);
     if (gpuFailure && result && !result.error) {
-      result.notes = [`The GPU search failed (${gpuFailure}), so this result comes from the server's CPU brute force.`, ...(result.notes ?? [])];
+      result.notes = [await gpuFailed(gpuFailure), ...(result.notes ?? [])];
     }
     if (!result || result.error) {
       $('find-out').innerHTML = `<p class="error">${escapeHtml(result?.error ?? 'the search ended without a result')}</p>`;
