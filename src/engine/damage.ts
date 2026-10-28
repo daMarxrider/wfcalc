@@ -12,7 +12,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { arcaneProcRates, atLeastTen, computeDot, procRates, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
+import { arcaneProcRates, atLeastTen, computeDot, procRates, sustainedPulls, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import { hitProfile, type HitProfile } from './hit.ts';
 import { simulateKill, type SimulationResult } from './simulate.ts';
@@ -199,8 +199,7 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   // shields first (only shield-capable damage), then health (direct + DoT).
   const dot = computeDot(snapshot, build, scaled, debuffs, factionMultiplier);
   const dotDps = dot.reduce((sum, entry) => sum + entry.dps, 0);
-  const cycleTime = build.magazineSize / Math.max(0.01, build.fireRate) + build.reloadTime;
-  const pullsPerSecond = build.magazineSize / cycleTime;
+  const pullsPerSecond = sustainedPulls(build);
 
   // `undefined` means "automatic" (Eidolons); `null`/"none" means the caller explicitly
   // turned attenuation off.
@@ -354,7 +353,8 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   // shortcut: the spread hit is valued like the original body hit (the wiki: elemental mods 33%
   // less effective, no weak-point bonus, own crit roll); split the hit by type if it matters.
   if (requestedTargets > 1 && build.irradiateShare > 0 && totalDps > 0) {
-    const rate = procRates(build, pullsPerSecond, build.critChance)('radiation').natural + (arcaneProcRates(build, pullsPerSecond, () => 0).radiation ?? 0);
+    const own = procRates(build, pullsPerSecond, hit.critChance)('radiation');
+    const rate = own.natural + own.forced + (arcaneProcRates(build, pullsPerSecond, () => 0).radiation ?? 0);
     const up = atLeastTen(rate * 12 * (1 + Math.max(-0.9, build.statusDurationBonus ?? 0)));
     if (up > 0) {
       multiTargetDps = totalDps * multiTargetFactor + (requestedTargets - 1) * build.irradiateShare * up * directHealthDps;
@@ -423,10 +423,9 @@ export function statusProcs(build: ResolvedBuild): Array<{ type: DamageType; pro
  * status duration, capped), for the `steadyStatus` option. Player-given stacks are a floor.
  */
 export function steadyStatusDebuffs(build: ResolvedBuild): Pick<DotContext, 'viralStacks' | 'corrosiveStacks' | 'heatStrip'> {
-  const cycle = build.magazineSize / Math.max(0.01, build.fireRate) + build.reloadTime;
-  const pulls = build.magazineSize / Math.max(0.01, cycle);
+  const pulls = sustainedPulls(build);
   const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
-  const rates = procRates(build, pulls, build.critChance);
+  const rates = procRates(build, pulls, hitProfile(build, null).critChance);
   const rate = (type: DamageType): number => rates(type).natural + rates(type).forced;
   // Arcanes add procs: Encumber's random statuses, Debilitate's base statuses (dot.ts).
   const extra = arcaneProcRates(build, pulls, rate);

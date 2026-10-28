@@ -878,8 +878,8 @@ test('enemy levels outside 1..9999 are refused instead of scaling to nothing', (
 
 test('Primary Debilitate adds base statuses on 10+ stacks of a combined one', () => {
   const debilitate: ArcaneData = { id: 'Primary Debilitate', name: 'Primary Debilitate', category: 'Primary Arcane', rarity: 'Rare', maxRank: 5, description: '', effects: [], slot: 'primary' };
-  // Pure Gas, 100% status, 10 shots/s: 60 Gas procs alive over 6 s, so every proc lands on 10+.
-  const snap = snapshot([weapon({ gas: 100, statusChance: 1, fireRate: 10 })], [], [dummy], { arcanes: [debilitate] });
+  // Pure Gas, 100% status, 10 shots/s, no reloads: 60 Gas procs alive over 6 s, so every proc lands on 10+.
+  const snap = snapshot([weapon({ gas: 100, statusChance: 1, fireRate: 10, magazineSize: 1000, reloadTime: 0 })], [], [dummy], { arcanes: [debilitate] });
   const dotOf = (arcanes: string[]) => hitEnemy(snap, build(snap, [], { arcanes }), scaleEnemy(snap, dummy, 1)).dot;
   assert.equal(dotOf([]).some((entry) => entry.type === 'heat'), false);
   const withArcane = dotOf(['Primary Debilitate']);
@@ -895,6 +895,20 @@ test('Primary Debilitate adds base statuses on 10+ stacks of a combined one', ()
   // The simulated fight sees the extra Heat as well: a shorter kill.
   const fight = (arcanes: string[]) => hitEnemy(snap, build(snap, [], { arcanes }), scaleEnemy(snap, dummy, 1), { simulate: true }).timeToKill ?? Infinity;
   assert.ok(fight(['Primary Debilitate']) < fight([]));
+});
+
+test('status procs per second count reloads; each proc keeps all its ticks', () => {
+  // 10 rounds at 10/s, then a 1 s reload: 5 pulls a second over the fight, not 10.
+  const slashOf = (reloadTime: number) => {
+    const snap = snapshot([weapon({ slash: 100, statusChance: 1, fireRate: 10, magazineSize: 10, reloadTime })], [], [dummy]);
+    return hitEnemy(snap, build(snap, []), scaleEnemy(snap, dummy, 1)).dot.find((entry) => entry.type === 'slash')!;
+  };
+  const slash = slashOf(1);
+  close(slash.procsPerSecond, 5, 1e-9);
+  // Ticks from procs before the reload still land during it: all 6 count, so the DoT is
+  // exactly half of the same weapon without reloads.
+  assert.equal(slash.ticks, 6);
+  close(slash.dps / slashOf(0).dps, 0.5, 1e-9);
 });
 
 test('Encumber, Cryogenic, Irradiate, Surge and Theorem Demulcent', () => {

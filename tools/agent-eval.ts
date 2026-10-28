@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 const BIN = fileURLToPath(new URL('../bin/wfcalc', import.meta.url));
 
 const GOLDEN = {
+  // Status procs count reloads (2026-10-28): fewer procs per second than the bare fire rate.
   // Damage 3.0 (Update 36): Grineer takes +50% Impact/Corrosive and nothing from the old
   // Alloy Armor table, so the best build is now a Slash/status one, not the Viral one.
   // Since Hunter Munitions is searchable (category-wide "Primary" mods) and status ticks inherit
@@ -25,11 +26,11 @@ const GOLDEN = {
   // their steady state. Bleed seeds from the modded base damage only (wiki: Damage/Calculation),
   // not from the elemental damage on top, which made the old 4.21s too optimistic.
   somaSearchTtk: '7.34s',
-  somaSearchDps: '16,142.7 dps',
+  somaSearchDps: '16,135.4 dps',
   // Kuva weapons carry their bonus element: with none picked, the in-game maximum of 60% Heat.
   brammaTotal: 'total 784.5 dps with status',
   brammaTtk: 'ttk 151.03s',
-  somaStrippedTtk: 'ttk 128.54s',
+  somaStrippedTtk: 'ttk 127.27s',
   avalancheCast: '3,000 at 200%',
   ceramicIncarnonHit: 1540,
   eximusOverguard: '281,865',

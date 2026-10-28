@@ -177,6 +177,16 @@ export function debilitateRates(chance: number, durationScale: number, rateOf: (
 }
 
 /**
+ * Trigger pulls per second over a long fight: a magazine, then a reload. Procs only happen while
+ * firing; each proc still counts all its ticks, so DoT already on the target keeps dealing its
+ * damage through the reload.
+ */
+export function sustainedPulls(build: Pick<ResolvedBuild, 'magazineSize' | 'fireRate' | 'reloadTime'>): number {
+  const magazine = Math.max(1, build.magazineSize);
+  return magazine / (magazine / Math.max(0.01, build.fireRate) + Math.max(0, build.reloadTime));
+}
+
+/**
  * Status procs per second of a damage type, at `pullsPerSecond` trigger pulls: natural ones
  * (status chance x the type's share of the damage, per pellet) and forced ones (Hunter
  * Munitions), whose crit-only kind lands at `critChance`.
@@ -238,8 +248,7 @@ export function computeDot(
   const armor = effectiveArmor(scaled.armor, context);
   const viral = viralMultiplier(context.viralStacks ?? 0);
 
-  // Trigger pulls per second, ignoring reloads: DoT keeps ticking between magazines anyway.
-  const pullsPerSecond = build.fireRate;
+  const pullsPerSecond = sustainedPulls(build);
   const perProjectileTotal = build.damage.projectileTotal || 1;
   const statusDamageBonus = 1 + (build.statusDamageBonus ?? 0);
 
