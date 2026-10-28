@@ -184,13 +184,14 @@ test('--arcane auto picks an arcane only when its condition is active', () => {
 
   // Without on-kill stacks every damage arcane's conditional line is inactive; Fractalized Reset
   // used to win the tie while contributing nothing. What may still win is a real passive: max-rank
-  // Primary Merciless always gives +30% Reload Speed (DE's text lists it on its own line).
+  // Primary Merciless always gives +30% Reload Speed (DE's text lists it on its own line), and
+  // Primary Debilitate adds base procs on 10+ combined stacks without any condition.
   const without = run([
     'search', 'Haalvu', '--enemy', 'Bombard', '--level', '150', '--armor-strip', '100',
     '--arcane', 'auto', '--objective', 'dps', '--top', '1', '--json',
   ]) as { builds: Array<{ arcanes: Array<{ name: string }> }> };
   assert.ok(!without.builds[0].arcanes.some((arcane) => arcane.name === 'Fractalized Reset'));
-  assert.ok(without.builds[0].arcanes.every((arcane) => arcane.name === 'Primary Merciless'));
+  assert.ok(without.builds[0].arcanes.every((arcane) => ['Primary Merciless', 'Primary Debilitate'].includes(arcane.name)));
 });
 
 test('--eximus adds level-scaled Overguard to the target', () => {

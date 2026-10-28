@@ -701,7 +701,7 @@ export function search(snapshot: Snapshot, request: SearchRequest): SearchResult
     'baseDamage', 'multishot', 'critChance', 'critDamage', 'statusChance', 'fireRate',
     'element', 'directDamage', 'factionDamage', 'headshotMultiplier', 'reloadSpeed',
     'statusDamage', 'weakPointOverride', 'weakPointCritChance', 'damageMultiplier', 'doughty', 'duplicateChance',
-    'platedRound', 'enervateResets', 'overguardDamage', 'procDamage',
+    'platedRound', 'enervateResets', 'overguardDamage', 'procDamage', 'debilitate', 'encumber', 'cryogenic',
   ]);
   const candidates = Object.values(snapshot.arcanes).filter(
     (arcane) => arcane.slot && allowed.includes(arcane.slot)

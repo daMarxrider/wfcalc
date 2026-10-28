@@ -5,6 +5,7 @@
  * field names means a payload that works over HTTP works in a batch file, and vice versa.
  */
 import type { Build } from './engine/build.ts';
+import { RESIDUAL_ELEMENTS } from './engine/arcanes.ts';
 import { resolveStrip } from './engine/strip.ts';
 import type { Snapshot } from './types.ts';
 
@@ -47,6 +48,7 @@ export function buildFromJson(snapshot: Snapshot, body: any, weaponName: string)
     aoeDistance: body.aoeDistance != null ? Number(body.aoeDistance) : undefined,
     comboHits: body.comboHits ? Number(body.comboHits) : undefined,
     heavyAttack: Boolean(body.heavyAttack),
+    residualElement: RESIDUAL_ELEMENTS.find((element) => element === body.residualElement),
     riven: body.riven ?? undefined,
     debuffs: { ...(body.debuffs ?? {}), ...strip },
     mode: body.mode || undefined,

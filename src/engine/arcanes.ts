@@ -9,7 +9,7 @@
  *     targets that build.ts turns into a mechanic of their own (Doughty, Duplicate, Plated Round,
  *     Fortifier, Empowered, Enervate).
  */
-import type { ArcaneData, Effect, WeaponData } from '../types.ts';
+import type { ArcaneData, DamageType, Effect, WeaponData } from '../types.ts';
 
 /** Warframe arcanes that buff one weapon class only. Absent: every weapon. */
 const WEAPON_SCOPE: Record<string, { label: string; fits: (weapon: WeaponData) => boolean }> = {
@@ -38,7 +38,16 @@ const pct = (value: number): string => `${Math.round(value * 10000) / 100}%`;
 const effect = (target: string, value: number, raw: string, extra: Partial<Effect> = {}): Effect => ({ target, op: 'add', value, raw, ...extra });
 
 /** Effects at rank `r` (0..max) for arcanes the parser cannot read, per the wiki's rank tables. */
-const CURATED: Record<string, (r: number, context: { heavyAttack: boolean }) => Effect[]> = {
+/** Elements a Residual Arcane's zone carries, for the Theorem arcanes (wiki: Residual Arcanes). */
+export const RESIDUAL_ELEMENTS = ['heat', 'cold', 'electricity', 'toxin'] as const;
+export type ResidualElement = typeof RESIDUAL_ELEMENTS[number];
+export interface ArcaneContext {
+  heavyAttack: boolean;
+  /** The Residual zone the player stands in (Theorem Demulcent); Toxin (Residual Viremia) when unset. */
+  residualElement?: ResidualElement;
+}
+
+const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> = {
   'Arcane Awakening': (r) => [effect('baseDamage', 0.25 * (r + 1), `On Reload: +${pct(0.25 * (r + 1))} Damage to Pistols`, { condition: 'onReload' })],
   'Arcane Primary Charger': (r) => [effect('baseDamage', 0.5 * (r + 1), `On Melee Kill: +${pct(0.5 * (r + 1))} Primary Weapon Damage`, { condition: 'onMeleeKill' })],
   'Arcane Tempo': (r) => [effect('fireRate', 0.15 * (r + 1), `On Critical Hit: +${pct(0.15 * (r + 1))} Fire Rate to Shotguns`, { condition: 'on_critical_hit' })],
@@ -71,6 +80,16 @@ const CURATED: Record<string, (r: number, context: { heavyAttack: boolean }) => 
   'Primary Plated Round': (r) => [effect('platedRound', [3, 4, 5, 6, 8, 10][r], `On Reload: damage per round loaded for ${[3, 4, 5, 6, 8, 10][r]}s`, { condition: 'onReload' })],
   // Value = chance to add a base status on 10+ stacks of a combined one; dot.ts and simulate.ts apply it.
   'Primary Debilitate': (r) => [effect('debilitate', 0.5 + 0.1 * r, `On 10 stacks of a combined status: ${pct(0.5 + 0.1 * r)} chance for one of its base statuses`)],
+  // Added to the elemental mods of the zone's element and combined like them (wiki example:
+  // Cryo Rounds + Residual Viremia = Viral).
+  'Theorem Demulcent': (r, { residualElement = 'toxin' }) => [effect('element', 0.02 * (r + 1), `In a Residual ${residualElement} zone: +${pct(0.02 * (r + 1))} ${residualElement} damage per second, up to 15x`, { condition: 'inResidualZone', maxStacks: 15, element: residualElement as DamageType })],
+  'Secondary Encumber': (r) => [effect('encumber', 0.04 * (r + 1), `On Status Effect: +${pct(0.04 * (r + 1))} chance for a second random status`)],
+  'Secondary Cryogenic': (r) => [effect('cryogenic', [1, 1, 2, 2, 3, 3][r], `On Puncture: ${[1, 1, 2, 2, 3, 3][r]} Cold stacks on the target and enemies nearby`)],
+  // Value = share of the hit dealt to nearby enemies; damage.ts adds it to the multi-target figure.
+  'Secondary Irradiate': (r) => [effect('irradiate', 0.8 + 0.2 * r, `On hitting enemies with 10 Radiation stacks: ${pct(0.8 + 0.2 * r)} of the hit to enemies within ${4.5 + 0.5 * r}m`)],
+  // +0.5% per point of Energy, accumulating over casts up to the cap; multiplicative with Hornet
+  // Strike (wiki). Only the next shot: the "surgeShot" switch, never assumed by max mode.
+  'Secondary Surge': (r) => [effect('damageMultiplier', 0.005, `On Ability Cast: next shot +0.5% damage per Energy, up to x${r + 3}`, { op: 'mult', condition: 'surgeShot', maxStacks: (r + 2) / 0.005 })],
   'Secondary Enervate': (r) => [effect('enervateResets', r + 1, `On Hit: +10% Critical Chance, resets after ${r + 1} Big Critical Hits`)],
   'Secondary Fortifier': (r) => [effect('overguardDamage', 3 + r, `x${3 + r} damage to Overguard`)],
   'Cascadia Empowered': (r) => [effect('procDamage', 250 + 100 * r, `On Status Effect: +${250 + 100 * r} damage of that status's type`)],
@@ -117,7 +136,7 @@ export function arcaneRankScale(arcane: ArcaneData, line: Effect, rank: number):
 }
 
 /** An arcane's effects at the equipped rank (default max), values already scaled. */
-export function arcaneEffectsAt(arcane: ArcaneData, rank: number | undefined, context: { heavyAttack: boolean } = { heavyAttack: false }): Effect[] {
+export function arcaneEffectsAt(arcane: ArcaneData, rank: number | undefined, context: ArcaneContext = { heavyAttack: false }): Effect[] {
   const at = Math.max(0, Math.min(arcane.maxRank, rank ?? arcane.maxRank));
   const curated = CURATED[arcane.name];
   if (curated) return curated(at, context);
