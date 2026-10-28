@@ -29,7 +29,8 @@ export type BuffKind =
   | 'elementMultiplier' // multiplies one existing damage type
   | 'speed' // attack / fire rate
   | 'weakPoint' // multiplies weak-point damage
-  | 'flatCrit'; // flat critical chance added after mods
+  | 'flatCrit' // flat critical chance added after mods
+  | 'ammoEfficiency'; // multiplies the ammo per shot (Energized Munitions)
 
 export interface BuffDefinition {
   /** Stable id used by the CLI/UI. */
@@ -56,6 +57,11 @@ export interface BuffDefinition {
    * zero and `max` at its cap; by default it is counted at its maximum.
    */
   ramps?: boolean;
+  /**
+   * A buff the ability data does not carry: its value (not scaled by Ability Strength) and
+   * whose ability it is, for the picker.
+   */
+  fixed?: { value: number; frame: string };
 }
 
 /** Reads the first segment whose label contains all the given words. */
@@ -92,6 +98,7 @@ const byIndex =
  * | Accelerant | ×2.5 Heat damage taken by affected enemies | Ember/Accelerant |
  * | Sonar | weak points take ×5 damage | Banshee/Sonar |
  * | Resupply | +25% weapon damage | Cyte-09/Resupply |
+ * | Energized Munitions | 75% Ammo Efficiency, multiplicative with other sources | Helminth/Energized_Munitions |
  */
 export const BUFFS: BuffDefinition[] = [
   { id: 'roar', ability: 'Roar', kind: 'faction' },
@@ -112,6 +119,7 @@ export const BUFFS: BuffDefinition[] = [
   { id: 'amp', ability: 'Amp', kind: 'damage', note: 'minimum roll' },
   { id: 'haste-mote', ability: 'Reservoirs', kind: 'speed', pick: byLabel('fire', 'rate'), note: "Wisp's Haste Mote" },
   { id: 'covenant', ability: 'Covenant', kind: 'flatCrit', pick: byLabel('base', 'critical'), note: 'Retaliation: needs the damage prevented' },
+  { id: 'energized-munitions', ability: 'Energized Munitions', kind: 'ammoEfficiency', fixed: { value: 0.75, frame: 'Helminth' }, note: 'recast every 3-5 s' },
 ];
 
 export const buffById = (id: string): BuffDefinition | undefined =>
@@ -127,6 +135,9 @@ export function buffEffects(
   strength = 100,
   context: BuffContext = {},
 ): Effect[] {
+  if (definition.fixed && definition.kind === 'ammoEfficiency') {
+    return [{ target: 'ammoEfficiencyMult', op: 'add', value: definition.fixed.value, raw: `${definition.ability}: ${definition.fixed.value * 100}% Ammo Efficiency, multiplicative` }];
+  }
   const ability = snapshot.abilities[definition.ability];
   if (!ability) return [];
   const base = definition.pick ? definition.pick(ability) : ability.value;
@@ -238,12 +249,12 @@ export function abilityStrengthFromMods(
 export function availableBuffs(
   snapshot: Snapshot,
 ): Array<{ id: string; ability: string; frame: string; augments: boolean; subsumable: boolean }> {
-  return BUFFS.filter((buff) => snapshot.abilities[buff.ability]).map((buff) => ({
+  return BUFFS.filter((buff) => buff.fixed || snapshot.abilities[buff.ability]).map((buff) => ({
     id: buff.id,
     ability: buff.ability,
-    frame: snapshot.abilities[buff.ability].frame,
+    frame: buff.fixed?.frame ?? snapshot.abilities[buff.ability].frame,
     augments: Boolean(buff.augment),
     // Helminth: a subsumable ability can be carried by any frame.
-    subsumable: Boolean(snapshot.abilities[buff.ability].subsumable),
+    subsumable: Boolean(buff.fixed?.frame === 'Helminth' || snapshot.abilities[buff.ability]?.subsumable),
   }));
 }

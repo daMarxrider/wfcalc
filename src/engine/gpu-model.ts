@@ -144,7 +144,8 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   params[P.multishot] = stats.multishot ?? 1;
   params[P.fireRate] = stats.fireRate ?? 1;
   params[P.reloadTime] = stats.reloadTime ?? 0;
-  params[P.magazineSize] = stats.magazineSize ?? 1;
+  // Ammo Efficiency from the fixed part of the build (arcanes, Incarnon, riven, buffs) stretches the magazine.
+  params[P.magazineSize] = (stats.magazineSize ?? 1) / Math.max(1e-6, zero.ammo.cost);
   params[P.comboFactor] = Math.max(0, zero.comboMultiplier - 1);
   // The player's strips are fixed; Corrosive and Heat build up per combination, in the shader.
   params[P.armor] = effectiveArmor(scaled.armor, { ...zero.debuffs, armorBase: armorPool?.amount, corrosiveStacks: 0, heatStrip: 0 });

@@ -33,7 +33,8 @@ import { normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
-import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, type ResidualElement } from './arcanes.ts';
+import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, isDualPistols, type ResidualElement } from './arcanes.ts';
+import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
 import { hitProfile } from './hit.ts';
 import { InputError } from '../errors.ts';
@@ -54,6 +55,8 @@ export const hitZoneOf = (build: Pick<Build, 'hit' | 'headshot'>): HitZone =>
 
 /** Conditions that only a weak-point or headshot hit can trigger. */
 const WEAK_POINT_CONDITION = /weakpoint|weak_point|headshot/i;
+/** Conditions that describe how the player plays: "max" stacks never assume them, the switch decides. */
+const PLAYED_CONDITIONS = ['aiming', 'surgeShot', 'sliding', 'airborne'];
 
 /** Buff/condition toggles: `{ onKill: 5 }` means the on-kill effect has 5 stacks. */
 export type Conditions = Record<string, number | boolean>;
@@ -219,8 +222,12 @@ export interface ResolvedBuild {
   cryogenicStacks: number;
   /** Secondary Irradiate's share of a hit dealt to nearby enemies (on 10 Radiation stacks), 0 when none. */
   irradiateShare: number;
-  /** Arcane Pistoleer's chance of Infinite Ammo per weak-point kill, 0 when none or not active. */
-  infiniteAmmoChance: number;
+  /**
+   * Ammo (engine/ammo.ts): the always-on Ammo Efficiency (summed, uncapped), the multiplicative
+   * sources (Energized Munitions), the timed buffs, and the ammo per shot from the always-on part.
+   * The Incarnon form ignores it all: cost 1, no buffs.
+   */
+  ammo: { efficiency: number; multipliers: number[]; buffs: AmmoBuff[]; cost: number };
   /** The weapon's stats this build starts from (mode, Incarnon form, bonus element and AoE falloff applied). */
   baseStats: WeaponStats;
   /** Every summed bonus by target ("baseDamage", "critChance", "element:viral"...), for the GPU search's mod vectors. */
@@ -290,9 +297,9 @@ function conditionStacks(effect: Effect, conditions: Conditions, context: StackC
       stacks = 0;
     } else if (context.mode === 'max') {
       // Aiming is how the player plays, not a stack to max out: like head hits, it needs the switch.
-      // So is Secondary Surge's single empowered shot after a cast.
+      // So are Secondary Surge's single empowered shot after a cast, sliding and being airborne.
       const parts = effect.condition.split('+');
-      const playedOff = (parts.includes('aiming') && !conditions.aiming) || (parts.includes('surgeShot') && !conditions.surgeShot);
+      const playedOff = PLAYED_CONDITIONS.some((played) => parts.includes(played) && !conditions[played]);
       stacks = (WEAK_POINT_CONDITION.test(effect.condition) && context.hit !== 'head') || playedOff ? 0 : cap;
       if (parts.includes('surgeShot') && typeof conditions.surgeShot === 'number') stacks = Math.min(stacks, conditions.surgeShot);
     } else {
@@ -332,6 +339,8 @@ interface Collected {
   faction: Map<string, number>;
   elementMultipliers: Map<DamageType, number>;
   forcedProcs: Array<{ type: DamageType; chance: number; requiresCrit: boolean }>;
+  ammoBuffs: AmmoBuff[];
+  ammoMultipliers: number[];
   conversions: Array<{ from: BaseElement; to: DamageType; share: number }>;
   /** Incarnon "Increase Base X" bonuses, and bonuses gated on the build's own crit chance. */
   baseAdds: Array<{ target: string; value: number; base: boolean; critChanceBelow?: number; label: string }>;
@@ -581,6 +590,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     faction: new Map(),
     elementMultipliers: new Map(),
     forcedProcs: [],
+    ammoBuffs: [],
+    ammoMultipliers: [],
     conversions: [],
     baseAdds: [],
     inactive: [],
@@ -600,7 +611,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     incompatible: string[];
     set?: string | null;
     /** Where the bonus comes from: a melee form treats them differently. */
-    kind: 'mod' | 'weaponArcane' | 'incarnon' | 'riven' | 'warframeArcane' | 'buff' | 'shard' | 'zoom';
+    kind: 'mod' | 'weaponArcane' | 'incarnon' | 'riven' | 'warframeArcane' | 'buff' | 'shard' | 'zoom' | 'weapon';
   }
   const sources: Source[] = [];
   if (aoeWarning) collected.warnings.push(aoeWarning);
@@ -636,7 +647,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       name: mod.name, maxRank: mod.maxRank, rank, effects: mod.effects,
       partial: mod.partial, incompatible: mod.incompatible, set: mod.set, kind: 'mod',
     });
+    // Ammo lines the card text does not give (ammo.ts), already at the equipped rank.
+    const ammo = modAmmoEffects(mod.name, rank ?? mod.maxRank, mod.maxRank);
+    if (ammo.length) sources.push({ name: mod.name, maxRank: 0, effects: ammo, partial: false, incompatible: [], kind: 'mod' });
   }
+  // Weapon traits that touch ammo (Magnus Prime's Chamber Cascade, Velox's innate efficiency).
+  const weaponAmmo = weaponAmmoEffects(weapon, build.frame);
+  if (weaponAmmo.length) sources.push({ name: weapon.name, maxRank: 0, effects: weaponAmmo, partial: false, incompatible: [], kind: 'weapon' });
 
   // The riven can sit between the mods (rivenSlot): its elements then pair in that slot's place.
   const modSourceCount = sources.length;
@@ -673,7 +690,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     usedArcaneGroups.set(group, arcane.name);
     if (arcane.name === 'Primary Compression') compressionRank = Math.min(rank ?? arcane.maxRank, arcane.maxRank);
     // Values come at the equipped rank already (arcanes.ts), so no further rank scaling.
-    const effects = arcaneEffectsAt(arcane, rank, { heavyAttack: Boolean(build.heavyAttack) });
+    const effects = arcaneEffectsAt(arcane, rank, { heavyAttack: Boolean(build.heavyAttack), dualPistols: isDualPistols(weapon) });
     sources.push({ name: arcane.name, maxRank: 0, effects, partial: false, incompatible: [], kind: 'weaponArcane' });
   }
 
@@ -706,7 +723,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       sources.push({
         name: `Incarnon: ${chosen.name}`,
         maxRank: 0,
-        effects: chosen.effects as Effect[],
+        effects: [...(chosen.effects as Effect[]), ...incarnonAmmoEffects(weapon, chosen.name)],
         partial: false,
         incompatible: [],
         kind: 'incarnon',
@@ -866,6 +883,15 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       const setFactor = 1 + amplifyFor(source.set, source.name);
       const directOnly = effect.perStatusType ? directShare : 1;
       const value = effect.value * rankFraction * stacks * comboFactor * bowFactor * setFactor * directOnly;
+      // Timed ammo buffs keep their spec; their value is the chance per event (ammo.ts).
+      if (effect.target === 'ammoBuff' && effect.ammoBuff) {
+        if (value > 0) collected.ammoBuffs.push({ ...effect.ammoBuff, name: source.name, chance: value });
+        continue;
+      }
+      if (effect.target === 'ammoEfficiencyMult') {
+        collected.ammoMultipliers.push(value);
+        continue;
+      }
       // Incarnon "Increase Base Critical Chance by +16%": the weapon's base stat grows before mods
       // multiply it. A crit-chance gate ("With Critical Chance Below 50%") waits for the final crit.
       if (effect.base || effect.critChanceBelow !== undefined) {
@@ -966,6 +992,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     } else {
       const radius = entry.radius * (1 + bonus('blastRadius'));
       const value = (0.5 + 0.1 * compressionRank) * 0.8 * radius * entry.effectiveness;
+      // +3% Ammo Efficiency per metre lost, +0.5% per rank, whatever the damage bonus does (wiki).
+      collected.byTarget.set('ammoEfficiency', bonus('ammoEfficiency') + (0.03 + 0.005 * compressionRank) * 0.8 * radius);
       if (entry.stacking === 'adds') compressionAdd = value;
       else compressionMultiplier = 1 + value;
     }
@@ -1190,9 +1218,12 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   };
 
   const burstDps = averageShotDamage * fireRate;
-  const damagePerMagazine = averageShotDamage * Math.max(1, magazineSize);
-  const cycleTime = Math.max(1, magazineSize) / Math.max(0.01, fireRate) + reloadTime;
-  const sustainedDps = cycleTime > 0 ? damagePerMagazine / cycleTime : burstDps;
+  // Ammo per shot (ammo.ts); the Incarnon form keeps its own ammo. Timed buffs need the kill
+  // time, so hitEnemy counts them; the sustained figure here has the always-on sources only.
+  const ammo = incarnonFormActive
+    ? { efficiency: 0, multipliers: [], buffs: [], cost: 1 }
+    : { efficiency: bonus('ammoEfficiency'), multipliers: collected.ammoMultipliers, buffs: collected.ammoBuffs, cost: ammoCost(bonus('ammoEfficiency'), collected.ammoMultipliers) };
+  const sustainedDps = averageShotDamage * sustainedPulls({ magazineSize, fireRate, reloadTime, ammo });
 
   const elements = (Object.entries(damage) as Array<[DamageType, number]>)
     .filter(([, amount]) => amount > 0)
@@ -1241,7 +1272,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     encumberChance: bonus('encumber'),
     cryogenicStacks: bonus('cryogenic'),
     irradiateShare: bonus('irradiate'),
-    infiniteAmmoChance: bonus('infiniteAmmo'),
+    ammo,
     critTierBonus: vigilante,
     bonusTotals: Object.fromEntries(collected.byTarget),
     baseStats: stats,

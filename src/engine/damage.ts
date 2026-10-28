@@ -15,7 +15,7 @@ import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
 import { arcaneProcRates, atLeastTen, computeDot, procRates, sustainedPulls, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import { hitProfile, type HitProfile } from './hit.ts';
-import { PISTOLEER_SECONDS } from './arcanes.ts';
+import { AMMO_EFFICIENCY_CAP, ammoBuffUptime, expectedAmmoCost } from './ammo.ts';
 import { simulateKill, type SimulationResult } from './simulate.ts';
 
 export interface TypeBreakdown {
@@ -99,32 +99,35 @@ const healthModifier = (snapshot: Snapshot, type: DamageType, healthType: string
   (snapshot.modifiers[type]?.[healthType] ?? 0) / 100;
 
 /**
- * Arcane Pistoleer (wiki): each weak-point kill has `infiniteAmmoChance` to start 12 s of
- * Infinite Ammo, and a proc does not refresh a running buff. Kills come one per time-to-kill
- * (`T`, the same target over and over), so after the buff ends the next proc is T / chance away
- * on average: uptime = 12 / (12 + T / chance). While it is up the weapon never reloads, so the
- * pulls per second blend fire rate and the reload cycle by uptime. T itself shortens as the uptime
- * grows, so the two are iterated until they agree.
- * shortcut: every kill counts, also DoT kills (the wiki: only direct, Gas and Electricity kills
- * trigger it); split the kill by source if that matters.
+ * Timed ammo buffs (engine/ammo.ts): Infinite Ammo or extra Ammo Efficiency for a while after an
+ * event. Their uptime needs the event spacing: one weak-point kill per time-to-kill (the same
+ * target over and over), one hit per pellet otherwise, at the pulls per second the ammo allows.
+ * Both grow as the buffs cut reloads, so uptime, ammo per shot and kill time are iterated until
+ * they agree.
+ * shortcut: every kill and every pellet counts as an event, though some buffs ignore DoT kills
+ * (Arcane Pistoleer) or also count status ticks (Magnus Prime); split events by source if needed.
  */
 export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions = {}): EnemyHit {
-  const first = hitOnce(snapshot, build, scaled, options);
-  if (!(build.infiniteAmmoChance > 0) || !(build.reloadTime > 0)) return first;
-  const magazine = Math.max(1, build.magazineSize);
-  const reloading = magazine / (magazine / Math.max(0.01, build.fireRate) + build.reloadTime);
-  let hit = first;
-  let uptime = 0;
-  for (let round = 0; round < 20; round++) {
-    const kill = hit.timeToKill;
-    const next = kill !== null && kill > 0 ? PISTOLEER_SECONDS / (PISTOLEER_SECONDS + kill / Math.min(1, build.infiniteAmmoChance)) : 0;
-    if (Math.abs(next - uptime) < 1e-6) break;
-    uptime = next;
-    // The reload time that gives the blended rate: uptime at fire rate, the rest with reloads.
-    const pulls = uptime * build.fireRate + (1 - uptime) * reloading;
-    hit = hitOnce(snapshot, { ...build, reloadTime: Math.max(0, magazine / pulls - magazine / Math.max(0.01, build.fireRate)) }, scaled, options);
+  const ammo = build.ammo ?? { efficiency: 0, multipliers: [], buffs: [], cost: 1 };
+  let hit = hitOnce(snapshot, build, scaled, options);
+  let uptimes = ammo.buffs.map(() => 0);
+  let cost = ammo.cost;
+  if (ammo.buffs.length && build.reloadTime > 0) {
+    for (let round = 0; round < 20; round++) {
+      const pellets = sustainedPulls({ ...build, ammo: { ...ammo, cost } }) * Math.max(1, build.multishot);
+      const next = ammo.buffs.map((buff) => ammoBuffUptime(buff, buff.trigger === 'weakPointKill' ? hit.timeToKill ?? Infinity : (buff.every ?? 1) / pellets));
+      if (next.every((uptime, i) => Math.abs(uptime - uptimes[i]) < 1e-6)) break;
+      uptimes = next;
+      cost = expectedAmmoCost(ammo.efficiency, ammo.multipliers, ammo.buffs, uptimes);
+      hit = hitOnce(snapshot, { ...build, ammo: { ...ammo, cost } }, scaled, options);
+    }
   }
-  hit.warnings.push(`Arcane Pistoleer: Infinite Ammo up ${(uptime * 100).toFixed(0)}% of the time (${PISTOLEER_SECONDS}s per proc, ${(Math.min(1, build.infiniteAmmoChance) * 100).toFixed(0)}% per weak-point kill, one kill every ${hit.timeToKill?.toFixed(2) ?? '∞'}s)`);
+  if (cost < 1) {
+    const buffs = ammo.buffs.map((buff, i) => `${buff.name} ${buff.efficiency >= 1 ? 'Infinite Ammo' : `+${(buff.efficiency * 100).toFixed(0)}%`} up ${(uptimes[i] * 100).toFixed(0)}%`);
+    hit.warnings.push(`Ammo: ${((1 - cost) * 100).toFixed(1)}% of shots cost no ammo${cost > 0 ? ` (${(1 / cost).toFixed(2)} shots per round)` : ', no reloads'}`
+      + `${ammo.efficiency > 0 ? `; Ammo Efficiency ${(Math.min(AMMO_EFFICIENCY_CAP, ammo.efficiency) * 100).toFixed(1)}%${ammo.efficiency > AMMO_EFFICIENCY_CAP ? ` (capped from ${(ammo.efficiency * 100).toFixed(1)}%)` : ''}` : ''}`
+      + `${buffs.length ? `; ${buffs.join(', ')}` : ''}`);
+  }
   return hit;
 }
 
