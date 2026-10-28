@@ -75,7 +75,8 @@ The rest of this README writes `wfcalc` for `./bin/wfcalc`; run `npm link` once 
 your PATH.
 
 `npm run update` refreshes the data from WFCD and the wiki (~12 MB); `npm run sync` only does
-it when an upstream changed. `npm install` is only needed for `npm run check` (TypeScript).
+it when an upstream changed. Both rebuild the snapshot and re-apply the patch tools; see
+[docs/data-notes.md](docs/data-notes.md#refresh-order). `npm install` is only needed for `npm run check` (TypeScript).
 
 ## For agents
 

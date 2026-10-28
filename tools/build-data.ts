@@ -16,6 +16,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseLuaModule } from './parse-lua.ts';
+import { parseRivenStats } from './lib/riven-stats.ts';
 import { parseModEffects } from '../src/mods/parse.ts';
 import {
   DAMAGE_TYPES,
@@ -723,63 +724,13 @@ function buildWarframes(): Record<string, WarframeData> {
 
 // -------------------------------------------------------------------- rivens
 
-/** Weapon classes the riven base-value table is split into. */
-const RIVEN_CLASSES = ['rifle', 'shotgun', 'pistol', 'archgun', 'melee'];
-
-/**
- * Reads the "Base Values" wikitable from the Riven Mods page:
- *   | Effect        | Prefix || Suffix || Rifle || Shotgun || Pistol || Archgun || Melee
- * Each cell is a percentage ("149.99%"), a multiplier ("x0.45") or a flat value ("8.1s").
- */
+/** Riven base values per weapon class: rifle, shotgun, pistol, archgun, melee. */
 function buildRivenStats(): Record<string, Record<string, number>> {
-  const wikitext = readFileSync(join(RAW, 'wiki-riven-mods.wiki'), 'utf8');
-  const section = wikitext.split('=== Base Values ===')[1]?.split('\n|}')[0] ?? '';
-  const rows = section.split(/\n\|-\n/).slice(1);
-  const out: Record<string, Record<string, number>[]> = {};
-
-  for (const row of rows) {
-    const lines = row.split('\n').map((line) => line.trim()).filter(Boolean);
-    if (!lines.length || !lines[0].startsWith('|') || lines[0].startsWith('|-')) continue;
-    const label = lines[0]
-      .replace(/^\|\s*/, '')
-      // {{D|Heat}} and {{Faction|Grineer}} carry the meaning: expand them before dropping templates.
-      .replace(/\{\{D\|([^}|]*)[^}]*\}\}/g, '$1')
-      .replace(/\{\{Faction\|([^}|]*)[^}]*\}\}/g, '$1')
-      .replace(/<sup>.*?<\/sup>/g, '')
-      .replace(/<br\s*\/?>/g, ' / ')
-      .replace(/\{\{[^}]*\}\}/g, ' ')
-      .replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, '$2')
-      .replace(/\s+/g, ' ')
-      .trim()
-      // "Critical Chance / Critical Chance (x2 for Heavy Attacks)" -> keep the first name.
-      .split(' / ')[0]
-      .replace(/\s*\(.*?\)\s*$/, '')
-      .trim();
-    const cells = lines.slice(1).join(' ').split('||').map((cell) => cell.trim());
-    // Effect label, prefix, suffix, then one value per weapon class.
-    const values = cells.slice(2, 2 + RIVEN_CLASSES.length);
-    if (!label || values.length < RIVEN_CLASSES.length) continue;
-    if (out[label]) continue;
-    out[label] = [];
-    values.forEach((cell) => {
-      const kind = /^x/i.test(cell) ? 'multiplier' : /s$/i.test(cell) ? 'flat' : 'percent';
-      const number = Number(cell.replace(/[^\d.]/g, ''));
-      out[label].push(Number.isFinite(number) ? { [kind]: number } as any : ({} as any));
-    });
-  }
-
-  const table: Record<string, Record<string, number>> = {};
-  RIVEN_CLASSES.forEach((klass, index) => {
-    table[klass] = {};
-    for (const [label, values] of Object.entries(out)) {
-      const value = values[index];
-      const kind = Object.keys(value ?? {})[0];
-      if (!kind) continue;
-      const raw = (value as any)[kind] as number;
-      table[klass][label] = kind === 'percent' ? raw / 100 : raw;
-    }
-  });
-  console.log(`riven stats: ${Object.keys(table.rifle).length} attributes x ${RIVEN_CLASSES.length} classes`);
+  // The page's per-class "Attribute Ranges" tabs (tools/lib/riven-stats.ts); the same parser as
+  // tools/fetch-riven-stats.ts, so a rebuild keeps the disposition-1.2 tables.
+  const table = parseRivenStats(readFileSync(join(RAW, 'wiki-riven-mods.wiki'), 'utf8'));
+  if (!Object.keys(table.rifle ?? {}).length) throw new Error('riven stats: no attribute table parsed from wiki-riven-mods.wiki');
+  console.log(`riven stats: ${Object.keys(table.rifle).length} attributes x ${Object.keys(table).length} classes`);
   return table;
 }
 
@@ -903,7 +854,12 @@ function buildAbilities(): Record<string, AbilityData> {
       if (entry.Subsumable && typeof entry.Name === 'string') subsumable.add(entry.Name);
     }
   } catch {
-    console.warn('could not read Module:Ability/data; Helminth flags missing');
+    console.warn('could not read Module:Ability/data; Helminth flags from Module:Warframes/data only');
+  }
+  // Module:Warframes/data names each frame's Helminth ability (`Subsumed = "Roar"`): the same flag,
+  // from a module that is always downloaded.
+  for (const frame of Object.values<Loose>(readLua('module-warframes.lua').Warframes ?? {})) {
+    if (typeof frame?.Subsumed === 'string') subsumable.add(frame.Subsumed);
   }
   const out: Record<string, AbilityData> = {};
   for (const entry of raw) {

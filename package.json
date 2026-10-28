@@ -12,7 +12,11 @@
     "node": ">=23"
   },
   "scripts": {
-    "update": "node tools/fetch.ts && node tools/fetch-abilities.ts && node tools/fetch-damage-abilities.ts && node tools/fetch-incarnon.ts && node tools/build-data.ts && node tools/public-export.ts && node tools/fetch-compression.ts && node tools/fetch-snipers.ts",
+    "update": "node tools/fetch.ts && node tools/fetch-abilities.ts && node tools/fetch-damage-abilities.ts && node tools/fetch-incarnon.ts && node tools/fetch-sets.ts && npm run rebuild",
+    "rebuild": "node tools/build-data.ts && npm run patch",
+    "patch": "node tools/public-export.ts && node tools/fetch-compression.ts && node tools/fetch-snipers.ts && node tools/fetch-forced-procs.ts",
+    "riven-stats": "node tools/fetch-riven-stats.ts",
+    "forced-procs": "node tools/fetch-forced-procs.ts",
     "compression": "node tools/fetch-compression.ts",
     "snipers": "node tools/fetch-snipers.ts",
     "public-export": "node tools/public-export.ts",

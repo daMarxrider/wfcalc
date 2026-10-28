@@ -236,7 +236,20 @@ previously parsed broke (`npm test` covers the important cases).
 
 ## Refresh order
 
-`npm run update` runs, in order: `fetch.ts` (WFCD + wiki pages), `fetch-abilities.ts`
-(ability infoboxes), `build-data.ts` (snapshot). `build-data.ts` reads
-`data/raw/ability-stats.json`, so running it alone after a fresh checkout fails until
-the ability fetch has run once.
+`npm run update` runs, in order: the fetchers (`fetch.ts` for WFCD + wiki pages,
+`fetch-abilities.ts`, `fetch-damage-abilities.ts`, `fetch-incarnon.ts`, `fetch-sets.ts`), then
+`npm run rebuild`: `build-data.ts` (snapshot from `data/raw/`) followed by `npm run patch`, the
+tools that write what build-data does not build: `public-export.ts` (DE's weapon stats),
+`fetch-compression.ts`, `fetch-snipers.ts` and `fetch-forced-procs.ts` (guaranteed procs).
+`tools/sync.ts` runs the same patch list after its rebuild. Running `build-data.ts` on its own
+leaves those sections out, so always follow it with `npm run patch`.
+
+`build-data.ts` reads `data/raw/ability-stats.json` and `data/raw/set-bonuses.json`, so running it
+alone after a fresh checkout fails (or loses the set bonuses) until those fetchers ran once. The
+riven tables come from the wiki's per-class tabs through `tools/lib/riven-stats.ts`, the same
+parser `npm run riven-stats` uses; Helminth flags come from Module:Warframes/data (`Subsumed`).
+
+After a game update, `node tools/survey-weapon-traits.ts --force --new` re-reads every weapon page
+and lists only the weapons whose trait text is new or changed since the last review
+(`data/weapon-trait-review.json`); read them, update `src/engine/traits.ts` / `ammo.ts`, then
+record the review with `--reviewed`.
