@@ -912,6 +912,29 @@ test('status procs per second count reloads; each proc keeps all its ticks', () 
   close(slash.dps / slashOf(0).dps, 0.5, 1e-9);
 });
 
+test('Arcane Pistoleer: Infinite Ammo uptime from the kill time, only on weak-point hits and secondaries', () => {
+  const pistoleer: ArcaneData = { id: 'Arcane Pistoleer', name: 'Arcane Pistoleer', category: '', rarity: 'Legendary', maxRank: 5, description: '', effects: [], slot: 'warframe' };
+  // 10 rounds at 5/s, then a 4 s reload: reloads are 2/3 of the time.
+  const pistol = { ...weapon({ impact: 100, fireRate: 5, magazineSize: 10, reloadTime: 4 }), category: 'secondary' as const, type: 'Pistol' };
+  const target: EnemyData = { ...dummy, health: 20_000, pools: [{ type: 'Neutral Flesh', category: 'health', amount: 20_000 }] };
+  const snap = snapshot([pistol], [], [target], { arcanes: [pistoleer] });
+  const kill = (extra: Partial<Build>) => hitEnemy(snap, build(snap, [], { stackMode: 'max', simulate: false, ...extra } as Partial<Build>), scaleEnemy(snap, target, 1), { simulate: false });
+  const plain = kill({ hit: 'head' });
+  // Body hits: no weak-point kill, no buff.
+  assert.equal(kill({ hit: 'body', warframeArcanes: ['Arcane Pistoleer'] }).timeToKill, kill({ hit: 'body' }).timeToKill);
+  const head = kill({ hit: 'head', warframeArcanes: ['Arcane Pistoleer'] });
+  assert.ok(head.timeToKill! < plain.timeToKill!);
+  // The reported uptime is the no-refresh renewal one, at the kill time it produced.
+  const uptime = 12 / (12 + head.timeToKill! / 0.6);
+  const note = head.warnings.find((line) => line.startsWith('Arcane Pistoleer'))!;
+  assert.match(note, new RegExp(`up ${Math.round(uptime * 100)}%`));
+  // Only secondary weapons: on a rifle it is inactive.
+  const rifle = snapshot([weapon({ impact: 100, fireRate: 5, magazineSize: 10, reloadTime: 4 })], [], [target], { arcanes: [pistoleer] });
+  const onRifle = build(rifle, [], { stackMode: 'max', hit: 'head', warframeArcanes: ['Arcane Pistoleer'] });
+  assert.equal(onRifle.infiniteAmmoChance, 0);
+  assert.ok(onRifle.inactiveConditions.some((line) => line.includes('only buffs secondary weapons')));
+});
+
 test('Encumber, Cryogenic, Irradiate, Surge and Theorem Demulcent', () => {
   const arcane = (name: string, slot: string): ArcaneData => ({ id: name, name, category: '', rarity: 'Rare', maxRank: 5, description: '', effects: [], slot });
   const pistol = { ...weapon({ puncture: 100, statusChance: 0.5, fireRate: 10, magazineSize: 1000, reloadTime: 0 }), category: 'secondary' as const, type: 'Pistol' };

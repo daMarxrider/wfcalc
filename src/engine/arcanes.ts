@@ -19,6 +19,7 @@ const WEAPON_SCOPE: Record<string, { label: string; fits: (weapon: WeaponData) =
   'Arcane Blade Charger': { label: 'melee weapons', fits: (w) => w.category === 'melee' },
   'Arcane Fury': { label: 'melee weapons', fits: (w) => w.category === 'melee' },
   'Arcane Momentum': { label: 'sniper rifles', fits: (w) => w.type === 'Sniper' },
+  'Arcane Pistoleer': { label: 'secondary weapons', fits: (w) => w.category === 'secondary' },
   'Arcane Precision': { label: 'secondary weapons', fits: (w) => w.category === 'secondary' },
   'Arcane Primary Charger': { label: 'primary weapons', fits: (w) => w.category === 'primary' },
   'Arcane Rage': { label: 'primary weapons', fits: (w) => w.category === 'primary' },
@@ -33,6 +34,9 @@ export function arcaneScopeMiss(name: string, weapon: WeaponData): string | null
   const scope = WEAPON_SCOPE[name];
   return scope && !scope.fits(weapon) ? scope.label : null;
 }
+
+/** Arcane Pistoleer's Infinite Ammo lasts this long at every rank (wiki). */
+export const PISTOLEER_SECONDS = 12;
 
 const pct = (value: number): string => `${Math.round(value * 10000) / 100}%`;
 const effect = (target: string, value: number, raw: string, extra: Partial<Effect> = {}): Effect => ({ target, op: 'add', value, raw, ...extra });
@@ -52,6 +56,8 @@ const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> =
   'Arcane Primary Charger': (r) => [effect('baseDamage', 0.5 * (r + 1), `On Melee Kill: +${pct(0.5 * (r + 1))} Primary Weapon Damage`, { condition: 'onMeleeKill' })],
   'Arcane Tempo': (r) => [effect('fireRate', 0.15 * (r + 1), `On Critical Hit: +${pct(0.15 * (r + 1))} Fire Rate to Shotguns`, { condition: 'on_critical_hit' })],
   'Arcane Velocity': (r) => [effect('fireRate', 0.2 * (r + 1), `On Critical Hit: +${pct(0.2 * (r + 1))} Fire Rate to Pistols`, { condition: 'on_critical_hit' })],
+  // Value = chance per weak-point kill; damage.ts turns it into an uptime from the kill time.
+  'Arcane Pistoleer': (r) => [effect('infiniteAmmo', 0.1 * (r + 1), `On Pistol Weak Point Kill: ${pct(0.1 * (r + 1))} chance for Infinite Ammo for ${PISTOLEER_SECONDS}s`, { condition: 'onWeakPointKill' })],
   'Arcane Hot Shot': (r) => [effect('critChance', 0.01 * (r + 1), `Ability Heat procs: +${pct(0.01 * (r + 1))} Critical Chance per stack, up to 50x`, { condition: 'onAbilityHeatProc', maxStacks: 50 })],
   // "Final" critical damage: added to the finished multiplier, after mods.
   'Arcane Crepuscular': (r) => [
