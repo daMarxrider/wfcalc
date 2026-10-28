@@ -13,6 +13,7 @@ import { armorDamageReduction, eximusBaseHealth, overguardForLevel, scaleEnemy }
 import { elementalOrders } from '../src/engine/bruteforce.ts';
 import { hitProfile, weakPointBase } from '../src/engine/hit.ts';
 import { hitEnemy } from '../src/engine/damage.ts';
+import { simulateKill } from '../src/engine/simulate.ts';
 import { parseModEffects } from '../src/mods/parse.ts';
 import { buffEffects, buffById, abilityStrengthFromMods } from '../src/engine/buffs.ts';
 import { rivenEffects } from '../src/engine/riven.ts';
@@ -1385,11 +1386,23 @@ test('simulation: the 10th Cold stack freezes the target at +1.0 crit multiplier
   assert.ok(ratio > 2.7 && ratio <= 3, `crit gain ${ratio}`);
 });
 
+test('simulation: the automatic time step is fine enough that a finer one changes nothing', () => {
+  // A fast-firing weapon on a long fight: the case coarse steps (estimate / 200) got wrong by ~1%.
+  const snap = snapshot([weapon({ slash: 300, impact: 100, statusChance: 0.4, fireRate: 15, magazineSize: 100, reloadTime: 2 })], [], [dummy]);
+  const resolved = build(snap, []);
+  const scaled = scaleEnemy(snap, dummy, 1);
+  const options = { factionMultiplier: 1, debuffs: {}, estimate: hitEnemy(snap, resolved, scaled, { simulate: false }).timeToKill };
+  const auto = simulateKill(snap, resolved, scaled, options).timeToKill!;
+  const fine = simulateKill(snap, resolved, scaled, { ...options, step: 0.001 }).timeToKill!;
+  assert.ok(Math.abs(auto / fine - 1) < 5e-4, `auto ${auto}, fine ${fine}`);
+});
+
 test('simulation: Magnetic deals 3% of max shields per stack as Electricity when shields break (wiki: Magnetic Damage)', () => {
   const shielded: EnemyData = {
     id: 'Shielded', name: 'Shielded', faction: 'corpus', healthClass: 'Corpus', kind: 'Corpus', baseLevel: 1,
-    health: 1_000_000, shield: 1000, armor: 0,
-    pools: [{ type: 'Shield', category: 'shield', amount: 1000 }, { type: 'Flesh', category: 'health', amount: 1_000_000 }],
+    // Shields that take well over 10 shots, so Magnetic is at its 10-stack cap when they break.
+    health: 1_000_000, shield: 100_000, armor: 0,
+    pools: [{ type: 'Shield', category: 'shield', amount: 100_000 }, { type: 'Flesh', category: 'health', amount: 1_000_000 }],
     toxinBypassesShields: true,
   };
   const snap = snapshot([weapon({ magnetic: 100, statusChance: 1, fireRate: 10, magazineSize: 1000 })], [], [shielded]);
