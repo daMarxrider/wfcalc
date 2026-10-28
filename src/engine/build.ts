@@ -219,6 +219,8 @@ export interface ResolvedBuild {
   cryogenicStacks: number;
   /** Secondary Irradiate's share of a hit dealt to nearby enemies (on 10 Radiation stacks), 0 when none. */
   irradiateShare: number;
+  /** Arcane Pistoleer's chance of Infinite Ammo per weak-point kill, 0 when none or not active. */
+  infiniteAmmoChance: number;
   /** The weapon's stats this build starts from (mode, Incarnon form, bonus element and AoE falloff applied). */
   baseStats: WeaponStats;
   /** Every summed bonus by target ("baseDamage", "critChance", "element:viral"...), for the GPU search's mod vectors. */
@@ -1239,6 +1241,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     encumberChance: bonus('encumber'),
     cryogenicStacks: bonus('cryogenic'),
     irradiateShare: bonus('irradiate'),
+    infiniteAmmoChance: bonus('infiniteAmmo'),
     critTierBonus: vigilante,
     bonusTotals: Object.fromEntries(collected.byTarget),
     baseStats: stats,

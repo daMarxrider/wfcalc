@@ -15,6 +15,7 @@ import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
 import { arcaneProcRates, atLeastTen, computeDot, procRates, sustainedPulls, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import { hitProfile, type HitProfile } from './hit.ts';
+import { PISTOLEER_SECONDS } from './arcanes.ts';
 import { simulateKill, type SimulationResult } from './simulate.ts';
 
 export interface TypeBreakdown {
@@ -97,7 +98,37 @@ export interface EnemyHit {
 const healthModifier = (snapshot: Snapshot, type: DamageType, healthType: string): number =>
   (snapshot.modifiers[type]?.[healthType] ?? 0) / 100;
 
+/**
+ * Arcane Pistoleer (wiki): each weak-point kill has `infiniteAmmoChance` to start 12 s of
+ * Infinite Ammo, and a proc does not refresh a running buff. Kills come one per time-to-kill
+ * (`T`, the same target over and over), so after the buff ends the next proc is T / chance away
+ * on average: uptime = 12 / (12 + T / chance). While it is up the weapon never reloads, so the
+ * pulls per second blend fire rate and the reload cycle by uptime. T itself shortens as the uptime
+ * grows, so the two are iterated until they agree.
+ * shortcut: every kill counts, also DoT kills (the wiki: only direct, Gas and Electricity kills
+ * trigger it); split the kill by source if that matters.
+ */
 export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions = {}): EnemyHit {
+  const first = hitOnce(snapshot, build, scaled, options);
+  if (!(build.infiniteAmmoChance > 0) || !(build.reloadTime > 0)) return first;
+  const magazine = Math.max(1, build.magazineSize);
+  const reloading = magazine / (magazine / Math.max(0.01, build.fireRate) + build.reloadTime);
+  let hit = first;
+  let uptime = 0;
+  for (let round = 0; round < 20; round++) {
+    const kill = hit.timeToKill;
+    const next = kill !== null && kill > 0 ? PISTOLEER_SECONDS / (PISTOLEER_SECONDS + kill / Math.min(1, build.infiniteAmmoChance)) : 0;
+    if (Math.abs(next - uptime) < 1e-6) break;
+    uptime = next;
+    // The reload time that gives the blended rate: uptime at fire rate, the rest with reloads.
+    const pulls = uptime * build.fireRate + (1 - uptime) * reloading;
+    hit = hitOnce(snapshot, { ...build, reloadTime: Math.max(0, magazine / pulls - magazine / Math.max(0.01, build.fireRate)) }, scaled, options);
+  }
+  hit.warnings.push(`Arcane Pistoleer: Infinite Ammo up ${(uptime * 100).toFixed(0)}% of the time (${PISTOLEER_SECONDS}s per proc, ${(Math.min(1, build.infiniteAmmoChance) * 100).toFixed(0)}% per weak-point kill, one kill every ${hit.timeToKill?.toFixed(2) ?? '∞'}s)`);
+  return hit;
+}
+
+function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions): EnemyHit {
   const warnings: string[] = [];
   const armor = scaled.pools.find((pool) => pool.category === 'armor');
   const shields = scaled.pools.filter((pool) => pool.category === 'shield');
