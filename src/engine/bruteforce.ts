@@ -799,7 +799,11 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
   const pool = plan.simulate ? Math.max(request.rerank ?? limit * 40, 200, limit) : limit;
   const shards = workers === 1
     ? [runShard(snapshot, plan, 0, 1, pool, progress)]
-    : await runInWorkers(plan, request.snapshotPath, workers, pool, progress, request.signal);
+    : await queued(() => {
+      // Stopped while waiting its turn: no threads to start.
+      request.signal?.throwIfAborted();
+      return runInWorkers(plan, request.snapshotPath, workers, pool, progress, request.signal);
+    });
   // An in-thread walk cannot be interrupted (it is small: under 2,000 leaves), so check after it.
   request.signal?.throwIfAborted();
   // Every worker counts every leaf it walks, so one shard's count is the tree's.
@@ -891,8 +895,25 @@ export function warmExactPool(snapshotPath?: string, workers = availableParallel
   return pool;
 }
 
+/**
+ * Searches that use worker threads run one at a time, in arrival order. Two requests on the warm
+ * pool would both listen for the first answer and take each other's results; two tree walks
+ * would only fight over the cores.
+ */
+let searchQueue: Promise<unknown> = Promise.resolve();
+function queued<T>(work: () => Promise<T>): Promise<T> {
+  const run = searchQueue.then(work);
+  // A failed search must not stall the ones behind it.
+  searchQueue = run.catch(() => undefined);
+  return run;
+}
+
 /** Runs one job per warm worker (see bruteforce-worker.ts for the job kinds) and collects the results. */
 export function runOnPool<T>(snapshotPath: string | undefined, jobs: object[]): Promise<T[]> {
+  return queued(() => runJobs<T>(snapshotPath, jobs));
+}
+
+function runJobs<T>(snapshotPath: string | undefined, jobs: object[]): Promise<T[]> {
   const pool = warmExactPool(snapshotPath, jobs.length);
   return Promise.all(jobs.map((job, shard) => new Promise<T>((resolve, reject) => {
     const worker = pool[shard];

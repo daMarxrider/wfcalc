@@ -96,7 +96,11 @@ async function readBody(req: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
   if (!chunks.length) return {};
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new InputError('request body is not valid JSON', 'invalid_json');
+  }
 }
 
 /** A brute-force request from a JSON body (the Find tab's shape), or the weapon-not-found reply. */

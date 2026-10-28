@@ -36,3 +36,20 @@ test('the reduced model refuses incompatible pairs and builds over the drain bou
   // 10 capacity cannot hold eight max-rank mods even at half drain.
   assert.equal(proxyScore(model, model.candidates.slice(0, 8).map((_, i) => i)), 0);
 });
+
+test('exact passes started together each get their own builds', async () => {
+  // Two requests on the warm pool at once: before the queue, both listened for the first answer.
+  const exactPass = (weapon: string) => {
+    const request = { weapon, enemy: 'Bombard', level: 150, pool: 14, simulate: false, limit: 1, workers: 2 };
+    const model = gpuModel(snapshot, request, 3000);
+    const shortlist = cpuSearch(model).map(({ combo }) => combo.map((i: number) => model.candidates[i]));
+    return () => bruteForceFromCombinations(snapshot, request, shortlist, { combinations: model.combinations, elapsedMs: 0 });
+  };
+  const soma = exactPass('Soma Prime');
+  const hek = exactPass('Hek');
+  const names = (result: Awaited<ReturnType<typeof soma>>) => result.builds[0].mods.map((mod) => mod.name).sort();
+  const [together, alsoTogether] = await Promise.all([soma(), hek()]);
+  assert.equal(together.workers, 2);
+  assert.deepEqual(names(together), names(await soma()));
+  assert.deepEqual(names(alsoTogether), names(await hek()));
+});

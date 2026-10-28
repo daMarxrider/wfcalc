@@ -12,7 +12,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { arcaneProcRates, atLeastTen, computeDot, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
+import { arcaneProcRates, atLeastTen, computeDot, procRates, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import { hitProfile, type HitProfile } from './hit.ts';
 import { simulateKill, type SimulationResult } from './simulate.ts';
@@ -354,8 +354,7 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   // shortcut: the spread hit is valued like the original body hit (the wiki: elemental mods 33%
   // less effective, no weak-point bonus, own crit roll); split the hit by type if it matters.
   if (requestedTargets > 1 && build.irradiateShare > 0 && totalDps > 0) {
-    const natural = pullsPerSecond * build.multishot * build.statusChance * ((build.damage.perProjectile.radiation ?? 0) / totalRaw);
-    const rate = natural + (arcaneProcRates(build, pullsPerSecond, () => 0).radiation ?? 0);
+    const rate = procRates(build, pullsPerSecond, build.critChance)('radiation').natural + (arcaneProcRates(build, pullsPerSecond, () => 0).radiation ?? 0);
     const up = atLeastTen(rate * 12 * (1 + Math.max(-0.9, build.statusDurationBonus ?? 0)));
     if (up > 0) {
       multiTargetDps = totalDps * multiTargetFactor + (requestedTargets - 1) * build.irradiateShare * up * directHealthDps;
@@ -424,19 +423,13 @@ export function statusProcs(build: ResolvedBuild): Array<{ type: DamageType; pro
  * status duration, capped), for the `steadyStatus` option. Player-given stacks are a floor.
  */
 export function steadyStatusDebuffs(build: ResolvedBuild): Pick<DotContext, 'viralStacks' | 'corrosiveStacks' | 'heatStrip'> {
-  const total = build.damage.projectileTotal || 1;
   const cycle = build.magazineSize / Math.max(0.01, build.fireRate) + build.reloadTime;
-  const pellets = build.multishot * (build.magazineSize / Math.max(0.01, cycle));
+  const pulls = build.magazineSize / Math.max(0.01, cycle);
   const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
-  const rate = (type: DamageType): number => {
-    const natural = pellets * build.statusChance * ((build.damage.perProjectile[type] ?? 0) / total);
-    const forced = (build.forcedProcs ?? [])
-      .filter((proc) => proc.type === type)
-      .reduce((sum, proc) => sum + pellets * proc.chance * (proc.requiresCrit ? Math.min(1, build.critChance) : 1), 0);
-    return natural + forced;
-  };
+  const rates = procRates(build, pulls, build.critChance);
+  const rate = (type: DamageType): number => rates(type).natural + rates(type).forced;
   // Arcanes add procs: Encumber's random statuses, Debilitate's base statuses (dot.ts).
-  const extra = arcaneProcRates(build, build.magazineSize / Math.max(0.01, cycle), rate);
+  const extra = arcaneProcRates(build, pulls, rate);
   const viral = Math.min(10, (rate('viral') + (extra.viral ?? 0)) * 6 * duration);
   const corrosive = Math.min(10 + (build.corrosiveCapBonus ?? 0), (rate('corrosive') + (extra.corrosive ?? 0)) * 8 * duration);
   const heat = 0.5 * (1 - Math.exp(-(rate('heat') + (extra.heat ?? 0)) * 6 * duration));
