@@ -264,11 +264,14 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const timeline: SimulationSample[] = [];
   const sampleEvery = Math.max(1, Math.round(Math.min(maxSeconds, estimate * 1.5) / dt / 60));
 
-  const magazine = Math.max(1, build.magazineSize);
+  // Ammo Efficiency stretches a magazine; at cost 0 (Infinite Ammo) the weapon never reloads.
+  const ammoCost = build.ammo?.cost ?? 1;
+  const magazine = ammoCost > 1e-9 ? Math.max(1, build.magazineSize) / ammoCost : Infinity;
   const fireTime = magazine / Math.max(0.01, build.fireRate);
   const cycle = fireTime + Math.max(0, build.reloadTime);
   /** Seconds spent firing inside [a, b). */
   const firing = (a: number, b: number): number => {
+    if (!Number.isFinite(cycle)) return b - a;
     let seconds = 0;
     let start = Math.floor(a / cycle) * cycle;
     while (start < b) {

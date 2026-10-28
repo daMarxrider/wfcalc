@@ -179,11 +179,15 @@ export function debilitateRates(chance: number, durationScale: number, rateOf: (
 /**
  * Trigger pulls per second over a long fight: a magazine, then a reload. Procs only happen while
  * firing; each proc still counts all its ticks, so DoT already on the target keeps dealing its
- * damage through the reload.
+ * damage through the reload. Ammo Efficiency stretches a magazine to magazine / cost shots;
+ * at cost 0 (Infinite Ammo) the weapon never reloads.
  */
-export function sustainedPulls(build: Pick<ResolvedBuild, 'magazineSize' | 'fireRate' | 'reloadTime'>): number {
-  const magazine = Math.max(1, build.magazineSize);
-  return magazine / (magazine / Math.max(0.01, build.fireRate) + Math.max(0, build.reloadTime));
+export function sustainedPulls(build: Pick<ResolvedBuild, 'magazineSize' | 'fireRate' | 'reloadTime' | 'ammo'>): number {
+  const fireRate = Math.max(0.01, build.fireRate);
+  const cost = build.ammo?.cost ?? 1;
+  if (!(cost > 1e-9)) return fireRate;
+  const shots = Math.max(1, build.magazineSize) / cost;
+  return shots / (shots / fireRate + Math.max(0, build.reloadTime));
 }
 
 /**

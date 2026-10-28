@@ -926,12 +926,12 @@ test('Arcane Pistoleer: Infinite Ammo uptime from the kill time, only on weak-po
   assert.ok(head.timeToKill! < plain.timeToKill!);
   // The reported uptime is the no-refresh renewal one, at the kill time it produced.
   const uptime = 12 / (12 + head.timeToKill! / 0.6);
-  const note = head.warnings.find((line) => line.startsWith('Arcane Pistoleer'))!;
-  assert.match(note, new RegExp(`up ${Math.round(uptime * 100)}%`));
+  const note = head.warnings.find((line) => line.startsWith('Ammo:'))!;
+  assert.match(note, new RegExp(`Arcane Pistoleer Infinite Ammo up ${Math.round(uptime * 100)}%`));
   // Only secondary weapons: on a rifle it is inactive.
   const rifle = snapshot([weapon({ impact: 100, fireRate: 5, magazineSize: 10, reloadTime: 4 })], [], [target], { arcanes: [pistoleer] });
   const onRifle = build(rifle, [], { stackMode: 'max', hit: 'head', warframeArcanes: ['Arcane Pistoleer'] });
-  assert.equal(onRifle.infiniteAmmoChance, 0);
+  assert.equal(onRifle.ammo.buffs.length, 0);
   assert.ok(onRifle.inactiveConditions.some((line) => line.includes('only buffs secondary weapons')));
 });
 

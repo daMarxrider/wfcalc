@@ -29,14 +29,18 @@ const WEAPON_SCOPE: Record<string, { label: string; fits: (weapon: WeaponData) =
   'Arcane Velocity': { label: 'secondary weapons', fits: (w) => w.category === 'secondary' },
 };
 
+/**
+ * Dual-wielded sidearms. The data types only some of them "Dual Pistols" (Akstiletto Prime and
+ * Twin Rogga come as "Pistol"), but every one is named Ak..., Twin ... or Dual ... (or Afuris).
+ */
+export const isDualPistols = (weapon: WeaponData): boolean => weapon.category === 'secondary'
+  && (weapon.type === 'Dual Pistols' || /^(?:(?:Kuva|Prisma|Telos|Tenet|Dex) )?(?:Ak[a-z]|Twin |Dual |Afuris)/.test(weapon.name));
+
 /** Which weapons a Warframe arcane buffs, or null when it buffs this one. */
 export function arcaneScopeMiss(name: string, weapon: WeaponData): string | null {
   const scope = WEAPON_SCOPE[name];
   return scope && !scope.fits(weapon) ? scope.label : null;
 }
-
-/** Arcane Pistoleer's Infinite Ammo lasts this long at every rank (wiki). */
-export const PISTOLEER_SECONDS = 12;
 
 const pct = (value: number): string => `${Math.round(value * 10000) / 100}%`;
 const effect = (target: string, value: number, raw: string, extra: Partial<Effect> = {}): Effect => ({ target, op: 'add', value, raw, ...extra });
@@ -49,6 +53,8 @@ export interface ArcaneContext {
   heavyAttack: boolean;
   /** The Residual zone the player stands in (Theorem Demulcent); Toxin (Residual Viremia) when unset. */
   residualElement?: ResidualElement;
+  /** The weapon is a pair of pistols (Akimbo Slip Shot). */
+  dualPistols?: boolean;
 }
 
 const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> = {
@@ -56,8 +62,12 @@ const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> =
   'Arcane Primary Charger': (r) => [effect('baseDamage', 0.5 * (r + 1), `On Melee Kill: +${pct(0.5 * (r + 1))} Primary Weapon Damage`, { condition: 'onMeleeKill' })],
   'Arcane Tempo': (r) => [effect('fireRate', 0.15 * (r + 1), `On Critical Hit: +${pct(0.15 * (r + 1))} Fire Rate to Shotguns`, { condition: 'on_critical_hit' })],
   'Arcane Velocity': (r) => [effect('fireRate', 0.2 * (r + 1), `On Critical Hit: +${pct(0.2 * (r + 1))} Fire Rate to Pistols`, { condition: 'on_critical_hit' })],
-  // Value = chance per weak-point kill; damage.ts turns it into an uptime from the kill time.
-  'Arcane Pistoleer': (r) => [effect('infiniteAmmo', 0.1 * (r + 1), `On Pistol Weak Point Kill: ${pct(0.1 * (r + 1))} chance for Infinite Ammo for ${PISTOLEER_SECONDS}s`, { condition: 'onWeakPointKill' })],
+  // Value = chance per weak-point kill; damage.ts turns it into an uptime (ammo.ts). A proc does
+  // not refresh a running buff (wiki).
+  'Arcane Pistoleer': (r) => [effect('ammoBuff', 0.1 * (r + 1), `On Pistol Weak Point Kill: ${pct(0.1 * (r + 1))} chance for Infinite Ammo for 12s`, { condition: 'onWeakPointKill', ammoBuff: { seconds: 12, trigger: 'weakPointKill', refresh: false, efficiency: 1 } })],
+  'Akimbo Slip Shot': (r, { dualPistols }) => (dualPistols
+    ? [effect('ammoEfficiency', 0.15 + 0.1 * r, `While sliding or aim gliding: +${pct(0.15 + 0.1 * r)} Ammo Efficiency with Dual Pistols`, { condition: 'sliding' })]
+    : []),
   'Arcane Hot Shot': (r) => [effect('critChance', 0.01 * (r + 1), `Ability Heat procs: +${pct(0.01 * (r + 1))} Critical Chance per stack, up to 50x`, { condition: 'onAbilityHeatProc', maxStacks: 50 })],
   // "Final" critical damage: added to the finished multiplier, after mods.
   'Arcane Crepuscular': (r) => [
@@ -79,7 +89,10 @@ const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> =
   'Melee Retaliation': (r) => [effect('baseDamage', 0.05 * (r + 1), `+${pct(0.05 * (r + 1))} Melee Damage per 200 Shields, up to 420%`, { condition: 'per200Shields', maxStacks: 420 / (5 * (r + 1)) })],
   // Stacks = armour points past 1,000; the bonus stops at 1,500 armour at every rank.
   'Primary Bulwark': (r) => [effect('baseDamage', 0.005 + 0.001 * r, `+${pct(0.005 + 0.001 * r)} damage per armour point past 1,000, up to 500 points`, { condition: 'armorOver1000', maxStacks: 500 })],
-  'Primary Crux': (r) => [effect('statusChance', 0.05 * (r + 1), `On Weak Point Hit: +${pct(0.05 * (r + 1))} Status Chance, up to 10x`, { condition: 'onWeakPointHit', maxStacks: 10 })],
+  'Primary Crux': (r) => [
+    effect('statusChance', 0.05 * (r + 1), `On Weak Point Hit: +${pct(0.05 * (r + 1))} Status Chance, up to 10x`, { condition: 'onWeakPointHit', maxStacks: 10 }),
+    effect('ammoEfficiency', 0.01 * (r + 1), `On Weak Point Hit: +${pct(0.01 * (r + 1))} Ammo Efficiency, up to 10x`, { condition: 'onWeakPointHit', maxStacks: 10 }),
+  ],
   // Stacks = max Energy (at 90% Energy or more); 35% of it as Multishot, capped per rank.
   'Primary Overcharge': (r) => [effect('multishot', 0.0035, `At 90%+ Energy: 35% of Max Energy as Multishot, up to ${pct(1 + 0.5 * r)}`, { condition: 'maxEnergy', maxStacks: (1 + 0.5 * r) / 0.0035 })],
   // Value = buff duration in seconds; build.ts turns it into the magazine-based bonus.

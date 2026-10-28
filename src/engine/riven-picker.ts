@@ -91,7 +91,7 @@ export interface RivenPickerResult {
 const RIVEN_SLOT = '\u0000riven';
 
 /** Stats that never change damage in this engine. */
-const NEUTRAL_TARGETS = new Set(['zoom', 'recoil', 'ammoMax', 'ammoEfficiency', 'projectileSpeed', 'punchThrough']);
+const NEUTRAL_TARGETS = new Set(['zoom', 'recoil', 'ammoMax', 'projectileSpeed', 'punchThrough']);
 
 /** Every riven the weapon can roll: three positives (at most one spliced), one malus. */
 export function enumerateRivens(snapshot: Snapshot, weaponName: string): RivenSpec[] {

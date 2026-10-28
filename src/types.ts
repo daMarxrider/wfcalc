@@ -255,8 +255,23 @@ export interface Effect {
   form?: 'incarnon' | 'normal';
   /** "With Critical Chance Below 50%": applies only while the build's crit chance is under this. */
   critChanceBelow?: number;
+  /** A timed ammo buff (target `ammoBuff`): the value is its chance per event (engine/ammo.ts). */
+  ammoBuff?: AmmoBuffSpec;
   /** Original text, for display. */
   raw: string;
+}
+
+/** Infinite Ammo or an Ammo Efficiency bonus for a while after an event. */
+export interface AmmoBuffSpec {
+  seconds: number;
+  /** The event: every hit, every weak-point hit, or a weak-point kill. */
+  trigger: 'hit' | 'headshot' | 'weakPointKill';
+  /** Whether a proc while it runs restarts the timer. */
+  refresh: boolean;
+  /** Ammo Efficiency while up; 1 is Infinite Ammo. */
+  efficiency: number;
+  /** Events needed for one proc (Perigale: four headshots). */
+  every?: number;
 }
 
 export interface ModData {

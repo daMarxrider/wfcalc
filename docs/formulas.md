@@ -368,8 +368,20 @@ shield-capable damage), then health using direct damage plus DoT DPS. Toxin bypa
 shields (except Treasurer and Hounds). Time comes from the sustained fire rate, which
 accounts for the magazine and reload cycle.
 
+**Ammo** (`Ammo → Ammo Efficiency`, `src/engine/ammo.ts`): a magazine lasts magazine / cost shots,
+cost = 1 − Ammo Efficiency. Sources add up to the 75% cap; Energized Munitions multiplies on top;
+the Incarnon form ignores it all. Infinite Ammo (and timed efficiency) buffs count by uptime from
+their event spacing (a weak-point kill per kill time, a hit per pellet): refreshing ones
+1 − (1 − chance)^(duration / interval), others duration / (duration + interval / chance), iterated
+with the kill time. Sources: riven stat, Velox (40% with Protea), Magnus/Akmagnus Prime, Athodai
+(Prime), Dual Toxocyst, Knell (Prime), Perigale (Prime), Brain Storm, Skull Shots, Zazvat-Kar,
+Arcane Pistoleer, Akimbo Slip Shot, Primary Crux, Primary Compression, the Braton/Boltor/Bronco/
+Dera/Felarx/Laetum/Lex/Lato/Vasto Incarnon evolutions. Not modelled: AX-52 (not in the data),
+amp and Warframe ammo (Eternal Logistics, Zid-An Haras, Vikla-Safor), Void Fuel (Focus), the
+relic Reactant buff.
+
 **Fight simulation** (default in calc, search, brute force, batch and the API; `--no-sim` turns
-it off): `src/engine/simulate.ts` walks the fight in ~200 steps on expected values. Shots follow
+it off): `src/engine/simulate.ts` walks the fight in steps of 10 ms or finer on expected values. Shots follow
 the magazine and reload; each shot adds expected procs (none while Overguard is up); every status
 keeps its own stacks for its duration (Status Duration stretches it) and feeds back into damage:
 
