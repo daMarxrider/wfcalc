@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadSnapshot } from '../src/data.ts';
-import { bruteForce, planBruteForce } from '../src/engine/bruteforce.ts';
+import { bruteForce, makeScorer, planBruteForce, scaleTarget } from '../src/engine/bruteforce.ts';
 import { search } from '../src/engine/search.ts';
 import { resolveBuild } from '../src/engine/build.ts';
 import { hitEnemy } from '../src/engine/damage.ts';
@@ -363,17 +363,15 @@ test('every Incarnon evolution has its wiki icon and a real name', () => {
   }
 });
 
-test('equally fast builds: the one without a drawback wins (Serration over Heavy Caliber)', async () => {
-  // At 30 capacity only one of the two +165% damage mods fits; both kill in exactly the same time.
-  const result = await bruteForce(snapshot, {
-    weapon: 'Braton Prime', enemy: 'Bombard', level: 150, capacity: 30, pool: 14, simulate: false, limit: 2, workers: 1,
-    base: { arcanes: ['Primary Deadhead'] },
-  });
-  const [first, second] = result.builds.map((build) => build.mods.map((mod) => mod.name));
-  assert.ok(first.includes('Serration') && !first.includes('Heavy Caliber'), first.join(', '));
-  if (second.includes('Heavy Caliber') && !second.includes('Serration')) {
-    assert.equal(result.builds[1].timeToKill, result.builds[0].timeToKill);
-  }
+test('equally fast builds: the one without a drawback wins (Serration over Heavy Caliber)', () => {
+  // Both add +165% damage, so they kill in the same time; Heavy Caliber also costs accuracy.
+  const scaled = scaleTarget(snapshot, {}, snapshot.enemies.Bombard, 150);
+  const score = makeScorer(snapshot, 'Braton Prime', { arcanes: ['Primary Deadhead'] }, scaled, 'ttk', undefined);
+  const serration = score([{ name: 'Serration' }], null);
+  const heavyCaliber = score([{ name: 'Heavy Caliber' }], null);
+  assert.ok(serration > heavyCaliber);
+  // The tie-break is a nudge, never a real difference in kill time.
+  assert.ok((serration - heavyCaliber) / serration < 1e-6);
 });
 
 test('a drawback twin (Heavy Caliber = Serration - accuracy) is only used next to its clean mod', async () => {

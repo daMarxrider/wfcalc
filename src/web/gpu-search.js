@@ -184,7 +184,7 @@ function scoreOrder(params, A, B, order) {
   const pulls = magazine / cycle;
   const pellets = multishot * pulls;
   const duration = 1 + Math.max(-0.9, S[CH.statusDuration]);
-  const forcedOf = (t) => S[CH['forcedCrit:impact'] + t] * Math.min(1, critBase) + S[CH['forced:impact'] + t];
+  const forcedOf = (t) => S[CH['forcedCrit:impact'] + t] * pCrit + S[CH['forced:impact'] + t];
   // Without the status build-up (simulate off) only the player's own stacks count.
   const steady = params[P.steady] > 0 ? 1 : 0;
   const rate = (t) => steady * pellets * (status * (damage[t] / total) + forcedOf(t));
@@ -215,10 +215,10 @@ function scoreOrder(params, A, B, order) {
   let dotDps = 0;
   for (const [t, coefficient, ticks] of DOT) {
     const share = damage[t] / total;
-    const forcedCrit = multishot * fireRate * S[CH['forcedCrit:impact'] + t] * pCrit;
-    const forcedPlain = multishot * fireRate * S[CH['forced:impact'] + t];
+    const forcedCrit = multishot * pulls * S[CH['forcedCrit:impact'] + t] * pCrit;
+    const forcedPlain = multishot * pulls * S[CH['forced:impact'] + t];
     if (!(share > 0) && forcedCrit + forcedPlain <= 0) continue;
-    const natural = status * share * multishot * fireRate;
+    const natural = status * share * multishot * pulls;
     const weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
     const elemental = t >= T.heat && t <= T.toxin ? S[4 + t] : 0;
     const typeBonus = t === T.toxin ? 1 + params[P.toxinStatusBonus] : 1;
@@ -413,7 +413,7 @@ fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
   let pulls = magazine / cycle;
   let pellets = multishot * pulls;
   let duration = 1.0 + max(-0.9, S[${CH.statusDuration}u]);
-  let critCap = min(1.0, critBase);
+  let critCap = pCrit;
   let steady = select(0.0, 1.0, params[${P.steady}u] > 0.0);
   let rViral = steady * pellets * (status * (dmg[${T.viral}u] / total) + S[${CH['forcedCrit:impact']}u + ${T.viral}u] * critCap + S[${CH['forced:impact']}u + ${T.viral}u]);
   let rCorr = steady * pellets * (status * (dmg[${T.corrosive}u] / total) + S[${CH['forcedCrit:impact']}u + ${T.corrosive}u] * critCap + S[${CH['forced:impact']}u + ${T.corrosive}u]);
@@ -451,10 +451,10 @@ fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
   for (var d = 0u; d < 6u; d++) {
     let t = dotTypes[d];
     let share = dmg[t] / total;
-    let forcedCrit = multishot * fireRate * S[${CH['forcedCrit:impact']}u + t] * pCrit;
-    let forcedPlain = multishot * fireRate * S[${CH['forced:impact']}u + t];
+    let forcedCrit = multishot * pulls * S[${CH['forcedCrit:impact']}u + t] * pCrit;
+    let forcedPlain = multishot * pulls * S[${CH['forced:impact']}u + t];
     if (!(share > 0.0) && forcedCrit + forcedPlain <= 0.0) { continue; }
-    let natural = status * share * multishot * fireRate;
+    let natural = status * share * multishot * pulls;
     let weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
     var elemental = 0.0;
     if (t >= ${T.heat}u && t <= ${T.toxin}u) { elemental = S[4u + t]; }

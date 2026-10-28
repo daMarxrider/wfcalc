@@ -34,7 +34,8 @@ import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
 import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, type ResidualElement } from './arcanes.ts';
-import { arcaneProcRates, procRates } from './dot.ts';
+import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
+import { hitProfile } from './hit.ts';
 import { InputError } from '../errors.ts';
 import { overloadMultiplies } from './overload.ts';
 
@@ -428,9 +429,10 @@ function ownStatusTypes(resolved: ResolvedBuild): number {
 
 /** Procs per second arcanes add to the build's own (dot.ts arcaneProcRates). */
 function arcaneExtraProcs(resolved: ResolvedBuild): Partial<Record<DamageType, number>> {
-  // Crit chance 1: crit-only forced procs count at their full chance here (see dot.ts procRates).
-  const rates = procRates(resolved, resolved.fireRate, 1);
-  return arcaneProcRates(resolved, resolved.fireRate, (type) => rates(type).natural + rates(type).forced);
+  // Crit-only forced procs land at the crit chance of where the shots hit (head: weak-point bonus).
+  const pulls = sustainedPulls(resolved);
+  const rates = procRates(resolved, pulls, hitProfile(resolved, null).critChance);
+  return arcaneProcRates(resolved, pulls, (type) => rates(type).natural + rates(type).forced);
 }
 
 /**
