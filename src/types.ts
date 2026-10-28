@@ -473,6 +473,8 @@ export interface Snapshot {
    * whether its bonus multiplies or adds to other damage bonuses). Optional: older snapshots lack it.
    */
   compression?: Record<string, CompressionEntry[]>;
+  /** Guaranteed damage procs per weapon attack (wiki ForcedProcs); `''` is the default profile. tools/fetch-forced-procs.ts */
+  forcedProcs?: Record<string, Record<string, DamageType[]>>;
   /** Sniper rifles: zoom levels with their scoped buff, and the Shot Combo minimum (wiki table). */
   snipers?: Record<string, SniperData>;
   enemies: Record<string, EnemyData>;

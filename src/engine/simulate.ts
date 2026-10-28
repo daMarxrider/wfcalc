@@ -268,7 +268,8 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const ammoCost = build.ammo?.cost ?? 1;
   const magazine = ammoCost > 1e-9 ? Math.max(1, build.magazineSize) / ammoCost : Infinity;
   const fireTime = magazine / Math.max(0.01, build.fireRate);
-  const cycle = fireTime + Math.max(0, build.reloadTime);
+  // Spool-up (traits.ts) costs shots at the start of each magazine: counted as time without fire.
+  const cycle = fireTime + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime);
   /** Seconds spent firing inside [a, b). */
   const firing = (a: number, b: number): number => {
     if (!Number.isFinite(cycle)) return b - a;

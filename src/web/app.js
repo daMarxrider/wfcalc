@@ -1459,6 +1459,7 @@ function renderResults(result) {
   if (result.weapon.mode) notes.push(`Using fire mode: ${result.weapon.mode}`);
   if (result.incarnon?.length) notes.push(`Incarnon: ${result.incarnon.join(' / ')}`);
   if (result.riven?.length) notes.push(`Riven: ${result.riven.join(', ')}`);
+  if (result.traits?.length) notes.push(`Weapon traits: ${result.traits.join(' · ')}`);
   if (String(result.riven ?? []) !== String(rivenLines)) {
     rivenLines = result.riven ?? [];
     renderSlots();
@@ -2069,6 +2070,7 @@ const TIPS = {
   'surge-shot': 'Secondary Surge: Energy built up for the next shot after a cast (+0.5% damage per point, up to x8 at 1,400). Empty: off; the arcane only buffs that one shot, so "all" stacks never assume it.',
   'sliding': 'Sliding or aim gliding: turns on "while sliding" effects (Akimbo Slip Shot, Felarx and Laetum Incarnon Ammo Efficiency). Like aiming, "all" stacks never assume it.',
   'airborne': 'Airborne: turns on "while airborne" effects (Zazvat-Kar\'s Ammo Efficiency). Like aiming, "all" stacks never assume it.',
+  'sprinting': 'Reloading while sprinting: Acceltra and Akarius reload faster (twice as much with Gauss). Like aiming, "all" stacks never assume it.',
   'aiming': 'Aiming / scoped: turns on "when aiming" effects (Bladed Rounds, Argon Scope, Primary Compression).',
   'onkill': 'On-kill stacks you keep up (Merciless, Galvanized mods). Each effect stops at its own cap: Merciless 12, Galvanized Chamber 5; effects that do not stack count once.',
   'status-types': 'Status types OTHER sources keep on the target (an ally\'s Toxin, an ability\'s Cold). Each build adds the types it procs itself. Feeds Galvanized Aptitude, Galvanized Savvy and Condition Overload.',
@@ -2166,7 +2168,7 @@ function applyTips() {
 
 /** Build-tab fields and their copies on the brute-force tab. */
 const MIRRORED_FIELDS = [
-  ['aiming', 'find-aiming'], ['sliding', 'find-sliding'], ['airborne', 'find-airborne'], ['onkill', 'find-onkill'], ['status-types', 'find-status-types'],
+  ['aiming', 'find-aiming'], ['sliding', 'find-sliding'], ['airborne', 'find-airborne'], ['sprinting', 'find-sprinting'], ['onkill', 'find-onkill'], ['status-types', 'find-status-types'],
   ['viral', 'find-viral'], ['corrosive', 'find-corrosive'], ['cp-input', 'find-cp-input'],
   ['strip-input', 'find-strip-input'], ['shattering-input', 'find-shattering-input'], ['strip-from', 'find-strip-from'],
   ['riven-input', 'find-riven-input'], ['riven-drain', 'find-riven-drain'], ['riven-polarity', 'find-riven-polarity'],
@@ -2193,6 +2195,7 @@ function syncInputs() {
   $('aiming').checked = Boolean(state.conditions.aiming);
   $('sliding').checked = Boolean(state.conditions.sliding);
   $('airborne').checked = Boolean(state.conditions.airborne);
+  $('sprinting').checked = Boolean(state.conditions.sprinting);
   $('viral').value = String(state.debuffs?.viralStacks ?? 0);
   $('corrosive').value = String(state.debuffs?.corrosiveStacks ?? 0);
   $('covenant-damage').value = state.conditions.covenantDamage ? String(state.conditions.covenantDamage) : '';
@@ -2349,6 +2352,7 @@ function bindEvents() {
   conditionInput('aiming', 'aiming', false);
   conditionInput('sliding', 'sliding', false);
   conditionInput('airborne', 'airborne', false);
+  conditionInput('sprinting', 'sprinting', false);
   conditionInput('covenant-damage', 'covenantDamage', true);
   conditionInput('surge-shot', 'surgeShot', true);
   $('residual-element').addEventListener('change', (event) => {

@@ -78,7 +78,9 @@ export function incarnonAmmoEffects(weapon: WeaponData, perk: string): Effect[] 
   return INCARNON[perk] ?? [];
 }
 
-export function weaponAmmoEffects(weapon: WeaponData, frame: string | undefined): Effect[] {
+export function weaponAmmoEffects(weapon: WeaponData, frame: string | undefined, aiming = false): Effect[] {
+  // AX-52: +75% when hip-firing (aiming gives it headshot crit chance instead, traits.ts).
+  if (weapon.name === 'Ax-52') return aiming ? [] : [efficiency(0.75, 'Hip-fire: +75% Ammo Efficiency')];
   // Velox: 20% innate, 40% in Protea's hands (signature weapon).
   if (/^Velox( Prime)?$/.test(weapon.name)) {
     const value = PROTEA.test(frame ?? '') ? 0.4 : 0.2;
