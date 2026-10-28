@@ -19,6 +19,7 @@ const BIN = fileURLToPath(new URL('../bin/wfcalc', import.meta.url));
 const GOLDEN = {
   // Status procs count reloads (2026-10-28): fewer procs per second than the bare fire rate.
   // The fight simulation steps at 10 ms or finer (2026-10-28): coarse steps moved times by up to 1.6%.
+  // Soma Prime spools up (25% fire rate, +30% per shot): 0.27 s lost per magazine (2026-10-28).
   // Damage 3.0 (Update 36): Grineer takes +50% Impact/Corrosive and nothing from the old
   // Alloy Armor table, so the best build is now a Slash/status one, not the Viral one.
   // Since Hunter Munitions is searchable (category-wide "Primary" mods) and status ticks inherit
@@ -31,7 +32,7 @@ const GOLDEN = {
   // Kuva weapons carry their bonus element: with none picked, the in-game maximum of 60% Heat.
   brammaTotal: 'total 786.8 dps with status',
   brammaTtk: 'ttk 150.59s',
-  somaStrippedTtk: 'ttk 126.51s',
+  somaStrippedTtk: 'ttk 128.75s',
   avalancheCast: '3,000 at 200%',
   ceramicIncarnonHit: 1540,
   eximusOverguard: '281,865',

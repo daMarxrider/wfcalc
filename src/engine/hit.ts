@@ -46,7 +46,7 @@ export interface HitProfile {
 export function hitProfile(build: ResolvedBuild, faction: string | null | undefined): HitProfile {
   const head = build.hitZone === 'head';
   const location = head
-    ? ((build.weakPointOverride || weakPointBase(faction)) + 1.5 * build.weakPointDamageBonus) * (1 + build.headshotMultiplierBonus)
+    ? ((build.weakPointOverride || weakPointBase(faction)) + 1.5 * build.weakPointDamageBonus) * (1 + build.headshotMultiplierBonus) * (build.headshotFactor ?? 1)
     : Math.max(0, 1 + build.bodyshotMultiplierBonus);
   const critChance = Math.max(0, build.critChance + (head ? build.weakPointCritChance : 0));
   const critDamage = Math.max(1, build.critMultiplier);

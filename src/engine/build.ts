@@ -35,6 +35,7 @@ import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
 import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, isDualPistols, type ResidualElement } from './arcanes.ts';
 import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
+import { COMBO, NEXT_SHOT, spoolSeconds, weaponTraitEffects } from './traits.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
 import { hitProfile } from './hit.ts';
 import { InputError } from '../errors.ts';
@@ -56,7 +57,7 @@ export const hitZoneOf = (build: Pick<Build, 'hit' | 'headshot'>): HitZone =>
 /** Conditions that only a weak-point or headshot hit can trigger. */
 const WEAK_POINT_CONDITION = /weakpoint|weak_point|headshot/i;
 /** Conditions that describe how the player plays: "max" stacks never assume them, the switch decides. */
-const PLAYED_CONDITIONS = ['aiming', 'surgeShot', 'sliding', 'airborne'];
+const PLAYED_CONDITIONS = ['aiming', 'surgeShot', 'sliding', 'airborne', 'sprinting'];
 
 /** Buff/condition toggles: `{ onKill: 5 }` means the on-kill effect has 5 stacks. */
 export type Conditions = Record<string, number | boolean>;
@@ -174,6 +175,12 @@ export interface ResolvedBuild {
   activeBuffs: string[];
   /** Riven stat lines as rolled, for display. */
   rivenLines: string[];
+  /** The weapon's traits in effect (traits.ts) and its guaranteed procs, for display. */
+  traitLines: string[];
+  /** Multiplier on headshot damage from multiplicative sources (Cernos Prime), 1 when none. */
+  headshotFactor: number;
+  /** Seconds a magazine loses to spool-up (traits.ts), 0 for weapons without one. */
+  spoolSeconds: number;
   /** Chosen Incarnon evolutions, for display. */
   incarnonLines: string[];
   /** Melee combo multiplier in effect (1 when no combo). */
@@ -599,6 +606,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     warnings: [],
   };
 
+  // Guaranteed procs of the attack fired (wiki ForcedProcs): one per hit, on top of the rolls.
+  const procsByAttack = snapshot.forcedProcs?.[weapon.name] ?? {};
+  const innateProcs = incarnonFormActive
+    ? Object.entries(procsByAttack).filter(([attack]) => /^Incarnon Form( AoE| Radial Attack)?$/.test(attack)).flatMap(([, procs]) => procs)
+    : procsByAttack[mode?.name ?? ''] ?? [];
+  for (const type of innateProcs) collected.forcedProcs.push({ type, chance: 1, requiresCrit: false });
+
   // One uniform view of every effect source: mods, weapon arcanes and Warframe buffs.
   // Buff values are already resolved at the caster's Ability Strength, so they have
   // maxRank 0 and never get rank-scaled.
@@ -623,7 +637,9 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   // Per the wiki it does NOT scale normal attacks; it scales heavy attacks and
   // combo-scaling mods (Blood Rush, Weeping Wounds).
   const comboHits = Math.max(0, build.comboHits ?? 0);
-  const comboMultiplier = comboHits < 20 ? 1 : Math.min(12, 2 + Math.floor((comboHits - 20) / 20));
+  // Venka Prime reaches 13x, Dex Nikana steps every 11 hits up to 11x (traits.ts).
+  const combo = COMBO[weapon.name] ?? { hitsPerStep: 20, max: 12 };
+  const comboMultiplier = comboHits < combo.hitsPerStep ? 1 : Math.min(combo.max, 2 + Math.floor((comboHits - combo.hitsPerStep) / combo.hitsPerStep));
 
   const resolveMod = (wanted: string) =>
     snapshot.mods[wanted] ?? snapshot.mods[Object.keys(snapshot.mods).find((k) => normalizeName(k) === normalizeName(wanted)) ?? ''];
@@ -651,9 +667,9 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     const ammo = modAmmoEffects(mod.name, rank ?? mod.maxRank, mod.maxRank);
     if (ammo.length) sources.push({ name: mod.name, maxRank: 0, effects: ammo, partial: false, incompatible: [], kind: 'mod' });
   }
-  // Weapon traits that touch ammo (Magnus Prime's Chamber Cascade, Velox's innate efficiency).
-  const weaponAmmo = weaponAmmoEffects(weapon, build.frame);
-  if (weaponAmmo.length) sources.push({ name: weapon.name, maxRank: 0, effects: weaponAmmo, partial: false, incompatible: [], kind: 'weapon' });
+  // Weapon traits (traits.ts) and those that touch ammo (ammo.ts: Chamber Cascade, Velox).
+  const weaponTraits = [...weaponTraitEffects(weapon, { frame: build.frame }), ...weaponAmmoEffects(weapon, build.frame, Boolean(conditions.aiming))];
+  if (weaponTraits.length) sources.push({ name: weapon.name, maxRank: 0, effects: weaponTraits, partial: false, incompatible: [], kind: 'weapon' });
 
   // The riven can sit between the mods (rivenSlot): its elements then pair in that slot's place.
   const modSourceCount = sources.length;
@@ -882,7 +898,10 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       const bowFactor = effect.doublesForBows && /bow/i.test(weapon.type) ? 2 : 1;
       const setFactor = 1 + amplifyFor(source.set, source.name);
       const directOnly = effect.perStatusType ? directShare : 1;
-      const value = effect.value * rankFraction * stacks * comboFactor * bowFactor * setFactor * directOnly;
+      // Coda Motovore (wiki): Impact, Puncture and Slash mods are six times as strong.
+      const motovore = weapon.name === 'Coda Motovore' && source.kind === 'mod' && effect.target === 'element'
+        && (PHYSICAL_TYPES as readonly string[]).includes(effect.element ?? '') ? 6 : 1;
+      const value = effect.value * rankFraction * stacks * comboFactor * bowFactor * setFactor * directOnly * motovore;
       // Timed ammo buffs keep their spec; their value is the chance per event (ammo.ts).
       if (effect.target === 'ammoBuff' && effect.ammoBuff) {
         if (value > 0) collected.ammoBuffs.push({ ...effect.ammoBuff, name: source.name, chance: value });
@@ -959,6 +978,17 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
 
   const bonus = (target: string): number => collected.byTarget.get(target) ?? 0;
+  // Coda Motovore: the strongest physical bonus picks the wheel. Impact: +40% Attack Speed;
+  // Slash: +100% Status Chance; Puncture: +1.5 m range (no damage).
+  let motovoreLine: string | null = null;
+  if (weapon.name === 'Coda Motovore') {
+    const strongest = (['impact', 'puncture', 'slash'] as const).reduce((best, type) => (bonus(type) > bonus(best) ? type : best), 'impact' as 'impact' | 'puncture' | 'slash');
+    if (bonus(strongest) > 0 && strongest !== 'puncture') {
+      const [target, value] = strongest === 'impact' ? ['fireRate', 0.4] : ['statusChance', 1];
+      collected.byTarget.set(target, bonus(target) + value);
+      motovoreLine = `${strongest[0].toUpperCase()}${strongest.slice(1)} wheel (strongest physical mod): +${value * 100}% ${strongest === 'impact' ? 'Attack Speed' : 'Status Chance'}`;
+    }
+  }
   // Base-stat bonuses (Incarnon) go into the profile the mods then multiply.
   for (const add of collected.baseAdds) {
     const key = BASE_STAT[add.target];
@@ -1000,7 +1030,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
   // "Fire Rate cannot be modified" (Cannonade mods) locks the rate to the weapon's own.
   const fireRateLocked = (collected.byTarget.get('fireRateLock') ?? 0) > 0;
-  const fireRate = fireRateLocked ? stats.fireRate ?? 1 : (stats.fireRate ?? 1) * (1 + bonus('fireRate'));
+  // Multiplicative fire rate traits (Dual Toxocyst's Frenzy) apply on top of the additive bucket.
+  const fireRate = fireRateLocked ? stats.fireRate ?? 1 : (stats.fireRate ?? 1) * (1 + bonus('fireRate')) * (collected.byTarget.get('fireRateMult') ?? 1);
   const reloadTime = (stats.reloadTime ?? 0) / (1 + bonus('reloadSpeed'));
   // Magazine is an integer in game: 6 x 2.1 shows as 13, not 12.6.
   const magazineSize = Math.max(1, Math.round((stats.magazineSize ?? 1) * (1 + bonus('magazine'))));
@@ -1152,13 +1183,21 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const vigilante = setValue('Vigilante Set');
   const baseMultishot = (stats.multishot ?? 1) * (1 + bonus('multishot'));
   const enervateResets = bonus('enervateResets');
-  const critChance = enervateResets > 0
+  const critChanceRaw = enervateResets > 0
     ? enervateCritChance(baseCritChance + gladiatorCrit, enervateResets, baseMultishot,
       enervateHitsPerShot(weapon, mode?.trigger ?? weapon.modes[0]?.trigger, baseMultishot, fireRate))
     : baseCritChance + gladiatorCrit;
   // Not clamped to 1: the game allows above-100% status, which means a guaranteed proc plus
   // a chance of another. Clamping threw that information away.
-  const statusChance = (stats.statusChance ?? 0) * (1 + bonus('statusChance')) + bonus('statusChanceFlat');
+  const statusChanceRaw = (stats.statusChance ?? 0) * (1 + bonus('statusChance')) + bonus('statusChanceFlat');
+  // "Next shot" traits (traits.ts): after a crit or a status, a share of shots gets a set value.
+  const nextShot = NEXT_SHOT[weapon.name];
+  const nextShare = nextShot ? nextShot.chance * Math.min(1, nextShot.trigger === 'crit' ? critChanceRaw : statusChanceRaw) : 0;
+  const blend = (raw: number, stat: 'critChance' | 'statusChance'): number => (nextShot?.sets === stat ? (1 - nextShare) * raw + nextShare * nextShot.value : raw);
+  const critChance = blend(critChanceRaw, 'critChance');
+  const statusChance = blend(statusChanceRaw, 'statusChance');
+  // Venato Prime (wiki): every hit that applies a status also applies Tau.
+  if (weapon.name === 'Venato Prime' && statusChance > 0) collected.forcedProcs.push({ type: 'tau', chance: Math.min(1, statusChance), requiresCrit: false });
   // Melee Doughty (wiki): +bonus x per 10% of status chance that is Puncture's damage share,
   // rounded to one decimal, at most +50x. "Final" bonuses (Arcane Crepuscular) add after mods too.
   const punctureShare = projectileTotal > 0 ? (damage.puncture ?? 0) / projectileTotal : 0;
@@ -1223,7 +1262,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const ammo = incarnonFormActive
     ? { efficiency: 0, multipliers: [], buffs: [], cost: 1 }
     : { efficiency: bonus('ammoEfficiency'), multipliers: collected.ammoMultipliers, buffs: collected.ammoBuffs, cost: ammoCost(bonus('ammoEfficiency'), collected.ammoMultipliers) };
-  const sustainedDps = averageShotDamage * sustainedPulls({ magazineSize, fireRate, reloadTime, ammo });
+  const spool = spoolSeconds(weapon.name, magazineSize, fireRate);
+  const sustainedDps = averageShotDamage * sustainedPulls({ magazineSize, fireRate, reloadTime, ammo, spoolSeconds: spool });
 
   const elements = (Object.entries(damage) as Array<[DamageType, number]>)
     .filter(([, amount]) => amount > 0)
@@ -1249,6 +1289,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     factionBonus: Object.fromEntries(collected.faction),
     activeBuffs,
     rivenLines,
+    traitLines: [
+      ...(innateProcs.length ? [`Guaranteed ${innateProcs.join(' and ')} proc on every hit`] : []),
+      ...weaponTraits.filter((effect) => !collected.inactive.includes(`${weapon.name}: ${effect.raw}`)).map((effect) => effect.raw),
+      ...(motovoreLine ? ['Impact, Puncture and Slash mods x6', motovoreLine] : []),
+      ...(spool > 0 ? [`Spool-up: ${spool.toFixed(2)}s lost per magazine`] : []),
+    ],
+    spoolSeconds: spool,
     incarnonLines,
     comboMultiplier,
     punchThrough: bonus('punchThrough'),
@@ -1256,6 +1303,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     hitZone,
     weakPointDamageBonus: bonus('weakPointDamage'),
     headshotMultiplierBonus: bonus('headshotMultiplier'),
+    headshotFactor: collected.byTarget.get('headshotMultiplierMult') ?? 1,
     bodyshotMultiplierBonus: bonus('bodyshotMultiplier'),
     weakPointCritChance,
     weakPointOverride,

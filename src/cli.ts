@@ -556,6 +556,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
   }
   if (resolved.activeBuffs.length) console.log(`  buffs        ${resolved.activeBuffs.join(', ')} @ ${num(resolved.abilityStrength)}% strength`);
   if (resolved.rivenLines.length) console.log(`  riven        ${resolved.rivenLines.join(', ')}`);
+  if (resolved.traitLines.length) console.log(`  traits       ${resolved.traitLines.join(' · ')}`);
   if (resolved.incarnonLines.length) console.log(`  incarnon     ${resolved.incarnonLines.join(' / ')}`);
   if (resolved.elementBonus) {
     const picked = build.elementBonus ? '' : ', the default: pick with --element-bonus';

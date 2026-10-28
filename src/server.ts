@@ -280,6 +280,7 @@ function calculate(body: any) {
     activeBuffs: resolved.activeBuffs,
     abilityStrength: resolved.abilityStrength,
     riven: resolved.rivenLines,
+    traits: resolved.traitLines,
     incarnon: resolved.incarnonLines,
     comboMultiplier: resolved.comboMultiplier,
     critVariance: resolved.critVariance,

@@ -376,7 +376,7 @@ their event spacing (a weak-point kill per kill time, a hit per pellet): refresh
 with the kill time. Sources: riven stat, Velox (40% with Protea), Magnus/Akmagnus Prime, Athodai
 (Prime), Dual Toxocyst, Knell (Prime), Perigale (Prime), Brain Storm, Skull Shots, Zazvat-Kar,
 Arcane Pistoleer, Akimbo Slip Shot, Primary Crux, Primary Compression, the Braton/Boltor/Bronco/
-Dera/Felarx/Laetum/Lex/Lato/Vasto Incarnon evolutions. Not modelled: AX-52 (not in the data),
+Dera/Felarx/Laetum/Lex/Lato/Vasto Incarnon evolutions. AX-52 (hip-fire). Not modelled:
 amp and Warframe ammo (Eternal Logistics, Zid-An Haras, Vikla-Safor), Void Fuel (Focus), the
 relic Reactant buff.
 
@@ -525,3 +525,35 @@ Three layers, in `npm run validate` and `tests/`:
 - Multishot and crit are treated as expectations, not per-pellet rolls.
 - Fire rate is the trigger rate; charge weapons use the dataset's charge-inclusive rate.
 - Area-of-effect falloff and punch-through multi-hits are not modelled.
+
+## 21. Weapon traits (`src/engine/traits.ts`, each weapon's wiki page)
+
+Every weapon page was read (2026-10-28). Damage-relevant traits are written as effects, so stack
+modes and conditions apply to them:
+
+- **Guaranteed procs** per attack from the wiki's `ForcedProcs` (`tools/fetch-forced-procs.ts`,
+  `snapshot.forcedProcs`): one proc of that type per hit, on top of the status rolls (Daikyu Impact,
+  Epitaph Impact + Cold, Hystrix per quill...). The default profile is the first attack and its AoE.
+- **Signature** bonuses with `--frame`: Alternox (Gyre) +20% multishot, Epitaph (Sevagoth) +20%
+  headshot damage, Tekko (Atlas) +6% base status, Phantasma (Revenant) +4 magazine, Knell (Harrow)
+  +1 magazine, Acceltra/Akarius sprint reload (doubled with Gauss).
+- **Triggered**: Knell's Death Knell (+0.5x final crit multiplier, +20% final status, 3 stacks),
+  Arca Scisco (+4% crit and status after mods, 5 stacks), Dual Toxocyst's Frenzy (x2.5 fire rate,
+  +100% Toxin), Athodai's Overdrive (+100% fire rate), Buzlok's tracer (+50% crit), Evensong,
+  Pyrana Prime's twin, Coda Bassocyst's Mercy buff, Tenet Spirex and Nagantaka reloads, Vesper 77
+  and Ax-52 while aiming, and the melee ones (Ekhein, Sibear, Pride, Wrath, Lesion, Dual Viciss,
+  Tonkkatt, Pennant, Dorrclave).
+- **Innate**: Cernos Prime x1.5 headshots (its own multiplier), Kuva Chakkhurr +50% and Synapse
+  +20% headshot damage, Daikyu Prime +250% weak-point crit chance, Stropha x1 headshots,
+  Sarpa/Vastilok +25% physical, Cedo +60% damage and Galariak Prime +10% crit per status type,
+  Coda Motovore (physical mods x6, strongest one picks +40% attack speed or +100% status),
+  Venato Prime (every status hit also procs Tau).
+- **Next shot**: Sagek Prime (a crit: 6% for 500% status next shot), Gotva Prime (a status: 15%
+  for 300% crit next hit), as the expected share of shots.
+- **Spool-up**: fire rate starts at a share of the listed one and rises per shot (Soma Prime 25%
+  +30%/shot...); the shots lost count as dead time per magazine.
+- **Combo**: Venka Prime 13x at 240 hits, Dex Nikana +1x every 11 hits up to 11x.
+
+Not modelled: utility (pinning, stagger, movement or projectile speed, ammo maximum), alt-fire
+charge mechanics, field and orb mechanics, reload mini-games, random buffs (Amanata), Vadarya
+Prime's lightning, block charges, the Kohm family's pellet and ammo spool.
