@@ -12,7 +12,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { computeDot, debilitateRates, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
+import { arcaneProcRates, atLeastTen, computeDot, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import { hitProfile, type HitProfile } from './hit.ts';
 import { simulateKill, type SimulationResult } from './simulate.ts';
@@ -344,8 +344,23 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
       multiTargetFactor = 1 + (requestedTargets - 1) * secondaryShare;
       multiTargetDps = totalDps * multiTargetFactor;
       warnings.push(`AoE group: ${requestedTargets - 1} extra target(s) at the same distance, radial share ${(secondaryShare * 100).toFixed(0)}%`);
-    } else {
+    } else if (!build.irradiateShare) {
       warnings.push(`multi-target is not modelled for this weapon; ${requestedTargets} targets ignored`);
+    }
+  }
+  // Secondary Irradiate (wiki): a direct hit on a target with 10 Radiation stacks deals the
+  // arcane's share of that hit to every enemy nearby. The share of hits that qualify is
+  // P(N >= 10) for the steady Radiation stack count (12 s each, like Debilitate's).
+  // shortcut: the spread hit is valued like the original body hit (the wiki: elemental mods 33%
+  // less effective, no weak-point bonus, own crit roll); split the hit by type if it matters.
+  if (requestedTargets > 1 && build.irradiateShare > 0 && totalDps > 0) {
+    const natural = pullsPerSecond * build.multishot * build.statusChance * ((build.damage.perProjectile.radiation ?? 0) / totalRaw);
+    const rate = natural + (arcaneProcRates(build, pullsPerSecond, () => 0).radiation ?? 0);
+    const up = atLeastTen(rate * 12 * (1 + Math.max(-0.9, build.statusDurationBonus ?? 0)));
+    if (up > 0) {
+      multiTargetDps = totalDps * multiTargetFactor + (requestedTargets - 1) * build.irradiateShare * up * directHealthDps;
+      multiTargetFactor = multiTargetDps / totalDps;
+      warnings.push(`Secondary Irradiate: ${requestedTargets - 1} nearby target(s) take ${(build.irradiateShare * 100).toFixed(0)}% of the direct hit, ${(up * 100).toFixed(0)}% of hits on 10 Radiation stacks`);
     }
   }
   const num = (value: number): string => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -420,11 +435,11 @@ export function steadyStatusDebuffs(build: ResolvedBuild): Pick<DotContext, 'vir
       .reduce((sum, proc) => sum + pellets * proc.chance * (proc.requiresCrit ? Math.min(1, build.critChance) : 1), 0);
     return natural + forced;
   };
-  // Primary Debilitate adds base procs (Heat among them) on 10+ stacks of a combined status.
-  const debilitated = debilitateRates(build.debilitateChance ?? 0, duration, rate);
-  const viral = Math.min(10, rate('viral') * 6 * duration);
-  const corrosive = Math.min(10 + (build.corrosiveCapBonus ?? 0), rate('corrosive') * 8 * duration);
-  const heat = 0.5 * (1 - Math.exp(-(rate('heat') + (debilitated.heat ?? 0)) * 6 * duration));
+  // Arcanes add procs: Encumber's random statuses, Debilitate's base statuses (dot.ts).
+  const extra = arcaneProcRates(build, build.magazineSize / Math.max(0.01, cycle), rate);
+  const viral = Math.min(10, (rate('viral') + (extra.viral ?? 0)) * 6 * duration);
+  const corrosive = Math.min(10 + (build.corrosiveCapBonus ?? 0), (rate('corrosive') + (extra.corrosive ?? 0)) * 8 * duration);
+  const heat = 0.5 * (1 - Math.exp(-(rate('heat') + (extra.heat ?? 0)) * 6 * duration));
   return {
     viralStacks: Math.max(viral, build.debuffs?.viralStacks ?? 0),
     corrosiveStacks: Math.max(corrosive, build.debuffs?.corrosiveStacks ?? 0),

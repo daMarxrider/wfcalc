@@ -43,7 +43,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, effectiveArmor, healthModifier, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
+import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, effectiveArmor, ENCUMBER_TYPES, healthModifier, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
 import { hitProfile } from './hit.ts';
 
 interface StackRule {
@@ -225,6 +225,8 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const combined = debilitate > 0 ? (Object.keys(COMBINED_PARTS) as DamageType[]) : [];
   const combinedWindows = combined.map((type) => new Window(slots(COMBINED_DURATION[type] ?? 6)));
   const combinedProcs = new Float64Array(combined.length);
+  const encumber = Math.min(1, build.encumberChance ?? 0);
+  const cryogenic = build.cryogenicStacks ?? 0;
   const heatSeedWindow = new Window(slots(HEAT_DURATION));
 
   // Which status (if any) a damage type's procs feed: [stack index, tick index].
@@ -399,6 +401,14 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
       }
       for (const proc of build.forcedProcs ?? []) procHit(proc.type, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1));
       for (const proc of forced) add(proc, pellets * proc.chance * (proc.requiresCrit ? pCrit : 1), (proc.requiresCrit ? critOnCrit : averageCrit) * ramp);
+      // Secondary Encumber: at most one extra random status per pull (dot.ts arcaneProcRates).
+      if (encumber > 0 && statusChance > 0) {
+        const procs = (pulls * (1 - Math.pow(1 - encumber * Math.min(1, statusChance), Math.max(1, build.multishot)))) / ENCUMBER_TYPES.length;
+        for (const type of ENCUMBER_TYPES) {
+          add(procTargets(type), procs, averageCrit * ramp);
+          procHit(type, procs);
+        }
+      }
       // Debilitate: the share of combined procs landing on 10+ stacks adds one of its base statuses.
       combinedProcs.fill(0);
       if (!immune) combined.forEach((type, c) => {
@@ -412,6 +422,8 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
           procHit(part, extra);
         }
       });
+      // Secondary Cryogenic: every Puncture proc that landed adds Cold stacks.
+      if (cryogenic > 0 && stackProcs[iPuncture] > 0) add(procTargets('cold'), stackProcs[iPuncture] * cryogenic, 0);
     } else combinedProcs.fill(0);
 
     // ---- damage over time this step, through the current target state (per second x dt)

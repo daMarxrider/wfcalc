@@ -33,8 +33,8 @@ import { normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
-import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot } from './arcanes.ts';
-import { debilitateRates } from './dot.ts';
+import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, type ResidualElement } from './arcanes.ts';
+import { arcaneProcRates } from './dot.ts';
 import { InputError } from '../errors.ts';
 import { overloadMultiplies } from './overload.ts';
 
@@ -100,6 +100,8 @@ export interface Build {
   comboHits?: number;
   /** True when the attack is a heavy attack (the combo multiplier applies to damage). */
   heavyAttack?: boolean;
+  /** Element of the Residual zone the Theorem arcanes draw on (default Toxin). */
+  residualElement?: ResidualElement;
   /**
    * Chosen Incarnon evolutions, as `"EVO2:Final Fusillade"`, `"evo4:1"` or just the
    * option name. Tiers that are not listed stay unselected.
@@ -210,6 +212,12 @@ export interface ResolvedBuild {
   elementBonus: { type: DamageType; value: number } | null;
   /** Primary Debilitate's chance to add a base status on 10+ combined stacks, 0 when none. */
   debilitateChance: number;
+  /** Secondary Encumber's chance for a second random status, 0 when none. */
+  encumberChance: number;
+  /** Secondary Cryogenic's Cold stacks per Puncture proc, 0 when none. */
+  cryogenicStacks: number;
+  /** Secondary Irradiate's share of a hit dealt to nearby enemies (on 10 Radiation stacks), 0 when none. */
+  irradiateShare: number;
   /** The weapon's stats this build starts from (mode, Incarnon form, bonus element and AoE falloff applied). */
   baseStats: WeaponStats;
   /** Every summed bonus by target ("baseDamage", "critChance", "element:viral"...), for the GPU search's mod vectors. */
@@ -279,14 +287,19 @@ function conditionStacks(effect: Effect, conditions: Conditions, context: StackC
       stacks = 0;
     } else if (context.mode === 'max') {
       // Aiming is how the player plays, not a stack to max out: like head hits, it needs the switch.
-      const aimingOff = effect.condition.split('+').includes('aiming') && !conditions.aiming;
-      stacks = (WEAK_POINT_CONDITION.test(effect.condition) && context.hit !== 'head') || aimingOff ? 0 : cap;
+      // So is Secondary Surge's single empowered shot after a cast.
+      const parts = effect.condition.split('+');
+      const playedOff = (parts.includes('aiming') && !conditions.aiming) || (parts.includes('surgeShot') && !conditions.surgeShot);
+      stacks = (WEAK_POINT_CONDITION.test(effect.condition) && context.hit !== 'head') || playedOff ? 0 : cap;
+      if (parts.includes('surgeShot') && typeof conditions.surgeShot === 'number') stacks = Math.min(stacks, conditions.surgeShot);
     } else {
       for (const part of effect.condition.split('+')) {
         // A ramping buff the player picked counts as fully built unless they say otherwise.
         const raw = part === 'buffRamp' ? (conditions[part] ?? 1) : conditions[part];
         if (!raw) return 0; // undefined, false or 0 -> effect inactive
         if (typeof raw === 'number' && raw > stacks) stacks = raw;
+        // Secondary Surge counts Energy: a plain "on" means a fully charged shot.
+        if (raw === true && part === 'surgeShot') stacks = cap;
       }
     }
     if (stacks <= 0) return 0;
@@ -405,16 +418,21 @@ function ownStatusTypes(resolved: ResolvedBuild): number {
     ? Object.entries(resolved.damage.perProjectile).filter(([type, amount]) => amount > 0 && type !== 'true').map(([type]) => type)
     : []);
   for (const proc of resolved.forcedProcs ?? []) types.add(proc.type);
-  // Primary Debilitate's base statuses count once they are up more often than not.
+  // Arcane procs (Debilitate, Encumber, Cryogenic) count once they are up more often than not.
+  const durationScale = 1 + Math.max(-0.9, resolved.statusDurationBonus ?? 0);
+  for (const [type, extra] of Object.entries(arcaneExtraProcs(resolved))) {
+    if (1 - Math.exp(-(extra ?? 0) * 6 * durationScale) >= 0.5) types.add(type);
+  }
+  return types.size;
+}
+
+/** Procs per second arcanes add to the build's own (dot.ts arcaneProcRates). */
+function arcaneExtraProcs(resolved: ResolvedBuild): Partial<Record<DamageType, number>> {
   const total = resolved.damage.projectileTotal || 1;
   const rate = (type: DamageType): number => resolved.fireRate * resolved.multishot
     * (resolved.statusChance * ((resolved.damage.perProjectile[type] ?? 0) / total)
       + (resolved.forcedProcs ?? []).filter((proc) => proc.type === type).reduce((sum, proc) => sum + proc.chance, 0));
-  const durationScale = 1 + Math.max(-0.9, resolved.statusDurationBonus ?? 0);
-  for (const [type, extra] of Object.entries(debilitateRates(resolved.debilitateChance ?? 0, durationScale, rate))) {
-    if (1 - Math.exp(-(extra ?? 0) * 6 * durationScale) >= 0.5) types.add(type);
-  }
-  return types.size;
+  return arcaneProcRates(resolved, resolved.fireRate, rate);
 }
 
 /**
@@ -430,6 +448,7 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   // player sets for the source is kept: the wiki says other weapons and abilities feed it too.
   const procs = (type: string | undefined): boolean => (type
     ? (first.statusChance > 0 && (first.damage.perProjectile[type as DamageType] ?? 0) > 0) || first.forcedProcs.some((proc) => proc.type === type)
+      || (arcaneExtraProcs(first)[type as DamageType] ?? 0) > 0
     : ownStatusTypes(first) > 0);
   const idle = first.conditionalSources.filter((source) => source.stacks > 0 && build.sourceStacks?.[source.name] === undefined
     && source.conditions.some((condition) => {
@@ -747,7 +766,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       name: arcane.name,
       maxRank: 0,
       // Ability Strength is already handled by the strength calculation above.
-      effects: arcaneEffectsAt(arcane, rank).filter((effect) => effect.target !== 'abilityStrength'),
+      effects: arcaneEffectsAt(arcane, rank, { heavyAttack: Boolean(build.heavyAttack), residualElement: build.residualElement }).filter((effect) => effect.target !== 'abilityStrength'),
       partial: false,
       incompatible: [],
       kind: 'warframeArcane',
@@ -1217,6 +1236,9 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     dotSeed: (baseTotal + flatBase) * damageBonus * sniperComboMultiplier * finalFactor,
     elementBonus,
     debilitateChance: bonus('debilitate'),
+    encumberChance: bonus('encumber'),
+    cryogenicStacks: bonus('cryogenic'),
+    irradiateShare: bonus('irradiate'),
     critTierBonus: vigilante,
     bonusTotals: Object.fromEntries(collected.byTarget),
     baseStats: stats,

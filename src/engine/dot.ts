@@ -176,6 +176,34 @@ export function debilitateRates(chance: number, durationScale: number, rateOf: (
   return extra;
 }
 
+/** Statuses Secondary Encumber picks from, uniformly and independent of the weapon (wiki). */
+export const ENCUMBER_TYPES: DamageType[] = ['impact', 'puncture', 'slash', 'heat', 'cold', 'electricity', 'toxin', 'blast', 'corrosive', 'magnetic', 'viral', 'gas', 'radiation'];
+
+/**
+ * Procs per second arcanes add on top of `rateOf` (the build's own procs per second):
+ *   - Secondary Encumber (wiki): at most one extra random status per trigger pull, with chance
+ *     1 - (1 - chance x min(status chance, 1)) ^ pellets.
+ *   - Primary Debilitate: see `debilitateRates`, fed by the build's and Encumber's procs.
+ *   - Secondary Cryogenic: every Puncture proc puts `cryogenicStacks` Cold stacks on the target.
+ */
+export function arcaneProcRates(
+  build: Pick<ResolvedBuild, 'statusChance' | 'multishot' | 'statusDurationBonus' | 'debilitateChance' | 'encumberChance' | 'cryogenicStacks'>,
+  pullsPerSecond: number,
+  rateOf: (type: DamageType) => number,
+): Partial<Record<DamageType, number>> {
+  const extra: Partial<Record<DamageType, number>> = {};
+  const encumber = build.encumberChance ?? 0;
+  if (encumber > 0 && build.statusChance > 0) {
+    const perPull = 1 - Math.pow(1 - Math.min(1, encumber) * Math.min(1, build.statusChance), Math.max(1, build.multishot));
+    for (const type of ENCUMBER_TYPES) extra[type] = (pullsPerSecond * perPull) / ENCUMBER_TYPES.length;
+  }
+  const withEncumber = (type: DamageType): number => rateOf(type) + (extra[type] ?? 0);
+  const debilitated = debilitateRates(build.debilitateChance ?? 0, 1 + Math.max(-0.9, build.statusDurationBonus ?? 0), withEncumber);
+  for (const [type, rate] of Object.entries(debilitated) as Array<[DamageType, number]>) extra[type] = (extra[type] ?? 0) + rate;
+  if ((build.cryogenicStacks ?? 0) > 0) extra.cold = (extra.cold ?? 0) + build.cryogenicStacks * (rateOf('puncture') + (extra.puncture ?? 0));
+  return extra;
+}
+
 /**
  * Computes the sustained damage per second from status procs alone.
  * `flatFactionMultiplier` is the faction bonus already resolved by the caller.
@@ -221,8 +249,7 @@ export function computeDot(
 
   const naturalRate = (type: DamageType): number =>
     statusPerProjectile * ((build.damage.perProjectile[type] ?? 0) / perProjectileTotal) * build.multishot * pullsPerSecond;
-  const debilitated = debilitateRates(build.debilitateChance ?? 0, 1 + Math.max(-0.9, build.statusDurationBonus ?? 0),
-    (type) => naturalRate(type) + (forced.get(type) ?? 0));
+  const debilitated = arcaneProcRates(build, pullsPerSecond, (type) => naturalRate(type) + (forced.get(type) ?? 0));
 
   for (const type of DOT_TYPES) {
     const coefficient = TICK_COEFFICIENT[type];
@@ -231,7 +258,7 @@ export function computeDot(
 
     // Proc share: the status roll is weighted by each type's damage share.
     const share = (build.damage.perProjectile[type] ?? 0) / perProjectileTotal;
-    // A purely forced or Debilitate proc (no damage of that type on the weapon) still deals its DoT.
+    // A purely forced, Encumber or Debilitate proc (no damage of that type on the weapon) still deals its DoT.
     const extra = debilitated[type] ?? 0;
     if (share <= 0 && (forced.get(type) ?? 0) <= 0 && extra <= 0) continue;
 

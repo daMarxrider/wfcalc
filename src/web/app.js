@@ -2052,6 +2052,8 @@ const TIPS = {
   'setting-gpu': 'Run the brute force on this device\'s GPU through WebGPU. Off: the server\'s CPU threads do it.',
   'ability-run': 'Price one cast of the ability against the target.',
   'compare-run': 'Compare build A (the Build tab) with B.',
+  'residual-element': 'The Residual Arcane zone you stand in: Theorem Demulcent adds up to +180% of its element, combined with your elemental mods like one more element mod.',
+  'surge-shot': 'Secondary Surge: Energy built up for the next shot after a cast (+0.5% damage per point, up to x8 at 1,400). Empty: off; the arcane only buffs that one shot, so "all" stacks never assume it.',
   'aiming': 'Aiming / scoped: turns on "when aiming" effects (Bladed Rounds, Argon Scope, Primary Compression).',
   'onkill': 'On-kill stacks you keep up (Merciless, Galvanized mods). Each effect stops at its own cap: Merciless 12, Galvanized Chamber 5; effects that do not stack count once.',
   'status-types': 'Status types OTHER sources keep on the target (an ally\'s Toxin, an ability\'s Cold). Each build adds the types it procs itself. Feeds Galvanized Aptitude, Galvanized Savvy and Condition Overload.',
@@ -2177,6 +2179,8 @@ function syncInputs() {
   $('viral').value = String(state.debuffs?.viralStacks ?? 0);
   $('corrosive').value = String(state.debuffs?.corrosiveStacks ?? 0);
   $('covenant-damage').value = state.conditions.covenantDamage ? String(state.conditions.covenantDamage) : '';
+  $('surge-shot').value = state.conditions.surgeShot ? String(state.conditions.surgeShot) : '';
+  $('residual-element').value = state.residualElement ?? 'toxin';
   renderArcaneFields();
   $('strength-input').value = String(state.abilityStrength ?? 100);
   $('find-strength').value = String(state.abilityStrength ?? 100);
@@ -2327,6 +2331,11 @@ function bindEvents() {
   });
   conditionInput('aiming', 'aiming', false);
   conditionInput('covenant-damage', 'covenantDamage', true);
+  conditionInput('surge-shot', 'surgeShot', true);
+  $('residual-element').addEventListener('change', (event) => {
+    state.residualElement = event.target.value;
+    recalc();
+  });
 
   const debuffInput = (id, key) => {
     $(id).addEventListener('change', (event) => {

@@ -204,6 +204,15 @@
         <input id="framemods-input" placeholder="Intensify, Blind Rage" autocomplete="off" /></label>
       <label class="field"><span>Warframe arcanes</span>
         <input id="framearcane-input" placeholder="Arcane Avenger" autocomplete="off" /></label>
+      <label class="field"><span>Residual zone (Theorem Demulcent)</span>
+        <select id="residual-element">
+          <option value="toxin">Toxin · Residual Viremia</option>
+          <option value="heat">Heat · Residual Boils</option>
+          <option value="cold">Cold · Residual Malodor</option>
+          <option value="electricity">Electricity · Residual Shock</option>
+        </select></label>
+      <label class="field"><span>Secondary Surge: Energy on the next shot</span>
+        <input id="surge-shot" type="number" min="0" max="1400" step="50" placeholder="off" /></label>
       <label class="field"><span>Covenant: damage prevented</span>
         <input id="covenant-damage" type="number" min="0" step="500" placeholder="0" /></label>
       <div id="buff-list" class="buffs"></div>

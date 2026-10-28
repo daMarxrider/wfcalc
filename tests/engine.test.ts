@@ -897,6 +897,33 @@ test('Primary Debilitate adds base statuses on 10+ stacks of a combined one', ()
   assert.ok(fight(['Primary Debilitate']) < fight([]));
 });
 
+test('Encumber, Cryogenic, Irradiate, Surge and Theorem Demulcent', () => {
+  const arcane = (name: string, slot: string): ArcaneData => ({ id: name, name, category: '', rarity: 'Rare', maxRank: 5, description: '', effects: [], slot });
+  const pistol = { ...weapon({ puncture: 100, statusChance: 0.5, fireRate: 10, magazineSize: 1000, reloadTime: 0 }), category: 'secondary' as const, type: 'Pistol' };
+  const snap = snapshot([pistol], [], [dummy], { arcanes: ['Secondary Encumber', 'Secondary Cryogenic', 'Secondary Irradiate', 'Secondary Surge'].map((n) => arcane(n, 'secondary')).concat(arcane('Theorem Demulcent', 'warframe')) });
+  const dotOf = (arcanes: string[]) => hitEnemy(snap, build(snap, [], { arcanes }), scaleEnemy(snap, dummy, 1)).dot;
+  // Encumber: 10 pulls/s x (24% x 50%) = 1.2 extra procs/s, spread over 13 statuses.
+  close(dotOf(['Secondary Encumber']).find((entry) => entry.type === 'slash')!.procsPerSecond, 1.2 / 13, 1e-9);
+  // Cryogenic: 5 Puncture procs/s x 3 Cold stacks show up in the simulated fight's Cold.
+  const cold = (arcanes: string[]) => hitEnemy(snap, build(snap, [], { arcanes }), scaleEnemy(snap, dummy, 1), { simulate: true }).simulation!.atEnd.cold;
+  assert.equal(cold([]), 0);
+  assert.ok(cold(['Secondary Cryogenic']) > 0);
+  // Irradiate needs Radiation stacks: pure Puncture never qualifies, so no splash.
+  const group = (arcanes: string[]) => hitEnemy(snap, build(snap, [], { arcanes }), scaleEnemy(snap, dummy, 1), { targets: 3 }).multiTargetFactor;
+  assert.equal(group(['Secondary Irradiate']), 1);
+  const rad = snapshot([{ ...pistol, stats: { ...pistol.stats, puncture: 0, radiation: 100, statusChance: 1 } }], [], [dummy], { arcanes: [arcane('Secondary Irradiate', 'secondary')] });
+  const radGroup = hitEnemy(rad, build(rad, [], { arcanes: ['Secondary Irradiate'] }), scaleEnemy(rad, dummy, 1), { targets: 3 });
+  assert.ok(radGroup.multiTargetFactor > 1 + 2 * 1.8 * 0.9 * 0.5);
+  // Surge: x8 on the empowered shot, never assumed by max mode.
+  const surge = (extra: Partial<Build>) => build(snap, [], { arcanes: ['Secondary Surge'], ...extra }).damage.projectileTotal;
+  close(surge({ stackMode: 'max' }), surge({}));
+  close(surge({ conditions: { surgeShot: true } }) / surge({}), 8, 1e-6);
+  close(surge({ conditions: { surgeShot: 600 } }) / surge({}), 4, 1e-6);
+  // Theorem Demulcent: +180% of the zone's element at 15 stacks, like an elemental mod.
+  const zone = build(snap, [], { warframeArcanes: ['Theorem Demulcent'], residualElement: 'heat', stackMode: 'max' });
+  close(zone.damage.perProjectile.heat ?? 0, 180, 1e-6);
+});
+
 test('wiki DoT example: Toxin, 40 seed, +225% Toxin and +55% faction -> 158.68 per tick', () => {
   // ((40 x 1.55) + 1) x 0.5 x 3.25 x 1.55 = 158.68
   const toxinBig = mod('Primed Infected Clip', 10, ['+225% Toxin'], { classes: ['Rifle'] });

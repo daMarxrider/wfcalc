@@ -23,6 +23,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { loadSnapshot, findEnemy, findMod, findWeapon, modsForWeapon } from './data.ts';
+import { RESIDUAL_ELEMENTS } from './engine/arcanes.ts';
 import { resolveBuild, type Build, type BuildMod, type HitZone, type StackMode } from './engine/build.ts';
 import { search } from './engine/search.ts';
 import { bruteForce } from './engine/bruteforce.ts';
@@ -248,6 +249,7 @@ function buildFromArgs(snapshot: Snapshot, args: Args, mods: string[]): Build {
     zoom: flag(args, 'zoom') === 'max' ? 99 : flag(args, 'zoom') ? Number(flag(args, 'zoom')) : undefined,
     sniperCombo: flag(args, 'sniper-combo') ? Number(flag(args, 'sniper-combo')) : undefined,
     heavyAttack: args.flags.has('heavy'),
+    residualElement: RESIDUAL_ELEMENTS.find((element) => element === flag(args, 'residual')),
     // "auto" is handled by the search command; a list is passed through as it stands.
     ...(flagAll(args, 'incarnon').length
       ? { incarnon: flagAll(args, 'incarnon').flatMap((entry) => entry.split(',')).map((e) => e.trim()).filter(Boolean) }
@@ -1201,6 +1203,8 @@ Options: --mod NAME[:R<rank>]  --arcane NAME[:R<rank>] (search: auto)  --buff ro
          --cp 2                      (Corrosive Projections in the squad, 18% each)
          --shattering-impact 30      (melee hits that chipped the target's base armour)
          --combo-hits 220  --heavy   (melee combo multiplier / heavy attack)
+         --residual toxin            (Residual zone element for Theorem Demulcent)
+         --stacks surgeShot=1400     (Secondary Surge: Energy on the next shot)
          --aoe-distance 4            (AoE falloff distance in metres)
          --capacity 30|60            (Orokin Catalyst: 60, default)
          --enemy NAME  --level N  --faction NAME  --mode "Name"
