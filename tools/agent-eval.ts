@@ -18,6 +18,7 @@ const BIN = fileURLToPath(new URL('../bin/wfcalc', import.meta.url));
 
 const GOLDEN = {
   // Status procs count reloads (2026-10-28): fewer procs per second than the bare fire rate.
+  // The fight simulation steps at 10 ms or finer (2026-10-28): coarse steps moved times by up to 1.6%.
   // Damage 3.0 (Update 36): Grineer takes +50% Impact/Corrosive and nothing from the old
   // Alloy Armor table, so the best build is now a Slash/status one, not the Viral one.
   // Since Hunter Munitions is searchable (category-wide "Primary" mods) and status ticks inherit
@@ -25,12 +26,12 @@ const GOLDEN = {
   // Times come from the fight simulation: statuses build up from zero instead of starting at
   // their steady state. Bleed seeds from the modded base damage only (wiki: Damage/Calculation),
   // not from the elemental damage on top, which made the old 4.21s too optimistic.
-  somaSearchTtk: '7.34s',
-  somaSearchDps: '16,135.4 dps',
+  somaSearchTtk: '7.32s',
+  somaSearchDps: '16,176.4 dps',
   // Kuva weapons carry their bonus element: with none picked, the in-game maximum of 60% Heat.
-  brammaTotal: 'total 784.5 dps with status',
-  brammaTtk: 'ttk 151.03s',
-  somaStrippedTtk: 'ttk 127.27s',
+  brammaTotal: 'total 786.8 dps with status',
+  brammaTtk: 'ttk 150.59s',
+  somaStrippedTtk: 'ttk 126.51s',
   avalancheCast: '3,000 at 200%',
   ceramicIncarnonHit: 1540,
   eximusOverguard: '281,865',
@@ -230,7 +231,7 @@ const cases: Case[] = [
       check(result.status === 0, `exit ${result.status}: ${result.stderr}`);
       const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
       check(lines.length === 3, `expected 3 lines, got ${lines.length}`);
-      check(lines[0].label === 'bramma' && lines[0].totalDps === 784.5, `bad bramma line: ${JSON.stringify(lines[0])}`);
+      check(lines[0].label === 'bramma' && lines[0].totalDps === 786.8, `bad bramma line: ${JSON.stringify(lines[0])}`);
       check(lines[1].armor === 2700 && typeof lines[1].timeToKill === 'number', `bad dagger line: ${JSON.stringify(lines[1])}`);
       check(lines[2].ability === 'Avalanche' && lines[2].armorStrip.fraction === 1, `bad ability line: ${JSON.stringify(lines[2])}`);
     },

@@ -110,6 +110,8 @@ export interface SimulationOptions {
   maxSeconds?: number;
   /** A first guess at the kill time; it only sizes the time step. */
   estimate?: number | null;
+  /** Time step in seconds, instead of the one sized from `estimate`. */
+  step?: number;
 }
 
 export interface SimulationSample {
@@ -166,8 +168,10 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   // Statuses only shorten a fight, but the steady-state guess can be off early on: allow four
   // times the estimate (at least 10 minutes, at most two hours) before calling it unkillable.
   const maxSeconds = options.maxSeconds ?? Math.min(7200, Math.max(600, estimate * 4));
-  // About 200 steps per kill, never coarser than a second nor finer than 5 ms.
-  const dt = Math.min(1, Math.max(0.005, estimate / 200));
+  // About 20,000 steps per kill, never coarser than 10 ms nor finer than 1 ms. Coarser steps
+  // moved kill times by up to 1.6% (Soma Prime vs Bombard: 0.6 s steps 126.37 s, 0.65 s 127.27 s,
+  // 10 ms and finer 126.51 s); at 10 ms the error is under 0.05%.
+  const dt = options.step ?? Math.min(0.01, Math.max(0.001, estimate / 20000));
   const durationScale = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
   const slots = (seconds: number): number => Math.max(1, Math.round((seconds * durationScale) / dt));
 
