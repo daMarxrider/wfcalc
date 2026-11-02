@@ -13,7 +13,8 @@
  * or Toxin one) redundant: after the best replacement is known, each of those mods is also tried
  * against every other mod that fits the weapon.
  *
- * Capacity is not checked: the riven takes the replaced mod's slot whatever the drain.
+ * Capacity is not checked: the riven takes the replaced mod's slot whatever the drain. It only
+ * takes a standard slot: the Exilus and stance mods (`fixed`) always stay.
  */
 import type { Build, BuildMod } from './build.ts';
 import { elementalOrders, modElement, makeScorer, scaleTarget, runOnPool } from './bruteforce.ts';
@@ -29,6 +30,8 @@ export interface RivenPickerRequest {
   weapon: string;
   /** The build's mods (Build tab), riven excluded. */
   mods: BuildMod[];
+  /** Mods the riven cannot replace (Exilus, stance slot); Exilus mods in `mods` count as fixed too. */
+  fixed?: BuildMod[];
   /** Everything else of the build: arcanes, buffs, Incarnon, conditions... (its riven is ignored). */
   base?: Partial<Build>;
   enemy?: string;
@@ -85,6 +88,15 @@ export interface RivenPickerResult {
   /** For every build mod, how many of all rivens replace it. */
   replacedCounts: Record<string, number>;
   assumptions: string[];
+}
+
+/** The request's mods split into the slots a riven can take and the ones it cannot (Exilus, stance). */
+function splitMods(snapshot: Snapshot, request: RivenPickerRequest): { mods: BuildMod[]; fixed: BuildMod[] } {
+  const known = (mod: BuildMod): boolean => Boolean(mod.name && snapshot.mods[mod.name]);
+  const all = request.mods.filter(known);
+  const mods = all.filter((mod) => !snapshot.mods[mod.name].isExilus);
+  if (!mods.length) throw new InputError('the build has no mods to replace', 'invalid_argument');
+  return { mods, fixed: [...(request.fixed ?? []).filter(known), ...all.filter((mod) => snapshot.mods[mod.name].isExilus)] };
 }
 
 /** Placeholder for the riven while elemental orders are tried. */
@@ -145,7 +157,8 @@ export function rivenShard(snapshot: Snapshot, job: RivenShardJob): RivenShardRe
   const scaled = scaleTarget(snapshot, { steelPath: request.steelPath, eximus: request.eximus }, enemy, request.level ?? 150);
   const objective = request.objective ?? 'ttk';
   const mods = request.mods;
-  const pool = searchableMods(snapshot, weapon).map((mod) => mod.name).filter((name) => !mods.some((mod) => mod.name === name));
+  const fixed = request.fixed ?? [];
+  const pool = searchableMods(snapshot, weapon).map((mod) => mod.name).filter((name) => ![...mods, ...fixed].some((mod) => mod.name === name));
   let evaluated = 0;
   const picks: RivenShardResult['picks'] = [];
   for (const riven of job.rivens) {
@@ -159,7 +172,7 @@ export function rivenShard(snapshot: Snapshot, job: RivenShardJob): RivenShardRe
       for (const order of elementalOrders([...kept, { name: RIVEN_SLOT }], (name) => (name === RIVEN_SLOT ? rivenElement ?? null : modElement(snapshot.mods[name])), [])) {
         const slot = order.findIndex((mod) => mod.name === RIVEN_SLOT);
         const scorer = makeScorer(snapshot, weapon.name, { ...(request.base ?? {}), riven, rivenSlot: slot }, scaled, objective, null, 'steady');
-        top = Math.max(top, scorer(order.filter((mod) => mod.name !== RIVEN_SLOT), null));
+        top = Math.max(top, scorer([...order.filter((mod) => mod.name !== RIVEN_SLOT), ...fixed], null));
         evaluated++;
       }
       return top;
@@ -204,11 +217,10 @@ export async function rivenPicker(snapshot: Snapshot, request: RivenPickerReques
   const enemyName = request.enemy ?? 'Bombard';
   const enemy = snapshot.enemies[enemyName];
   if (!enemy) throw new InputError(`unknown enemy: ${enemyName}`, 'unknown_enemy');
-  const mods = request.mods.filter((mod) => mod.name && snapshot.mods[mod.name]);
-  if (!mods.length) throw new InputError('the build has no mods to replace', 'invalid_argument');
+  const { mods, fixed } = splitMods(snapshot, request);
   const objective = request.objective ?? 'ttk';
   const base: Partial<Build> = { ...(request.base ?? {}), riven: undefined, mods: [] };
-  const job = { ...request, mods, base, objective, enemy: enemyName };
+  const job = { ...request, mods, fixed, base, objective, enemy: enemyName };
 
   const every = enumerateRivens(snapshot, weapon.name);
   // GPU finish: only the rivens the GPU ranked best, checked against what the weapon can roll.
@@ -260,7 +272,7 @@ export async function rivenPicker(snapshot: Snapshot, request: RivenPickerReques
   }));
 
   const scaled = scaleTarget(snapshot, { steelPath: request.steelPath, eximus: request.eximus }, enemy, request.level ?? 150);
-  const baselineScore = makeScorer(snapshot, weapon.name, base, scaled, objective, null, 'steady')(mods, null);
+  const baselineScore = makeScorer(snapshot, weapon.name, base, scaled, objective, null, 'steady')([...mods, ...fixed], null);
   const assumptions = [
     'Riven values: +3 -1 layout, best roll, rank 8, disposition 1.2 (wiki); the negative stat at its worst',
     'At most one spliced stat per riven; capacity is not checked (the riven takes the replaced slot)',
@@ -313,8 +325,7 @@ export function rivenGpuModel(snapshot: Snapshot, request: RivenPickerRequest): 
   if (!weapon) throw new InputError(`unknown weapon: ${request.weapon}`, 'unknown_weapon');
   const enemyName = request.enemy ?? 'Bombard';
   if (!snapshot.enemies[enemyName]) throw new InputError(`unknown enemy: ${enemyName}`, 'unknown_enemy');
-  const mods = request.mods.filter((mod) => mod.name && snapshot.mods[mod.name]);
-  if (!mods.length) throw new InputError('the build has no mods to replace', 'invalid_argument');
+  const { mods, fixed } = splitMods(snapshot, request);
   const rivens = enumerateRivens(snapshot, weapon.name);
   const ids = [...new Set(rivens.flatMap((riven) => riven.stats))];
   const maluses = [...new Set(rivens.map((riven) => riven.malus!))];
@@ -332,10 +343,10 @@ export function rivenGpuModel(snapshot: Snapshot, request: RivenPickerRequest): 
     ...maluses.map((id) => ({ name: `-${id}`, riven: { stats: [], malus: id, values: { [id]: cardValue(snapshot, weapon.name, id, true) } } })),
   ];
   const plan: ModelPlan = {
-    weapon: weapon.name, enemy: enemyName, fixed: [], exilus: null,
+    weapon: weapon.name, enemy: enemyName, fixed, exilus: null,
     base: { ...(request.base ?? {}), riven: undefined, mods: [] },
     level: request.level ?? 150, eximus: Boolean(request.eximus), overguard: undefined, steelPath: Boolean(request.steelPath),
-    simulate: true, requireStatus: [], capacity: 1e9, freeSlots: 0,
+    simulate: true, requireStatus: [], capacity: 1e9, maxForma: null, freeSlots: 0,
   };
   const model = vectorModel(snapshot, plan, items, 0, items.map(() => -1));
   const position = new Map(items.map((item, i) => [item.name, i]));

@@ -25,7 +25,7 @@
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import type { Build, BuildMod } from './build.ts';
-import { incarnonFormOn, resolveBuild, statsForMode, weaponElementBonus } from './build.ts';
+import { COMPRESSION_NOT_AIMING, incarnonFormOn, needsAiming, resolveBuild, statsForMode, weaponElementBonus } from './build.ts';
 import { hitEnemy } from './damage.ts';
 import type { SimulationResult } from './simulate.ts';
 import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
@@ -334,11 +334,11 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   const rivenMod = base.riven ? rivenAsMod(base.riven) : null;
   if (rivenMod) assumptions.push(`Riven in one slot: drain ${rivenMod.baseDrain}${rivenMod.polarity ? `, ${rivenMod.polarity}` : ''}`);
 
+  const exilusDrain = exilusCost(snapshot, weapon, exilus, maxForma).drain;
   const fixedFit = fitMods([
     ...fixed.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? 0 })),
     ...(rivenMod ? [{ mod: rivenMod, rank: 0 }] : []),
-  ], weapon, capacity);
-  const exilusDrain = exilusCost(snapshot, weapon, exilus);
+  ], weapon, capacity - exilusDrain);
   if (fixedFit.drain + exilusDrain > capacity || (maxForma !== null && fixedFit.formaNeeded > maxForma)) {
     throw new InputError(`the fixed mods alone do not fit in ${capacity} capacity${maxForma !== null ? ` with ${maxForma} Forma` : ''}`, 'does_not_fit');
   }
@@ -390,7 +390,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
       return fit.drain <= capacity - drain && (maxForma === null || fit.formaNeeded <= maxForma);
     };
     const bestWith = (candidate: BuildMod | null): number => Math.max(...seedSets
-      .filter((set) => fitsWith(set, exilusCost(snapshot, weapon, candidate)))
+      .filter((set) => fitsWith(set, exilusCost(snapshot, weapon, candidate, maxForma).drain))
       .map((set) => scoreOf([...fixed, ...set.map((name) => ({ name }))], candidate)));
     let best = bestWith(null);
     for (const mod of searchableMods(snapshot, weapon, excluded, true)) {
@@ -464,6 +464,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   if (exilusPicked) assumptions.push(`Exilus: ${exilus!.name} R${exilus!.rank}, the best Exilus mod on the greedy builds; pin one with --fixed to choose`);
   else if (!exilus) notes.push('No Exilus mod adds damage here, so the Exilus slot stays empty.');
   if (aimingOnly.length) assumptions.push(`Not aiming: ${aimingOnly.join(', ')} left out`);
+  if (needsAiming(base)) assumptions.push(COMPRESSION_NOT_AIMING);
 
   return {
     weapon: weapon.name,
@@ -491,11 +492,17 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   };
 }
 
-function exilusCost(snapshot: Snapshot, weapon: WeaponData, exilus: BuildMod | null): number {
-  if (!exilus) return 0;
+/**
+ * The Exilus mod's drain, and the Forma its slot takes: like any slot it can be Forma'd to the mod's polarity.
+ * shortcut: with a Forma budget the Exilus slot keeps its own polarity instead of competing for the budget.
+ */
+export function exilusCost(snapshot: Snapshot, weapon: WeaponData, exilus: BuildMod | null, maxForma: number | null): { drain: number; forma: number } {
+  if (!exilus) return { drain: 0, forma: 0 };
   const mod = snapshot.mods[exilus.name];
   const full = (mod.baseDrain ?? 0) + (exilus.rank ?? mod.maxRank);
-  return mod.polarity && mod.polarity === weapon.exilusPolarity ? Math.ceil(full / 2) : full;
+  if (!mod.polarity) return { drain: full, forma: 0 };
+  if (mod.polarity === weapon.exilusPolarity) return { drain: Math.ceil(full / 2), forma: 0 };
+  return maxForma === null ? { drain: Math.ceil(full / 2), forma: 1 } : { drain: full, forma: 0 };
 }
 
 export function scaleTarget(
@@ -647,7 +654,7 @@ function leafScorer(snapshot: Snapshot, plan: BruteForcePlan) {
   const scaled = scaleTarget(snapshot, plan, enemy, plan.level);
   const scoreOf = makeScorer(snapshot, weapon.name, plan.base, scaled, plan.objective, plan.attenuation, plan.simulate ? 'steady' : 'plain', plan.requireStatus);
   const innate = innateElements(weapon, plan.base);
-  const exilusDrain = exilusCost(snapshot, weapon, plan.exilus);
+  const exilusDrain = exilusCost(snapshot, weapon, plan.exilus, plan.maxForma).drain;
 
   const mods = plan.candidates.map((name) => snapshot.mods[name]);
   const elementByName = new Map<string, BaseElement | null>(
@@ -712,7 +719,7 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
     ...combination.mods.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? snapshot.mods[mod.name].maxRank })),
     ...(rivenMod ? [{ mod: rivenMod, rank: 0 }] : []),
   ];
-  const exilusDrain = exilusCost(snapshot, weapon, plan.exilus);
+  const { drain: exilusDrain, forma: exilusForma } = exilusCost(snapshot, weapon, plan.exilus, plan.maxForma);
   const fit = fitMods(entries, weapon, plan.capacity - exilusDrain);
   const total = resolved.damage.projectileTotal || 1;
   return {
@@ -721,7 +728,7 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
     exilus: plan.exilus ? { name: plan.exilus.name, rank: plan.exilus.rank ?? 0 } : null,
     capacityUsed: fit.drain + exilusDrain,
     capacity: plan.capacity,
-    formaNeeded: fit.formaNeeded,
+    formaNeeded: fit.formaNeeded + exilusForma,
     damagePerShot: resolved.averageShotDamage,
     burstDps: resolved.burstDps,
     sustainedDps: resolved.sustainedDps,

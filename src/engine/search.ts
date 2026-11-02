@@ -11,7 +11,7 @@
  * and a mod marked `partial` makes the result a lower bound.
  */
 import type { Build, BuildMod } from './build.ts';
-import { ARCANE_SLOTS, resolveBuild } from './build.ts';
+import { ARCANE_SLOTS, COMPRESSION_NOT_AIMING, needsAiming, resolveBuild } from './build.ts';
 import { arcaneEffectsAt } from './arcanes.ts';
 import { hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
@@ -25,7 +25,7 @@ export const DAMAGE_TARGETS = new Set([
   'baseDamage', 'multishot', 'critChance', 'critDamage', 'statusChance', 'statusDuration',
   'statusDamage', 'fireRate', 'reloadSpeed', 'magazine', 'element', 'forcedProc',
   'directDamage', 'faction', 'headshotMultiplier', 'heavyAttackSpeed', 'comboDuration',
-  'convert', 'ammoMax',
+  'convert', 'ammoMax', 'blastRadius',
 ]);
 
 export { LOWER_IS_BETTER };
@@ -630,6 +630,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   if (assumedCombo) assumptions.push('Melee combo assumed at 12x (220 hits)');
   if (base.arcanes?.length) {
     assumptions.push(`Arcane: ${base.arcanes.map((entry) => (typeof entry === 'string' ? entry : `${entry.name}${entry.rank !== undefined ? ` R${entry.rank}` : ''}`)).join(', ')}`);
+    if (needsAiming(base)) assumptions.push(COMPRESSION_NOT_AIMING);
   }
   if (request.steelPath) assumptions.push('Steel Path: target health and shields x2.5');
   if (scaled.overguard > 0) assumptions.push(`Target Overguard: ${Math.round(scaled.overguard)}`);

@@ -7,7 +7,7 @@
  */
 import type { Build, BuildMod } from './build.ts';
 import { resolveBuild } from './build.ts';
-import { gpuPlan, modElement, twinRequirements, type BruteForcePlan, type BruteForceRequest } from './bruteforce.ts';
+import { exilusCost, gpuPlan, modElement, twinRequirements, type BruteForcePlan, type BruteForceRequest } from './bruteforce.ts';
 import { effectiveArmor } from './dot.ts';
 import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
@@ -39,7 +39,7 @@ export function gpuModel(snapshot: Snapshot, request: BruteForceRequest, keep = 
 
 /** What a model needs from a plan: the target, the fixed loadout and the capacity. */
 export type ModelPlan = Pick<BruteForcePlan, 'weapon' | 'enemy' | 'fixed' | 'exilus' | 'base' | 'level' | 'eximus'
-  | 'overguard' | 'steelPath' | 'simulate' | 'requireStatus' | 'capacity' | 'freeSlots'>;
+  | 'overguard' | 'steelPath' | 'simulate' | 'requireStatus' | 'capacity' | 'maxForma' | 'freeSlots'>;
 
 /** One vector of the model: a mod, or a riven stat (as a one-stat riven with the given value). */
 export interface ModelItem {
@@ -184,9 +184,7 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
     ...plan.fixed.map((mod) => (snapshot.mods[mod.name].baseDrain ?? 0) + (mod.rank ?? 0)),
     ...(rivenMod ? [rivenMod.baseDrain ?? 0] : []),
   ].reduce((sum, full) => sum + Math.ceil(full / 2), 0);
-  const exilus = plan.exilus ? snapshot.mods[plan.exilus.name] : null;
-  const exilusFull = exilus ? (exilus.baseDrain ?? 0) + (plan.exilus!.rank ?? exilus.maxRank) : 0;
-  const exilusDrain = exilus && exilus.polarity && exilus.polarity === weapon.exilusPolarity ? Math.ceil(exilusFull / 2) : exilusFull;
+  const exilusDrain = exilusCost(snapshot, weapon, plan.exilus, plan.maxForma).drain;
   params[P.capacityHalf] = plan.capacity - exilusDrain - fixedHalf;
   // The exact ranking uses steady-state status stacks only when the fight is simulated.
   params[P.steady] = plan.simulate ? 1 : 0;
