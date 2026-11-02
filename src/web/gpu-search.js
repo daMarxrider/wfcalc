@@ -57,8 +57,14 @@ const COMBINE = [
   [T.radiation, T.magnetic, -1, T.corrosive],
   [T.gas, T.viral, T.corrosive, -1],
 ];
-/** Per DoT type: coefficient, ticks, seconds before it ticks, seconds it ticks (Blast: a short window, unscaled). */
-const DOT = [[T.slash, 0.35, 6, 0, 6], [T.heat, 0.5, 6, 1, 6], [T.toxin, 0.5, 6, 0, 6], [T.electricity, 0.5, 6, 0, 6], [T.gas, 0.5, 6, 0, 6], [T.blast, 0.5, 1, 1.5, 0.25]];
+/**
+ * Per DoT type: coefficient, ticks (0: one per second of the stretched duration, dot.ts dotTicks), seconds
+ * before it ticks, seconds it ticks (Blast: a short window, unscaled).
+ * shortcut: the merged Heat/Gas tick's single +1 is left as one +1 per stack (under 1%); mirror dot.ts if it matters.
+ */
+const DOT = [[T.slash, 0.35, 0, 1, 6], [T.heat, 0.5, 0, 1, 6], [T.toxin, 0.5, 0, 1, 6], [T.electricity, 0.5, 0, 0, 6], [T.gas, 0.5, 0, 0, 6], [T.blast, 0.5, 1, 1.5, 0.25]];
+/** Gas stacks on a target (dot.ts GAS_CAP). */
+const GAS_CAP = 10;
 /** Heat's armour strip rises by these every 0.5 s of the chain (damage.ts HEAT_RAMP_STEPS). */
 const HEAT_RAMP = [0.15, 0.15, 0.1, 0.1];
 
@@ -237,7 +243,9 @@ function scoreOrder(params, A, B, order) {
 
     // Status DoT (dot.ts computeDot), only the ticks that land by `at`.
     let dotDps = 0;
-    for (const [t, coefficient, ticks, delay, length] of DOT) {
+    let dotShield = 0;
+    for (const [t, coefficient, fixedTicks, delay, length] of DOT) {
+      const ticks = fixedTicks || Math.max(1, Math.floor(6 * duration + 1e-9));
       const share = damage[t] / total;
       const forcedCrit = multishot * pulls * S[CH['forcedCrit:impact'] + t] * pCrit;
       const forcedPlain = multishot * pulls * S[CH['forced:impact'] + t];
@@ -248,16 +256,20 @@ function scoreOrder(params, A, B, order) {
       const typeBonus = t === T.toxin ? 1 + params[P.toxinStatusBonus] : 1;
       const raw = (seed * faction + 1) * coefficient * (1 + elemental) * (1 + S[CH.statusDamage]) * typeBonus * faction;
       const trueDamage = t === T.slash;
-      const tick = raw * location * (1 + (trueDamage ? 0 : params[P.healthMod + t])) * (1 - (trueDamage ? 0 : dr)) * viral;
+      const toShield = location * (1 + (trueDamage ? 0 : params[P.healthMod + t]));
+      const tick = raw * toShield * (1 - (trueDamage ? 0 : dr)) * viral;
       const span = t === T.blast ? length : length * duration;
       const landed = steady && at !== Infinity ? within(at - delay, span) / span : 1;
-      dotDps += weighted * tick * ticks * landed;
+      const active = (natural + forcedPlain + forcedCrit) * 6 * duration;
+      const kept = t === T.gas && active > GAS_CAP ? GAS_CAP / active : 1;
+      dotDps += weighted * tick * ticks * landed * kept;
+      if (params[P.shield] > 0 && !(t === T.toxin && params[P.toxinBypass] > 0)) dotShield += weighted * raw * toShield * ticks * landed * kept;
     }
 
     // Sequential kill: Overguard, then shields (Toxin chewing health meanwhile), then health.
     const fired = perShot * pulls * firing;
     const healthDps = health * fired + dotDps;
-    const shieldDps = shield * fired;
+    const shieldDps = shield * fired + dotShield;
     const overguardDps = overguard * fired;
     let seconds = 0;
     if (params[P.overguard] > 0) {
@@ -571,6 +583,7 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
   let perShot = averageCrit * kMultishot * kFaction;
 
   var dotDps = 0.0;
+  var dotShield = 0.0;
   var dotTypes = array<u32, 6>(${DOT.map(([t]) => `${t}u`).join(', ')});
   var dotC = array<f32, 6>(${DOT.map(([, c]) => c.toFixed(2)).join(', ')});
   var dotTicks = array<f32, 6>(${DOT.map(([, , n]) => n.toFixed(1)).join(', ')});
@@ -596,12 +609,19 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
     if (t == ${T.blast}u) { span = dotLength[e]; }
     var landedShare = 1.0;
     if (kSteady && !inf) { landedShare = within(at - dotDelay[e], span, false) / span; }
-    dotDps += weighted * rawTick * kZoneMul * (1.0 + hm) * (1.0 - tdr) * viral * dotTicks[e] * landedShare;
+    var ticks = dotTicks[e];
+    if (ticks == 0.0) { ticks = max(1.0, floor(6.0 * d + 1e-6)); }
+    let stacked = (natural + forcedPlain + forcedCrit) * 6.0 * d;
+    var kept = 1.0;
+    if (t == ${T.gas}u && stacked > ${GAS_CAP.toFixed(1)}) { kept = ${GAS_CAP.toFixed(1)} / stacked; }
+    let landed = weighted * rawTick * kZoneMul * (1.0 + hm) * ticks * landedShare * kept;
+    dotDps += landed * (1.0 - tdr) * viral;
+    if (params[${P.shield}u] > 0.0 && !(t == ${T.toxin}u && params[${P.toxinBypass}u] > 0.0)) { dotShield += landed; }
   }
 
   let fired = perShot * kPulls * firing;
   let healthDps = health * fired + dotDps;
-  let shieldDps = shield * fired;
+  let shieldDps = shield * fired + dotShield;
   let overguardDps = overguard * fired;
   var seconds = 0.0;
   if (params[${P.overguard}u] > 0.0) {

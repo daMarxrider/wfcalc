@@ -127,6 +127,10 @@ warframe-damage.com is the only one that caps Gas.
 
 ### Fixes wfcalc needs
 
+Status 2026-11-02: 1–6 and 8 done (simulation, static estimate and GPU proxy; the proxy keeps one +1
+per Heat/Gas stack). 7 not applicable: the enemy data has no Treasurer or Hound. In the
+simulation Slash already hit shields; the static estimate and the GPU proxy now count DoT on shields too.
+
 1. **Slash ticks hit shields first** (#25): bleed bypasses armour, not shields. Affects TTK on shielded targets.
 2. **Gas cap 10 stacks**, oldest replaced (#28).
 3. **Electricity/Gas tick at 0 s** (#27), so their first tick lands at once in the simulation.

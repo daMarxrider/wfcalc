@@ -52,7 +52,9 @@ modded crit damage   = base × (1 + Σ bonuses)
 average multiplier   = 1 + crit_chance × (crit_damage − 1)
 ```
 
-Crit tiers (orange/red) are only relevant on a per-hit basis; the expected-value
+The base crit damage (plus effects that add to the base, Incarnon perks) is stored in 32/4095
+steps before mods (wiki `Critical Hit`): `round(base × 4095/32) × 32/4095` in float32, so 2.2 is
+2.2037. Crit tiers (orange/red) are only relevant on a per-hit basis; the expected-value
 formula above is what every calculator shows as "average damage".
 
 ### Mod ranks
@@ -125,7 +127,7 @@ shield = max(base × 1.1, base × step(x))
 ```
 
 **Steel Path** (`--steel-path`, wiki `The_Steel_Path`): health and shields ×2.5 after level
-scaling. Armour is unchanged (Update 29.10 removed the armour multiplier; only the Simulacrum
+scaling. Armour is unchanged (Update 36 removed the armour multiplier; only the Simulacrum
 and Undercroft still apply it). The mode also adds +100 to a node's level; `--level` is the
 enemy's *actual* level, so for a star-chart node at level L pass `--level L+100`.
 
@@ -209,6 +211,7 @@ describes in prose and therefore lives in a curated registry (`src/engine/buffs.
 | `elementMultiplier` | Multiplies one existing damage type | Accelerant ×2.5 Heat |
 | `speed` | Fire rate / attack speed | Warcry +50% |
 | `weakPoint` | Replaces the weak-point multiplier (default ×2) | Sonar ×5 |
+| `maduraiPhysical` | Physical damage worth 30% of the whole base damage (elements included), added after physical mods and split over the physical types by their modded weight (wiki `Focus/Madurai`) | Phoenix Talons (`--buff phoenix-talons`) |
 
 Notes:
 
@@ -230,6 +233,10 @@ total     = tick × ticks
 dot_dps   = Σ procs × crit multiplier of the proc'ing hit × total
 ```
 
+Heat and Gas stacks merge into one tick, so the `+1` counts once per tick while any stack is up
+(`1 − e^−stacks` on random procs), not once per stack. Gas keeps at most 10 stacks, the oldest
+replaced: past 10, Gas deals `10 × tick` a second.
+
 - Crits: a tick inherits the crit multiplier of the hit that applied it (wiki `Damage_over_Time
   → DoT Damage Scaling`). Ordinary procs roll independently of crits and carry the average
   `1 + CC × (CD − 1)`; crit-gated forced procs (Hunter Munitions) carry the multiplier of a
@@ -240,8 +247,11 @@ dot_dps   = Σ procs × crit multiplier of the proc'ing hit × total
   and physical damage bonuses"). The type's own elemental mods multiply after the `+1`.
 - `C`: 0.35 for Slash, 0.5 for Heat / Electricity / Toxin / Gas.
 - Faction damage is applied **twice** (it is already inside the seed), as the wiki notes.
-- `ticks`: 6 for Slash/Heat/Toxin/Electricity/Gas, 1 for Blast's detonation.
-- Bleed is **True** damage: no armour DR, no health-class modifier.
+- `ticks`: one per second of the duration, `floor(6 × (1 + status duration))` for
+  Slash/Heat/Toxin/Electricity/Gas (6 unmodded), 1 for Blast's detonation. Slash, Heat and Toxin
+  tick at 1–6 s, Electricity and Gas at once, 0–5 s (wiki `Damage_over_Time`).
+- Bleed is **True** damage: no armour DR, no health-class modifier. It still hits shields
+  (U27.2); only Toxin skips them.
 - `procs_per_second = fireRate × multishot × statusChance × damageShare`, plus forced
   procs such as Hunter Munitions (`+30% chance on crit` → crit-gated rate).
 
@@ -363,8 +373,9 @@ damage prevented is the player's input (`--covenant-damage`); the calculator can
 
 ## 14. Time to kill
 
-Computed as rates rather than shots so status damage counts: shields first (only
-shield-capable damage), then health using direct damage plus DoT DPS. Toxin bypasses
+Computed as rates rather than shots so status damage counts: shields first (shield-capable
+direct damage plus DoT ticks, Magnetic not amplifying them), then health using direct damage plus
+DoT DPS. Toxin bypasses
 shields (except Treasurer and Hounds). Time comes from the sustained fire rate, which
 accounts for the magazine and reload cycle.
 
@@ -395,7 +406,7 @@ keeps its own stacks for its duration (Status Duration stretches it) and feeds b
 | Puncture | +5%/stack critical chance (to +25%), additive after mods | 10 s, 5 |
 | Tau | +10%/stack status chance | 8 s, 10 |
 | Blast | 30% of the hit's base damage, 1.5 s after the proc | — |
-| Slash, Toxin, Electricity, Gas | one tick per second | 6 s |
+| Slash, Toxin, Electricity, Gas | one tick per second; Slash/Toxin from 1 s, Electricity/Gas at once; Gas at most 10 stacks | 6 s |
 
 A tick is seeded when it procs (crit, location, faction, status damage of that hit) and lands
 through the target's state at that moment. Heat on expected values: a chain is alive with
@@ -407,7 +418,7 @@ hundred for the final order. The estimate puts the target's state `t` seconds in
 fired by then (a magazine at the fire rate, then the reload): each stacking status holds the
 procs of its last duration up to its cap (Viral, Corrosive, Puncture, Cold without the freeze,
 Tau), Heat strips 15/30/40/50% at 0.5/1/1.5/2 s, and a DoT deals the share of its ticks that
-procced inside its window (Heat from 1 s, Blast 1.5 s late). The kill falls where
+procced inside its window (Slash, Toxin and Heat from 1 s, Blast 1.5 s late). The kill falls where
 `∫ dt / ttk(state at t)` reaches 1, summed over growing time steps (midpoint rule, with the pulls
 of each step); after 8 s × status duration + 1.5 s nothing changes and the rest runs at the
 settled rate. On random builds of six weapon/target pairs it lands within 1.5–3.6% of the

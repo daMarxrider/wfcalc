@@ -27,12 +27,15 @@ const GOLDEN = {
   // Times come from the fight simulation: statuses build up from zero instead of starting at
   // their steady state. Bleed seeds from the modded base damage only (wiki: Damage/Calculation),
   // not from the elemental damage on top, which made the old 4.21s too optimistic.
-  somaSearchTtk: '7.32s',
-  somaSearchDps: '16,176.4 dps',
+  // 2026-11-02: Bleed ticks from 1 s after the proc (wiki: Damage over Time), which costs the
+  // Hunter Munitions build most in a 7 s fight (6.75s -> 6.98s); Hammer Shot now edges it out.
+  somaSearchTtk: '6.93s',
+  somaSearchDps: '17,105 dps',
   // Kuva weapons carry their bonus element: with none picked, the in-game maximum of 60% Heat.
-  brammaTotal: 'total 786.8 dps with status',
-  brammaTtk: 'ttk 150.59s',
-  somaStrippedTtk: 'ttk 128.75s',
+  // Base crit multiplier in 32/4095 steps and DoT timing (2026-11-02) moved these by under 0.1%.
+  brammaTotal: 'total 787 dps with status',
+  brammaTtk: 'ttk 150.55s',
+  somaStrippedTtk: 'ttk 128.77s',
   avalancheCast: '3,000 at 200%',
   ceramicIncarnonHit: 1540,
   eximusOverguard: '281,865',
@@ -73,7 +76,7 @@ const cases: Case[] = [
       contains(result.stdout, `1. ${GOLDEN.somaSearchTtk}`);
       contains(result.stdout, GOLDEN.somaSearchDps);
       contains(result.stdout, 'Serration R10');
-      contains(result.stdout, 'Hunter Munitions R5');
+      contains(result.stdout, 'Hammer Shot R3');
       contains(result.stdout, 'assumptions:');
       // The token promise: the whole answer is cheaper than one JSON dump.
       check(result.stdout.length < 1600, `brief search is ${result.stdout.length} chars, expected < 1600`);
@@ -232,7 +235,7 @@ const cases: Case[] = [
       check(result.status === 0, `exit ${result.status}: ${result.stderr}`);
       const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
       check(lines.length === 3, `expected 3 lines, got ${lines.length}`);
-      check(lines[0].label === 'bramma' && lines[0].totalDps === 786.8, `bad bramma line: ${JSON.stringify(lines[0])}`);
+      check(lines[0].label === 'bramma' && lines[0].totalDps === 787, `bad bramma line: ${JSON.stringify(lines[0])}`);
       check(lines[1].armor === 2700 && typeof lines[1].timeToKill === 'number', `bad dagger line: ${JSON.stringify(lines[1])}`);
       check(lines[2].ability === 'Avalanche' && lines[2].armorStrip.fraction === 1, `bad ability line: ${JSON.stringify(lines[2])}`);
     },

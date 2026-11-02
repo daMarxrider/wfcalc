@@ -1437,6 +1437,57 @@ test('simulation: Magnetic deals 3% of max shields per stack as Electricity when
     `electricity ${simulated.damageBySource.electricity}`);
 });
 
+test('simulation: Electricity ticks at 0-5 s, Slash at 1-6 s (wiki: Damage over Time)', () => {
+  // One pull at t = 0 (magazine 1, endless reload), 100% status split evenly: 0.5 procs each.
+  const snap = snapshot([weapon({ electricity: 50, slash: 50, statusChance: 1, critChance: 0, fireRate: 100, magazineSize: 1, reloadTime: 1000 })], [], [dummy]);
+  const at = (maxSeconds: number) => simulateKill(snap, build(snap, []), scaleEnemy(snap, dummy, 1), { factionMultiplier: 1, debuffs: {}, maxSeconds, step: 0.01 }).damageBySource;
+  // Half a second in: Electricity's first tick, (100 + 1) x 0.5 x 0.5 procs; no Bleed yet.
+  close(at(0.5).electricity ?? 0, 25.25, 1e-6);
+  assert.equal(at(0.5).slash, undefined);
+  // At 5.5 s: all 6 Electricity ticks, 5 of the 6 Bleed ticks ((100 + 1) x 0.35 x 0.5 each).
+  close(at(5.5).electricity ?? 0, 6 * 25.25, 1e-6);
+  close(at(5.5).slash ?? 0, 5 * 17.675, 1e-6);
+});
+
+test('Gas: at most 10 stacks, merged into one tick with a single +1 (wiki: Damage over Time, Damage/Calculation)', () => {
+  // 10 procs/s x 6 s = 60 stacks wanted, 10 kept: 10 x 100 x 0.5 + 1 x 0.5 per second.
+  const snap = snapshot([weapon({ gas: 100, statusChance: 1, critChance: 0, fireRate: 10, magazineSize: 1000, reloadTime: 0 })], [], [dummy]);
+  const gas = hitEnemy(snap, build(snap, []), scaleEnemy(snap, dummy, 1)).dot.find((entry) => entry.type === 'gas')!;
+  close(gas.dps, 500.5, 1e-6);
+  // A single stack still shows the wiki's (seed + 1) x 0.5.
+  close(gas.tickDamage, 50.5, 1e-6);
+});
+
+test('status ticks hit shields too, Slash included (U27.2)', () => {
+  const shielded: EnemyData = {
+    id: 'Shielded', name: 'Shielded', faction: 'corpus', healthClass: 'Corpus', kind: 'Corpus', baseLevel: 1,
+    health: 1, shield: 100_000, armor: 0,
+    pools: [{ type: 'Shield', category: 'shield', amount: 100_000 }, { type: 'Flesh', category: 'health', amount: 1 }],
+    toxinBypassesShields: true,
+  };
+  const snap = snapshot([weapon({ slash: 100, statusChance: 1, critChance: 0, fireRate: 10, magazineSize: 1000, reloadTime: 0 })], [], [shielded]);
+  const hit = hitEnemy(snap, build(snap, []), scaleEnemy(snap, shielded, 1), { simulate: false });
+  // Direct 100 x 10 a second plus Bleed 10 procs x (100 + 1) x 0.35 x 6 ticks = 3121 a second on shields.
+  close(hit.dot.find((entry) => entry.type === 'slash')!.shieldDps, 2121, 1e-6);
+  close(hit.timeToKill!, 100_001 / 3121, 1e-3);
+});
+
+test('base crit multiplier is stored in 32/4095 steps before mods (wiki: Critical Hit)', () => {
+  const snap = snapshot([weapon({ impact: 100, critMultiplier: 2 })], [vitalSense]);
+  // Code(2.0) = floor(2.0 x 4095 / 32 + 0.5) = 256 -> 256 x 32 / 4095, then x (1 + 120%).
+  close(resolveQuantized(snap, { weapon: 'Test Weapon', mods: ['Vital Sense'] }).critMultiplier, Math.fround((256 * 32) / 4095) * 2.2, 1e-9);
+});
+
+test('Madurai Phoenix Talons: 30% of the whole base as physical, by physical weight (wiki: Focus/Madurai)', () => {
+  // The wiki's Dual Ichor: 19 Impact / 11 Puncture / 45 Slash / 47 Toxin, 122 in all.
+  const snap = snapshot([weapon({ impact: 19, puncture: 11, slash: 45, toxin: 47 })], []);
+  const damage = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], buffs: ['phoenix-talons'] }).damage.perProjectile;
+  close(damage.impact ?? 0, 19 + 122 * 0.3 * (19 / 75));
+  close(damage.puncture ?? 0, 11 + 122 * 0.3 * (11 / 75));
+  close(damage.slash ?? 0, 45 + 122 * 0.3 * (45 / 75));
+  close(damage.toxin ?? 0, 47);
+});
+
 // ------------------------------------------------------------------ Archon Shards
 
 test('Violet shard: +30% Primary Electricity, +10% per Crimson/Azure/Violet shard, combined last like innate', () => {

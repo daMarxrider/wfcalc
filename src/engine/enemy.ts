@@ -89,7 +89,7 @@ export interface ScaleOptions {
   overguard?: number;
   /**
    * The Steel Path: health and shields x2.5 (wiki: The_Steel_Path). Armour is not multiplied
-   * since Update 29.10. The +100 level is not added here: `level` is the enemy's actual level.
+   * since Update 36. The +100 level is not added here: `level` is the enemy's actual level.
    */
   steelPath?: boolean;
 }

@@ -29,10 +29,13 @@
  *       Puncture   +5% crit chance per stack to +25%, additive after mods, 10 s
  *       Tau        +10% status chance per stack to +100%, 8 s
  *       Blast      30% of the hit's base damage, 1.5 s after the proc
- *       Slash, Toxin, Electricity, Gas: one tick per second for the duration
+ *       Slash, Toxin, Electricity, Gas: one tick per second for the duration, Slash and Toxin
+ *                  from 1 s, Electricity and Gas at once; at most 10 Gas stacks, oldest replaced
+ *   - Heat and Gas stacks merge into one tick: the +1 of the tick formula counts once per tick
  *   - a tick is seeded when it procs (crit, location, faction and status damage of that hit) and
  *     lands through the target's state at that moment (armour, Viral, health class)
- *   - layers fall in order: Overguard, shields, health; Toxin goes straight to health.
+ *   - layers fall in order: Overguard, shields, health; Toxin goes straight to health, every other
+ *     tick hits shields (Slash too, U27.2).
  *
  * Continuous (beam) weapons ramp from 20% damage to full over 0.6 s on target and decay after
  * 0.8 s off it (wiki: Continuous Weapon).
@@ -43,7 +46,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, effectiveArmor, ENCUMBER_TYPES, healthModifier, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
+import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, dotTicks, effectiveArmor, ENCUMBER_TYPES, GAS_CAP, healthModifier, MERGED_TICKS, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
 import { hitProfile } from './hit.ts';
 
 interface StackRule {
@@ -63,6 +66,8 @@ const STACKING: Record<string, StackRule> = {
 
 /** Damage-over-time statuses that tick once a second with their own timers. */
 const TICKING = ['slash', 'toxin', 'electricity', 'gas'] as const;
+/** Seconds after the proc of the first tick (wiki: Damage over Time). */
+const FIRST_TICK: Record<string, number> = { slash: 1, toxin: 1, electricity: 0, gas: 0 };
 const DOT_DURATION = 6;
 const HEAT_DURATION = 6;
 const HEAT_FIRST_TICK = 1;
@@ -138,6 +143,24 @@ export interface SimulationResult {
   step: number;
 }
 
+/** Discrete ticks: an amount put at a step comes due again at every tick offset after it. */
+class TickLine {
+  private readonly slots: Float64Array;
+  private readonly offsets: number[];
+  constructor(offsets: number[]) {
+    this.offsets = offsets;
+    this.slots = new Float64Array(Math.max(...offsets) + 1);
+  }
+  put(step: number, amount: number): void {
+    this.slots[step % this.slots.length] = amount;
+  }
+  due(step: number): number {
+    let sum = 0;
+    for (const offset of this.offsets) if (step >= offset) sum += this.slots[(step - offset) % this.slots.length];
+    return sum;
+  }
+}
+
 /** A sliding window of per-step amounts with a running total, so each step costs O(1). */
 class Window {
   private readonly slots: Float64Array;
@@ -197,13 +220,11 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const elementBonus = (type: string): number =>
     type === 'gas' || type === 'blast' ? 0 : (build.elementBonuses as Record<string, number | undefined>)[type] ?? 0;
   // Attacker-side seed of one tick, before crit (wiki DoT formula, as in dot.ts): the hit's
-  // modded base damage, whatever the type.
-  const tickSeed = (type: string, coefficient: number): number => {
-    const bonus = elementBonus(type);
-    const seed = build.dotSeed ?? total;
-    const typeBonus = type === 'toxin' ? 1 + (build.toxinStatusDamageBonus ?? 0) : 1;
-    return ((seed * faction) + 1) * coefficient * (1 + bonus) * statusDamage * typeBonus * faction * hit.location;
-  };
+  // modded base damage, whatever the type. Merged stacks (Heat, Gas) leave the +1 to the tick.
+  const tickScale = (type: string, coefficient: number): number =>
+    coefficient * (1 + elementBonus(type)) * statusDamage * (type === 'toxin' ? 1 + (build.toxinStatusDamageBonus ?? 0) : 1) * faction * hit.location;
+  const tickSeed = (type: string, coefficient: number): number =>
+    ((build.dotSeed ?? total) * faction + (MERGED_TICKS.has(type) ? 0 : 1)) * tickScale(type, coefficient);
 
   // Statuses by index: stacking ones, ticking ones, heat and blast.
   const STACK_TYPES = Object.keys(STACKING);
@@ -211,13 +232,19 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const stackWindows = STACK_TYPES.map((type) => new Window(slots(STACKING[type].duration)));
   // Emerald shards raise the Corrosion cap above 10.
   const stackCaps = STACK_TYPES.map((type) => STACKING[type].cap + (type === 'corrosive' ? build.corrosiveCapBonus ?? 0 : 0));
-  const tickWindows = TICKING.map(() => new Window(slots(DOT_DURATION)));
+  const ticks = dotTicks(durationScale);
+  const tickLines = TICKING.map((type) => new TickLine(Array.from({ length: ticks }, (_, k) => Math.round((FIRST_TICK[type] + k) / dt))));
   const tickIndex = new Map<string, number>(TICKING.map((type, i) => [type, i]));
   const tickSeeds = TICKING.map((type) => tickSeed(type, TICK_COEFFICIENT[type] ?? 0.5));
   // Enemy-side multipliers of each ticking type: [health with armour, shield, is True damage].
   const tickHealthMod = TICKING.map((type) => (TICK_DAMAGE_TYPE[type] === 'true' ? 1 : modOf(TICK_DAMAGE_TYPE[type] ?? type)));
   const tickTrue = TICKING.map((type) => TICK_DAMAGE_TYPE[type] === 'true');
   const toxinTick = tickIndex.get('toxin')!;
+  const gasTick = tickIndex.get('gas')!;
+  // Gas stacks on the target, for the 10-stack cap and the merged tick's +1.
+  const gasWindow = new Window(slots(DOT_DURATION));
+  const gasOne = tickScale('gas', TICK_COEFFICIENT.gas ?? 0.5);
+  const heatOne = tickScale('heat', TICK_COEFFICIENT.heat ?? 0.5);
   const heatSeed = tickSeed('heat', TICK_COEFFICIENT.heat ?? 0.5);
   const heatMod = modOf('heat');
   const blastSeed = ((total * faction) + 1) * BLAST_COEFFICIENT * statusDamage * faction * hit.location;
@@ -254,7 +281,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const iElectricity = tickIndex.get('electricity')!;
   // Cold's freeze: until when the target is frozen (null: not frozen).
   let frozenUntil: number | null = null;
-  // Electricity damage per second from Magnetic break procs, added to the next step's ticks.
+  // Electricity damage per tick from a Magnetic break proc, put on the next step's ticks.
   let breakRate = 0;
 
   let overguard = scaled.overguard;
@@ -379,6 +406,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     // ---- procs this step (under Overguard only Magnetic and Cold land; no Cold while frozen)
     stackProcs.fill(0);
     tickWeight.fill(0);
+    let gasProcs = 0;
     let heatProcs = 0;
     let heatWeight = 0;
     let blastWeight = 0;
@@ -399,6 +427,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
         if (immune && target.stack !== iMagnetic && target.stack !== iCold) return;
         if (target.stack >= 0) stackProcs[target.stack] += procs;
         if (target.tick >= 0) tickWeight[target.tick] += procs * crit;
+        if (target.tick === gasTick) gasProcs += procs;
         if (target.heat) { heatProcs += procs; heatWeight += procs * crit; }
         if (target.blast) blastWeight += procs * crit;
       };
@@ -439,8 +468,12 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     let dotShield = 0;
     let toxinDot = 0;
     const tickDealt = new Float64Array(TICKING.length + 2);
+    const gasStacks = gasWindow.total;
     for (let i = 0; i < TICKING.length; i++) {
-      const rate = tickWindows[i].total * dt;
+      let rate = tickLines[i].due(step);
+      // Past 10 Gas stacks the oldest are replaced: only 10 of them keep ticking. Their merged
+      // tick adds its +1 while any stack is up (P(at least one) on random procs, spread per second).
+      if (i === gasTick) rate = rate * Math.min(1, GAS_CAP / Math.max(gasStacks, 1e-12)) + (1 - Math.exp(-gasStacks)) * gasOne * dt;
       if (rate <= 0) continue;
       const toH = rate * tickHealthMod[i] * (tickTrue[i] ? 1 : armorFactor) * viralMultiplier;
       tickDealt[i] = toH;
@@ -454,7 +487,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     // procs (no refresh) to the whole chain (refreshing).
     if (heatChainStart !== null && t - heatChainStart >= HEAT_FIRST_TICK) {
       const stacked = heatSeedWindow.total + heatAlive * Math.max(0, heatAccumulated - heatSeedWindow.total);
-      const rate = stacked * dt;
+      const rate = (stacked + heatAlive * heatOne) * dt;
       const toH = rate * heatMod * armorFactor * viralMultiplier;
       tickDealt[TICKING.length] = toH;
       dotHealth += toH;
@@ -509,9 +542,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const broken = (overguardBefore > 0 && overguard <= 0 ? scaled.overguard : 0) + (shieldBefore > 0 && shield <= 0 ? scaled.shield : 0);
     // The hits that broke the pool count their own Magnetic procs too (a step can be seconds long).
     const magneticAtBreak = Math.min(stackCaps[iMagnetic], stackWindows[iMagnetic].total + stackProcs[iMagnetic]);
-    breakRate = broken > 0 && magneticAtBreak > 0
-      ? (MAGNETIC_BREAK_SHARE * magneticAtBreak * broken) / (DOT_DURATION * durationScale)
-      : 0;
+    breakRate = broken > 0 && magneticAtBreak > 0 ? (MAGNETIC_BREAK_SHARE * magneticAtBreak * broken) / ticks : 0;
 
     if (step % sampleEvery === 0 || killedAt !== null) {
       timeline.push({ t, overguard, shield, health: Math.max(0, health), viral, corrosive, heatStrip: strip, armor });
@@ -522,7 +553,8 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const next = step + 1;
     for (let i = 0; i < stackWindows.length; i++) stackWindows[i].put(next, stackProcs[i]);
     // Each proc carries its own hit's crit multiplier into its ticks.
-    for (let i = 0; i < tickWindows.length; i++) tickWindows[i].put(next, tickWeight[i] * tickSeeds[i] + (i === iElectricity ? breakRate : 0));
+    for (let i = 0; i < tickLines.length; i++) tickLines[i].put(next, tickWeight[i] * tickSeeds[i] + (i === iElectricity ? breakRate : 0));
+    gasWindow.put(next, gasProcs);
     blastLine.put(step, blastWeight * blastSeed);
     heatWindow.put(next, heatProcs);
     combinedWindows.forEach((window, c) => window.put(next, combinedProcs[c]));

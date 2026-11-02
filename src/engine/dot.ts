@@ -10,15 +10,15 @@
  *   M    = status damage bonuses × faction damage, applied a second time
  *          × the critical multiplier of the hit that applied it (wiki: "DoT Damage Scaling")
  *
- * Tick counts over the effect's duration:
+ * Tick counts over the effect's duration (one per second, so Status Duration adds ticks):
  *
- *   | type        | ticks | notes                                  |
- *   | Slash       | 6     | True damage, ignores armour            |
- *   | Heat        | 6     |                                        |
- *   | Toxin       | 6     | bypasses shields where applicable      |
- *   | Electricity | 6     |                                        |
- *   | Gas         | 6     |                                        |
- *   | Blast       | 1     | detonation at 2s, not a real DoT       |
+ *   | type        | ticks | notes                                               |
+ *   | Slash       | 6     | True damage: ignores armour, still hits shields     |
+ *   | Heat        | 6     | all stacks tick together, one +1 per tick           |
+ *   | Toxin       | 6     | bypasses shields where applicable                   |
+ *   | Electricity | 6     | first tick at once                                  |
+ *   | Gas         | 6     | first tick at once; at most 10 stacks, merged tick  |
+ *   | Blast       | 1     | detonation at 2s, not a real DoT                    |
  *
  * Procs arrive at `statusChance × multishot × damageShare` per trigger pull, and each
  * proc is an independent instance, so the steady-state DoT is
@@ -52,6 +52,15 @@ export const TICK_COUNT: Record<string, number> = {
   blast: 1,
 };
 
+/** Ticks per proc at a Status Duration scale: one per second of the stretched duration (wiki: Damage over Time). */
+export const dotTicks = (durationScale: number): number => Math.max(1, Math.floor(6 * durationScale + 1e-9));
+
+/** Gas stacks on a target (wiki: Damage over Time); a new one replaces the oldest. */
+export const GAS_CAP = 10;
+
+/** Stacks that merge into one tick, so the +1 of the tick formula counts once per tick, not per stack. */
+export const MERGED_TICKS = new Set(['heat', 'gas']);
+
 /** Bleed is True damage: it ignores armour and health-type modifiers. */
 export const TICK_DAMAGE_TYPE: Record<string, DamageType> = {
   slash: 'true',
@@ -73,6 +82,8 @@ export interface DotEntry {
   ticks: number;
   /** Damage per second contributed by this status. */
   dps: number;
+  /** The same ticks against shields (no armour or Viral; Magnetic not modelled). */
+  shieldDps: number;
   /** Total damage of one proc. */
   damagePerProc: number;
 }
@@ -270,6 +281,7 @@ export function computeDot(
   const pullsPerSecond = sustainedPulls(build);
   const perProjectileTotal = build.damage.projectileTotal || 1;
   const statusDamageBonus = 1 + (build.statusDamageBonus ?? 0);
+  const durationScale = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
 
   const entries: DotEntry[] = [];
 
@@ -290,7 +302,7 @@ export function computeDot(
 
   for (const type of DOT_TYPES) {
     const coefficient = TICK_COEFFICIENT[type];
-    const ticks = TICK_COUNT[type];
+    const ticks = type === 'blast' ? TICK_COUNT.blast : dotTicks(durationScale);
     const dotType = TICK_DAMAGE_TYPE[type];
 
     // Proc share: the status roll is weighted by each type's damage share.
@@ -316,12 +328,23 @@ export function computeDot(
     // Faction damage scales the seed itself and is then applied again, exactly as the wiki's
     // worked examples do it: ((seed x faction) + 1) x C x (1 + element bonus) x status x faction.
     const typeBonus = type === 'toxin' ? 1 + (build.toxinStatusDamageBonus ?? 0) : 1;
-    const rawTick = ((seed * factionMultiplier) + 1) * coefficient * (1 + elementalBonus) * statusDamageBonus * typeBonus * factionMultiplier;
+    const scale = coefficient * (1 + elementalBonus) * statusDamageBonus * typeBonus * factionMultiplier;
+    const merged = MERGED_TICKS.has(type);
+    const rawTick = ((seed * factionMultiplier) + (merged ? 0 : 1)) * scale;
     const dr = dotType === 'true' ? 0 : armorDamageReduction(armor);
     const healthMod = dotType === 'true' ? 0 : healthModifier(snapshot, dotType, healthClass);
-    const tickDamage = rawTick * hit.location * (1 + healthMod) * (1 - dr) * viral;
+    const toShield = hit.location * (1 + healthMod);
+    const toHealth = toShield * (1 - dr) * viral;
+    // One stack ticking alone, +1 included (the wiki's examples).
+    const tickDamage = ((seed * factionMultiplier) + 1) * scale * toHealth;
 
-    const dps = critWeighted * tickDamage * ticks;
+    // Stacks on the target at once: procs per second x seconds each lasts.
+    const active = procsPerSecond * 6 * durationScale;
+    const kept = type === 'gas' && active > GAS_CAP ? GAS_CAP / active : 1;
+    // Merged stacks add one +1 per tick (no crit) while any stack is up: P(at least one) on random procs.
+    const plusOne = merged ? (1 - Math.exp(-active)) * scale : 0;
+    const attacker = critWeighted * rawTick * ticks * kept + plusOne;
+    const dps = attacker * toHealth;
     entries.push({
       type,
       procsPerSecond,
@@ -330,6 +353,7 @@ export function computeDot(
       // Average over this type's procs, crits included.
       damagePerProc: procsPerSecond > 0 ? dps / procsPerSecond : tickDamage * ticks,
       dps,
+      shieldDps: attacker * toShield,
     });
   }
 
