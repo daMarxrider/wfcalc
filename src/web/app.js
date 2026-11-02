@@ -594,7 +594,7 @@ async function gpuRivenPicker(payload, post) {
 
 function renderRivenResult(result) {
   const ttk = result.objective === 'ttk';
-  const value = (score, kill) => (ttk ? (kill === null ? '—' : `${fmt(kill, 2)}s`) : `${fmt(score, 0)} dps`);
+  const value = (score, kill) => (ttk ? (kill === null ? '—' : `${fmt(kill, 2)}s`) : result.objective === 'kpm' ? `${fmt(score, 1)} kills/min` : `${fmt(score, 0)} dps`);
   const total = Object.values(result.replacedCounts).reduce((sum, count) => sum + count, 0) || 1;
   $('riven-out').innerHTML = `
     <div class="stat-line">
@@ -1884,6 +1884,7 @@ function renderFind(result) {
           <div>
             <b>${index + 1}. ${build.timeToKill === null ? 'cannot kill' : `${fmt(build.timeToKill, 2)}s`}</b>
             <span class="meta">
+              ${build.timeToKill === null ? '' : `<span class="chip">${fmt(build.killsPerMinute, 1)} kills/min</span>`}
               <span class="chip">${fmt(build.totalDps, 0)} dps</span>
               <span class="chip">${fmt(build.sustainedDps, 0)} direct</span>
               <span class="chip">crit ${pct(build.critChance)} ×${fmt(build.critMultiplier, 1)}</span>
@@ -2106,7 +2107,7 @@ const TIPS = {
   'save-build': 'Save this build in the browser (Saved tab).',
   share: 'Copy a link that opens exactly this build.',
   'find-weapon': 'Weapon to search; empty uses the Build tab\'s.',
-  'find-objective': 'Fastest kill of this target, or highest damage per second against it.',
+  'find-objective': 'Fastest kill of this target, highest damage per second against it, or most kills per minute when they come one after another (reloads between kills count).',
   'find-enemy': 'Target to optimise against.',
   'find-level': 'Enemy level (node level when Steel Path adds 100).',
   'find-capacity': 'Mod capacity: 60 with an Orokin Catalyst.',

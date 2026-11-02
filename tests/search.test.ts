@@ -179,3 +179,12 @@ test('equal-damage ties prefer the mod without an unmodelled accuracy penalty', 
   assert.ok(!names.includes('Heavy Caliber'), `Heavy Caliber should lose the tie: ${names.join(', ')}`);
   assert.ok(names.includes('Serration'), `Serration should take its place: ${names.join(', ')}`);
 });
+
+test('kills per minute is its own objective: Tigris Prime trades a slower first kill for more kills', () => {
+  // With the fight simulated, as the CLI and UI run it: the first kill fires a full magazine.
+  const request = { weapon: 'Tigris Prime', enemy: 'Bombard', level: 150, simulate: true };
+  const fastest = search(snapshot, { ...request, objective: 'ttk' }).builds[0];
+  const most = search(snapshot, { ...request, objective: 'kpm' }).builds[0];
+  assert.ok(most.killsPerMinute > fastest.killsPerMinute, `${most.killsPerMinute} <= ${fastest.killsPerMinute}`);
+  assert.ok(most.timeToKill! >= fastest.timeToKill!);
+});

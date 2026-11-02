@@ -104,6 +104,8 @@ async function readBody(req: IncomingMessage): Promise<any> {
 }
 
 /** A brute-force request from a JSON body (the Find tab's shape), or the weapon-not-found reply. */
+const objectiveOf = (value: unknown): 'ttk' | 'dps' | 'kpm' => (value === 'dps' || value === 'kpm' ? value : 'ttk');
+
 function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; suggestions: string[] } {
   const { item: weapon, suggestions } = findWeapon(snapshot, body.weapon ?? '');
   if (!weapon) return { error: `weapon not found: ${body.weapon ?? ''}`, suggestions };
@@ -126,7 +128,7 @@ function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; 
   }
   return {
     weapon: weapon.name,
-    objective: body.objective === 'dps' ? 'dps' : 'ttk',
+    objective: objectiveOf(body.objective),
     enemy: body.enemy ?? 'Bombard',
     level: body.level !== undefined ? Number(body.level) : 150,
     steelPath: Boolean(body.steelPath),
@@ -169,7 +171,7 @@ function rivenRequestFrom(body: any): RivenPickerRequest | { error: string; sugg
     level: body.level !== undefined ? Number(body.level) : 150,
     steelPath: Boolean(body.steelPath),
     eximus: Boolean(body.eximus),
-    objective: body.objective === 'dps' ? 'dps' : 'ttk',
+    objective: objectiveOf(body.objective),
     limit: body.limit !== undefined ? Math.max(1, Math.min(1000, Number(body.limit))) : 200,
     stats: Array.isArray(body.stats) ? body.stats.map(String).slice(0, 3) : undefined,
     malus: typeof body.malus === 'string' && body.malus ? body.malus : undefined,
@@ -398,7 +400,7 @@ const server = createServer(async (req, res) => {
       const chooseArcane = Boolean(body.chooseArcane) || body.arcane === 'auto';
       const result = search(snapshot, {
         weapon: weapon.name,
-        objective: body.objective === 'dps' ? 'dps' : 'ttk',
+        objective: objectiveOf(body.objective),
         enemy: body.enemy ?? 'Bombard',
         level: body.level !== undefined ? Number(body.level) : 150,
         capacity: body.capacity !== undefined ? Number(body.capacity) : 60,

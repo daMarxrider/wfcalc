@@ -118,6 +118,8 @@ export interface SearchBuild {
   totalDps: number;
   timeToKill: number | null;
   shotsToKill: number | null;
+  /** Kills per minute against a stream of these targets (EnemyHit.killsPerMinute). */
+  killsPerMinute: number;
   critChance: number;
   critMultiplier: number;
   statusChance: number;
@@ -343,7 +345,8 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     try {
       resolved = resolveBuild(snapshot, build);
       hit = hitEnemy(snapshot, resolved, scaled, { attenuation: request.attenuation, steadyStatus: request.simulate });
-      score = objective === 'ttk'
+      score = objective === 'kpm' ? hit.killsPerMinute || -1
+        : objective === 'ttk'
         ? (hit.timeToKill === null ? -1 : (1 / Math.max(hit.timeToKill, 1e-6)) * (1 + 1e-4 * Math.min(1, Math.log10(1 + hit.damagePerShotHealth) / 10)))
         // totalDps is the damage against this target including status procs. sustainedDps
         // alone ignores them, which made the dps objective blind to Weeping Wounds and to
@@ -560,6 +563,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
       totalDps: scored.hit.totalDps,
       timeToKill: scored.hit.timeToKill,
       shotsToKill: scored.hit.shotsToKill,
+      killsPerMinute: scored.hit.killsPerMinute,
       critChance: scored.resolved.critChance,
       critMultiplier: scored.resolved.critMultiplier,
       statusChance: scored.resolved.statusChance,
@@ -616,13 +620,15 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
 
   builds.sort((a, b) => (objective === 'ttk'
     ? (a.timeToKill ?? Infinity) - (b.timeToKill ?? Infinity)
-    : b.totalDps - a.totalDps));
+    : objective === 'kpm' ? b.killsPerMinute - a.killsPerMinute : b.totalDps - a.totalDps));
 
   const assumptions: string[] = [
     `All mods at max rank, ${capacity} capacity${capacity === 60 ? ' (Orokin Catalyst)' : ''}`,
-    objective === 'ttk'
-      ? `Objective: kill ${enemy.name} at level ${level} in the fewest shots`
-      : `Objective: highest damage per second against ${enemy.name} at level ${level}, status damage included`,
+    {
+      ttk: `Objective: kill ${enemy.name} at level ${level} in the fewest shots`,
+      dps: `Objective: highest damage per second against ${enemy.name} at level ${level}, status damage included`,
+      kpm: `Objective: most kills per minute of ${enemy.name} at level ${level}, one after the other (reloads between kills count)`,
+    }[objective],
   ];
   if (base.conditions && Object.keys(base.conditions).length) {
     assumptions.push(`Conditions: ${Object.entries(base.conditions).map(([k, v]) => `${k}=${v}`).join(', ')}`);
@@ -713,6 +719,7 @@ export function search(snapshot: Snapshot, request: SearchRequest): SearchResult
   const scoreOf = (result: SearchResult): number => {
     const top = result.builds[0];
     if (!top) return -Infinity;
+    if (request.objective === 'kpm') return top.killsPerMinute || -Infinity;
     return request.objective === 'dps'
       ? top.totalDps
       : (top.timeToKill === null ? -Infinity : -top.timeToKill);
