@@ -456,6 +456,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
           fireRate: resolved.fireRate,
           shotsToKill: hit.shotsToKill,
           timeToKill: hit.timeToKill,
+          killsPerMinute: hit.killsPerMinute,
           hitZone: resolved.hitZone,
           hitMultiplier: hit.hit.location,
           stackMode: build.stackMode ?? 'custom',
@@ -530,7 +531,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
     `  target       hp ${num(scaled.health)}  shields ${num(scaled.shield)}  armor ${num(hit.armor)}` +
       (hit.overguard > 0 ? `  overguard ${num(hit.overguard)}` : '') +
       (hit.armor !== scaled.armor ? ` (base ${num(scaled.armor)})` : '') +
-      `   -> ${num(hit.shotsToKill)} shots${hit.timeToKill !== null ? `, ${num(hit.timeToKill, 2)}s` : ''}`,
+      `   -> ${num(hit.shotsToKill)} shots${hit.timeToKill !== null ? `, ${num(hit.timeToKill, 2)}s, ${num(hit.killsPerMinute, 1)} kills/min` : ''}`,
   );
   console.log(`  hit          ${resolved.hitZone === 'head' ? 'headshots' : 'bodyshots'} x${num(hit.hit.location, 2)}`
     + `  crit ${pct(hit.hit.critChance)} avg x${num(hit.hit.averageCrit, 2)}`
