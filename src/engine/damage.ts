@@ -87,6 +87,8 @@ export interface EnemyHit {
   shotsToKill: number;
   /** Seconds to kill, accounting for reloads. */
   timeToKill: number | null;
+  /** Kills per minute against a stream of these targets, the reloads between kills included (0: cannot kill). */
+  killsPerMinute: number;
   /** Faction damage multiplier that was applied to this target (1 when none). */
   factionMultiplier: number;
   /** Hit location against this target: its multiplier and the crit numbers it implies. */
@@ -113,8 +115,36 @@ const healthModifier = (snapshot: Snapshot, type: DamageType, healthType: string
  * they agree.
  * shortcut: every kill and every pellet counts as an event, though some buffs ignore DoT kills
  * (Arcane Pistoleer) or also count status ticks (Magnus Prime); split events by source if needed.
+ *
+ * A timed trait buff (Athodai's Overdrive) is counted the same way: the fight runs at the buffed
+ * rate for its uptime and at the plain rate (build.timedBuff.off) otherwise, so kill speeds and
+ * DPS blend by time. It is down while it waits for its trigger, so that wait runs at the off rate.
+ * shortcut: Overdrive's precedence over Arcane Pistoleer is not modelled; both count when equipped.
  */
 export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions = {}): EnemyHit {
+  const on = ammoHit(snapshot, build, scaled, options);
+  const timed = build.timedBuff;
+  if (!timed?.off || on.timeToKill === null) return on;
+  const off = ammoHit(snapshot, timed.off, scaled, options);
+  const interval = timed.trigger === 'weakPointKill'
+    ? 60 / off.killsPerMinute
+    : 1 / (sustainedPulls(timed.off) * Math.max(1, timed.off.multishot));
+  const uptime = ammoBuffUptime({ chance: 1, seconds: timed.seconds, refresh: timed.refresh }, interval);
+  const blend = (a: number, b: number): number => uptime * a + (1 - uptime) * b;
+  // Share of a target removed per second; the off state may not kill at all (0).
+  const speed = blend(1 / on.timeToKill, off.timeToKill ? 1 / off.timeToKill : 0);
+  const timeToKill = speed > 0 ? 1 / speed : null;
+  return {
+    ...on,
+    timeToKill,
+    shotsToKill: timeToKill === null ? Infinity : timeToKill * blend(on.shotsToKill / on.timeToKill, off.timeToKill ? off.shotsToKill / off.timeToKill : 0),
+    totalDps: blend(on.totalDps, off.totalDps),
+    killsPerMinute: blend(on.killsPerMinute, off.killsPerMinute),
+    warnings: [...on.warnings, `${timed.name}: ${timed.seconds}s buff up ${(uptime * 100).toFixed(0)}% of the fight${timed.refresh ? '' : ' (no refresh)'}`],
+  };
+}
+
+function ammoHit(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions): EnemyHit {
   const ammo = build.ammo ?? { efficiency: 0, multipliers: [], buffs: [], cost: 1 };
   let hit = hitOnce(snapshot, build, scaled, options);
   let uptimes = ammo.buffs.map(() => 0);
@@ -122,7 +152,7 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   if (ammo.buffs.length && build.reloadTime > 0) {
     for (let round = 0; round < 20; round++) {
       const pellets = sustainedPulls({ ...build, ammo: { ...ammo, cost } }) * Math.max(1, build.multishot);
-      const next = ammo.buffs.map((buff) => ammoBuffUptime(buff, buff.trigger === 'weakPointKill' ? hit.timeToKill ?? Infinity : (buff.every ?? 1) / pellets));
+      const next = ammo.buffs.map((buff) => ammoBuffUptime(buff, buff.trigger === 'weakPointKill' ? 60 / hit.killsPerMinute : (buff.every ?? 1) / pellets));
       if (next.every((uptime, i) => Math.abs(uptime - uptimes[i]) < 1e-6)) break;
       uptimes = next;
       cost = expectedAmmoCost(ammo.efficiency, ammo.multipliers, ammo.buffs, uptimes);
@@ -151,7 +181,7 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
   const sustained = sustainedPulls(build);
   // totalDps is the pools over the kill time, as everywhere else.
   const finish = (seconds: number): EnemyHit => ({
-    ...full, timeToKill: seconds, shotsToKill: pullsBy(build, seconds), totalDps: (full.totalDps * full.timeToKill!) / seconds,
+    ...full, timeToKill: seconds, shotsToKill: pullsBy(build, seconds), killsPerMinute: killRate(build, pullsBy(build, seconds)), totalDps: (full.totalDps * full.timeToKill!) / seconds,
   });
   // Midpoint rule: the state halfway through a step, with the pulls the trigger fired in it.
   const progress = (a: number, b: number): number => {
@@ -178,6 +208,15 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
     step *= 1.6;
   }
   return finish(t + (1 - done) * full.timeToKill);
+}
+
+/**
+ * Kills per minute when the targets keep coming: the shots per kill at the sustained pull rate,
+ * so a kill that starts mid-magazine pays its share of the reloads.
+ * shortcut: no time to switch targets, and statuses start fresh on each one; add a switch delay if asked.
+ */
+function killRate(build: ResolvedBuild, shots: number): number {
+  return Number.isFinite(shots) && shots > 0 ? (60 * sustainedPulls(build)) / shots : 0;
 }
 
 /** Share of a ramp reached `seconds` in: 0 before `delay`, then rising to 1 over `length` (0: a step). */
@@ -532,6 +571,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
     multiTargetTargets: requestedTargets,
     shotsToKill,
     timeToKill,
+    killsPerMinute: killRate(build, shotsToKill),
     factionMultiplier,
     hit,
     simulation,

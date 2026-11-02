@@ -36,6 +36,14 @@ const signature = (frames: string, effects: Effect[]) => (context: TraitContext)
   (new RegExp(`^(${frames})( Prime)?$`, 'i').test(context.frame ?? '') ? effects : []);
 const always = (effects: Effect[]) => (): Effect[] => effects;
 const both = (...parts: Array<(context: TraitContext) => Effect[]>) => (context: TraitContext): Effect[] => parts.flatMap((part) => part(context));
+/** Athodai's Overdrive: one buff, so fire rate and Infinite Ammo (cost x0) share its uptime. */
+const overdrive = (seconds: number) => {
+  const extra: Partial<Effect> = { condition: 'onWeakPointKill', timed: { seconds, trigger: 'weakPointKill', refresh: false } };
+  return always([
+    add('fireRate', 1, `Overdrive (weak point kill): +100% Fire Rate for ${seconds}s`, extra),
+    add('ammoEfficiencyMult', 1, `Overdrive (weak point kill): Infinite Ammo for ${seconds}s`, extra),
+  ]);
+};
 /** The same traits on several variants. */
 const variants = (names: string[], trait: (context: TraitContext) => Effect[]) => Object.fromEntries(names.map((name) => [name, trait]));
 
@@ -70,7 +78,8 @@ const TRAITS: Record<string, (context: TraitContext) => Effect[]> = {
     mult('fireRateMult', 1.5, 'Frenzy (headshot): x2.5 Fire Rate', { condition: 'onWeakPointHit' }),
     add('element', 1, 'Frenzy (headshot): +100% Toxin', { condition: 'onWeakPointHit', element: 'toxin' }),
   ]),
-  ...variants(['Athodai', 'Athodai Prime'], always([add('fireRate', 1, 'Overdrive (weak point kill): +100% Fire Rate', { condition: 'onWeakPointKill' })])),
+  Athodai: overdrive(8),
+  'Athodai Prime': overdrive(12),
   'Tenet Spirex': always([add('reloadSpeed', 0.25, 'Bullseye Reload (headshot): +25% Reload Speed, up to 2x', { condition: 'onWeakPointHit', maxStacks: 2 })]),
   ...variants(['Nagantaka', 'Nagantaka Prime'], always([add('reloadSpeed', 0.5, 'Headshot kill: +50% Reload Speed', { condition: 'onWeakPointKill' })])),
   Evensong: always([add('multishot', 0.35, 'Evensong Devotion (on kill): +35% Multishot', { condition: 'onKill' })]),

@@ -54,12 +54,10 @@ const REAPERS_PLENTY: Record<string, Effect[]> = {
   Laetum: [timed(1, { seconds: 6, trigger: 'headshot', refresh: false, efficiency: 0.4 }, 'On Headshot: +40% Ammo Efficiency for 6s', { form: 'normal' })],
 };
 
-/** Weapon traits (wiki: Ammo, each weapon's page). Their other effects (fire rate...) are not modelled. */
+/** Weapon traits (wiki: Ammo, each weapon's page). Their other effects are in traits.ts, which also holds Athodai's Overdrive. */
 const WEAPONS: Record<string, Effect[]> = {
   'Magnus Prime': [timed(0.04, infinite(4, 'hit', true), 'Chamber Cascade: on hit, 4% chance for Infinite Ammo for 4s')],
   'Akmagnus Prime': [timed(0.04, infinite(4, 'hit', true), 'Chamber Cascade: on hit, 4% chance for Infinite Ammo for 4s')],
-  Athodai: [timed(1, infinite(8, 'weakPointKill', false), 'Overdrive: on headshot kill, Infinite Ammo for 8s')],
-  'Athodai Prime': [timed(1, infinite(12, 'weakPointKill', false), 'Overdrive: on headshot kill, Infinite Ammo for 12s')],
   'Dual Toxocyst': [timed(1, infinite(3, 'headshot', true), 'Frenzy: on headshot, Infinite Ammo for 3s')],
   Knell: [timed(1, infinite(2, 'headshot', true), 'Death Knell: on weak point hit, Infinite Ammo for 2s')],
   'Knell Prime': [timed(1, infinite(2, 'headshot', true), 'Death Knell: on weak point hit, Infinite Ammo for 2s')],
@@ -101,7 +99,7 @@ export function ammoCost(additive: number, multiplicative: number[]): number {
 }
 
 /** Share of the time a timed buff is up, given its events' spacing in seconds. */
-export function ammoBuffUptime(buff: AmmoBuff, interval: number): number {
+export function ammoBuffUptime(buff: Pick<AmmoBuff, 'chance' | 'seconds' | 'refresh'>, interval: number): number {
   const chance = Math.min(1, Math.max(0, buff.chance));
   if (!(chance > 0) || !(interval > 0) || !Number.isFinite(interval)) return 0;
   if (buff.refresh) return 1 - Math.pow(1 - chance, buff.seconds / interval);

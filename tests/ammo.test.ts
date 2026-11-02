@@ -4,6 +4,8 @@ import { loadSnapshot } from '../src/data.ts';
 import { resolveBuild, type Build } from '../src/engine/build.ts';
 import { ammoBuffUptime, ammoCost, expectedAmmoCost } from '../src/engine/ammo.ts';
 import { sustainedPulls } from '../src/engine/dot.ts';
+import { hitEnemy } from '../src/engine/damage.ts';
+import { scaleEnemy } from '../src/engine/enemy.ts';
 
 const snapshot = loadSnapshot();
 const close = (actual: number, expected: number, tolerance = 1e-9) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
@@ -80,4 +82,24 @@ test('Infinite Ammo traits and augments become timed buffs, gated on head hits',
   assert.equal(resolve('Knell', { stackMode: 'max', hit: 'head' }).ammo.buffs.length, 1);
   const viper = resolve('Viper', { mods: [{ name: 'Skull Shots', rank: 1 }], stackMode: 'max', hit: 'head' });
   assert.deepEqual(viper.ammo.buffs.map((buff) => [buff.chance, buff.seconds]), [[0.2, 1]]);
+});
+
+test('Athodai Overdrive: fire rate and Infinite Ammo by uptime, 8 s per wait at the plain rate', () => {
+  const athodai = resolve('Athodai', { stackMode: 'max', hit: 'head' });
+  assert.equal(athodai.timedBuff?.seconds, 8);
+  assert.equal(athodai.ammo.cost, 0);
+  const off = athodai.timedBuff!.off!;
+  close(athodai.fireRate, 2 * off.fireRate);
+  assert.equal(off.ammo.cost, 1);
+  const scaled = scaleEnemy(snapshot, snapshot.enemies['Bombard'], 100);
+  const on = hitEnemy(snapshot, { ...athodai, timedBuff: undefined }, scaled);
+  const plain = hitEnemy(snapshot, off, scaled);
+  const blended = hitEnemy(snapshot, athodai, scaled);
+  // Kills per minute count the reloads between kills: shots per kill at the sustained rate.
+  close(plain.killsPerMinute, (60 * sustainedPulls(off)) / plain.shotsToKill);
+  const uptime = 8 / (8 + 60 / plain.killsPerMinute);
+  close(1 / blended.timeToKill!, uptime / on.timeToKill! + (1 - uptime) / plain.timeToKill!, 1e-9);
+  close(blended.killsPerMinute, uptime * on.killsPerMinute + (1 - uptime) * plain.killsPerMinute);
+  // Body shots never trigger it.
+  assert.equal(resolve('Athodai', { stackMode: 'max' }).timedBuff, undefined);
 });

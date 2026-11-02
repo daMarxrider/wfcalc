@@ -257,6 +257,8 @@ export interface Effect {
   critChanceBelow?: number;
   /** A timed ammo buff (target `ammoBuff`): the value is its chance per event (engine/ammo.ts). */
   ammoBuff?: AmmoBuffSpec;
+  /** A buff that runs for a while after its trigger (Athodai's Overdrive): hitEnemy counts it by uptime. */
+  timed?: Pick<AmmoBuffSpec, 'seconds' | 'trigger' | 'refresh'>;
   /** Original text, for display. */
   raw: string;
 }

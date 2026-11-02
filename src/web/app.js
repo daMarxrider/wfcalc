@@ -1371,6 +1371,7 @@ function renderResults(result) {
   if (target) {
     rows.push(['Shots', fmt(target.shotsToKill, 1)]);
     rows.push(['TTK', target.timeToKill === null ? '—' : `${fmt(target.timeToKill, 2)}s`]);
+    rows.push(['Kills/min', target.timeToKill === null ? '—' : fmt(target.killsPerMinute, 1)]);
   }
   $('stats').innerHTML = rows
     .map(([label, value]) =>

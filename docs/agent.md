@@ -115,7 +115,8 @@ Forma and the equipped arcane. The full report adds an `arcane` and a `capacity`
 JSON carries `arcanes`, `capacityUsed`, `capacity`, `formaNeeded` and `fits`.
 Drop `--brief` when the player asks "why" — the text report shows the element split, status
 ticks and per-type damage. With `--json`, read `sustainedDps`, `totalDps`, `timeToKill`,
-`unsupportedMods` and `inactiveConditions`.
+`killsPerMinute` (a stream of these targets, reloads between kills counted), `unsupportedMods`
+and `inactiveConditions`.
 
 ## Recipe: an ability and its strip
 

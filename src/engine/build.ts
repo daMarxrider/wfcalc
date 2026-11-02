@@ -243,6 +243,8 @@ export interface ResolvedBuild {
    * The Incarnon form ignores it all: cost 1, no buffs.
    */
   ammo: { efficiency: number; multipliers: number[]; buffs: AmmoBuff[]; cost: number };
+  /** A timed trait buff counted as on (Athodai's Overdrive); `off` is the build without it, for hitEnemy's uptime. */
+  timedBuff?: TimedBuff;
   /** The weapon's stats this build starts from (mode, Incarnon form, bonus element and AoE falloff applied). */
   baseStats: WeaponStats;
   /** Every summed bonus by target ("baseDamage", "critChance", "element:viral"...), for the GPU search's mod vectors. */
@@ -348,6 +350,8 @@ function effectValue(effect: Effect, mod: ModData, rank: number | undefined): nu
   return effect.value * rankScale(mod, rank);
 }
 
+export type TimedBuff = NonNullable<Effect['timed']> & { name: string; off?: ResolvedBuild };
+
 interface Collected {
   byTarget: Map<string, number>;
   elementBonuses: Array<{ element: BaseElement; amount: number }>;
@@ -356,6 +360,7 @@ interface Collected {
   forcedProcs: Array<{ type: DamageType; chance: number; requiresCrit: boolean }>;
   ammoBuffs: AmmoBuff[];
   ammoMultipliers: number[];
+  timed: TimedBuff | null;
   conversions: Array<{ from: BaseElement; to: DamageType; share: number }>;
   /** Incarnon "Increase Base X" bonuses, and bonuses gated on the build's own crit chance. */
   baseAdds: Array<{ target: string; value: number; base: boolean; critChanceBelow?: number; label: string }>;
@@ -475,6 +480,15 @@ function arcaneExtraProcs(resolved: ResolvedBuild): Partial<Record<DamageType, n
  * search is valued with its own elements. A second pass runs only when such a bonus is active.
  */
 export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
+  const resolved = resolveGated(snapshot, build);
+  const timed = resolved.timedBuff;
+  if (!timed) return resolved;
+  // shortcut: turning the source off drops all its conditional effects; fine while a timed trait is its weapon's only one.
+  const off = resolveGated(snapshot, { ...build, sourceStacks: { ...(build.sourceStacks ?? {}), [timed.name]: 0 } });
+  return { ...resolved, timedBuff: { ...timed, off } };
+}
+
+function resolveGated(snapshot: Snapshot, build: Build): ResolvedBuild {
   const first = resolveCounted(snapshot, build);
   // "On Heat Status Effect" (Cascadia Flare, Primary Blight...) needs that status from this
   // weapon, so a search does not credit it to builds that never proc it. A stack count the
@@ -614,6 +628,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     forcedProcs: [],
     ammoBuffs: [],
     ammoMultipliers: [],
+    timed: null,
     conversions: [],
     baseAdds: [],
     inactive: [],
@@ -897,6 +912,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
         continue;
       }
       if (effect.perStatusType) usesStatusTypes = true;
+      if (effect.timed) collected.timed ??= { name: source.name, ...effect.timed };
       // A melee Incarnon form fires spectral projectiles, and the wiki states those hits take
       // no melee damage bonus: Pressure Point, Arcane Fury, the stance and the combo
       // multiplier do nothing. Elemental, faction, crit, status and Condition Overload still
@@ -1346,6 +1362,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     cryogenicStacks: bonus('cryogenic'),
     irradiateShare: bonus('irradiate'),
     ammo,
+    timedBuff: collected.timed ?? undefined,
     critTierBonus: vigilante,
     bonusTotals: Object.fromEntries(collected.byTarget),
     baseStats: stats,
