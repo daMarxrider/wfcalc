@@ -12,7 +12,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { arcaneProcRates, atLeastTen, computeDot, procRates, sustainedPulls, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
+import { arcaneProcRates, atLeastTen, computeDot, procRates, pullsBy, sustainedPulls, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import { hitProfile, type HitProfile } from './hit.ts';
 import { AMMO_EFFICIENCY_CAP, ammoBuffUptime, expectedAmmoCost } from './ammo.ts';
@@ -47,11 +47,18 @@ export interface HitOptions {
    */
   simulate?: boolean;
   /**
-   * Cheap stand-in for the simulation: Viral, Corrosive and Heat at the stacks the build's own
-   * proc rate keeps up (rate x duration, capped), as if the fight were already under way. Used
-   * to rank many builds before the best few are simulated.
+   * Cheap stand-in for the simulation, used to rank many builds before the best few are
+   * simulated: the statuses the build's own procs put up (Viral, Corrosive, Heat, Puncture,
+   * Cold, Tau) and its DoT ticks, only as far as they get before the kill (fightLengthHit).
    */
   steadyStatus?: boolean;
+  /**
+   * With `steadyStatus`: the target's state this many seconds into the fight (stacks, Heat
+   * strip and DoT ticks only as far as they got by then). Omitted, the kill time integrates it.
+   */
+  at?: number;
+  /** With `at`: the share of the sustained pull rate the trigger delivers then (a magazine fires faster, a reload not at all). */
+  firing?: number;
 }
 
 export interface EnemyHit {
@@ -131,7 +138,75 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   return hit;
 }
 
+/**
+ * Fast estimate of the simulated fight, for `steadyStatus`. Statuses build up over the fight:
+ * a short one sees few stacks and few DoT ticks (Heat starts at 1 s), and the first magazine
+ * fires before any reload. The share of the target removed per second is 1 / kill time at the
+ * state reached by then; summed over time steps it reaches 1 at the kill. Past the longest
+ * status timer the state no longer changes, so the rest of the fight runs at the sustained rate.
+ */
+function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions): EnemyHit {
+  const full = hitOnce(snapshot, build, scaled, { ...options, at: Infinity });
+  if (full.timeToKill === null || full.timeToKill <= 0) return full;
+  const sustained = sustainedPulls(build);
+  // totalDps is the pools over the kill time, as everywhere else.
+  const finish = (seconds: number): EnemyHit => ({
+    ...full, timeToKill: seconds, shotsToKill: pullsBy(build, seconds), totalDps: (full.totalDps * full.timeToKill!) / seconds,
+  });
+  // Midpoint rule: the state halfway through a step, with the pulls the trigger fired in it.
+  const progress = (a: number, b: number): number => {
+    const firing = (pullsBy(build, b) - pullsBy(build, a)) / ((b - a) * sustained);
+    const hit = hitOnce(snapshot, build, scaled, { ...options, at: (a + b) / 2, firing });
+    return hit.timeToKill === null || hit.timeToKill <= 0 ? 0 : (b - a) / hit.timeToKill;
+  };
+  // Corrosive's 8 s is the longest timer; Heat ticks 1 s late and Blast lands 1.5 s late.
+  const settled = 8 * (1 + Math.max(-0.9, build.statusDurationBonus ?? 0)) + 1.5;
+  let t = 0;
+  let done = 0;
+  let step = Math.min(full.timeToKill / 4, settled / 8);
+  for (let i = 0; i < 40 && t < settled; i++) {
+    let next = Math.min(settled, t + step);
+    let area = progress(t, next);
+    // The kill falls inside this step: shrink it onto the kill (the pulls depend on where it ends).
+    for (let k = 0; k < 4 && done + area > 1 + 1e-3; k++) {
+      next = t + ((next - t) * (1 - done)) / area;
+      area = progress(t, next);
+    }
+    if (done + area >= 1 - 1e-3) return finish(next);
+    done += area;
+    t = next;
+    step *= 1.6;
+  }
+  return finish(t + (1 - done) * full.timeToKill);
+}
+
+/** Share of a ramp reached `seconds` in: 0 before `delay`, then rising to 1 over `length` (0: a step). */
+function rampAt(seconds: number, delay: number, length: number): number {
+  if (seconds === Infinity) return 1;
+  const after = seconds - delay;
+  if (after < 0) return 0;
+  return length <= 0 ? 1 : Math.min(1, after / length);
+}
+
+/**
+ * Seconds' worth of sustained fire in the `life` seconds up to `seconds` into the fight: what a
+ * status with that duration has collected. Early on less than `life`, inside a magazine more.
+ */
+function firedWithin(build: ResolvedBuild, seconds: number, life: number): number {
+  if (seconds === Infinity) return life;
+  return (pullsBy(build, seconds) - pullsBy(build, seconds - life)) / sustainedPulls(build);
+}
+
+/** DoT seconds after the proc before ticking, and how long it ticks (simulate.ts). */
+const DOT_TIMING: Record<string, { delay: number; length: number }> = {
+  heat: { delay: 1, length: 6 },
+  // A single hit: the procs of a short window 1.5 s back.
+  blast: { delay: 1.5, length: 0.25 },
+};
+
 function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions): EnemyHit {
+  if (options.steadyStatus && options.at === undefined) return fightLengthHit(snapshot, build, scaled, options);
+  if (options.steadyStatus) build = withSteadyCrit(build, options.at ?? Infinity);
   const warnings: string[] = [];
   const armor = scaled.pools.find((pool) => pool.category === 'armor');
   const shields = scaled.pools.filter((pool) => pool.category === 'shield');
@@ -157,7 +232,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   // Status debuffs the player keeps up on the target.
   // The pool's amount is the level-1 armour, which a base-armour reduction has to be scaled by.
   const debuffs: DotContext = { ...build.debuffs, armorBase: armor?.amount };
-  if (options.steadyStatus) Object.assign(debuffs, steadyStatusDebuffs(build));
+  if (options.steadyStatus) Object.assign(debuffs, steadyStatusDebuffs(build, options.at));
   const viral = viralMultiplier(debuffs.viralStacks ?? 0);
   const armorAfterStatus = effectiveArmor(scaled.armor, debuffs);
 
@@ -232,6 +307,15 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   // Sequential kill, as rates rather than shots so status damage counts:
   // shields first (only shield-capable damage), then health (direct + DoT).
   const dot = computeDot(snapshot, build, scaled, debuffs, factionMultiplier);
+  // A short fight only sees the ticks that land before the kill.
+  if (options.steadyStatus && options.at !== undefined && options.at !== Infinity) {
+    const durationScale = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
+    for (const entry of dot) {
+      const timing = DOT_TIMING[entry.type] ?? { delay: 0, length: 6 };
+      const length = entry.type === 'blast' ? timing.length : timing.length * durationScale;
+      entry.dps *= firedWithin(build, options.at - timing.delay, length) / length;
+    }
+  }
   const dotDps = dot.reduce((sum, entry) => sum + entry.dps, 0);
   const pullsPerSecond = sustainedPulls(build);
 
@@ -261,9 +345,11 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   };
   const flatFactor = attenuation ? 1 - attenuation.flatDr : 1;
   const statusFactor = attenuation ? flatFactor * (1 - attenuation.statusDr) : 1;
-  const directHealthDps = damagePerShotHealth * pullsPerSecond;
-  const directShieldDps = damagePerShotShield * pullsPerSecond;
-  const directOverguardDps = damagePerShotOverguard * pullsPerSecond;
+  // Mid-fight (steady estimate): the trigger fires faster inside a magazine, not at all reloading.
+  const firePulls = pullsPerSecond * (options.firing ?? 1);
+  const directHealthDps = damagePerShotHealth * firePulls;
+  const directShieldDps = damagePerShotShield * firePulls;
+  const directOverguardDps = damagePerShotOverguard * firePulls;
   const effectiveHealthDps = attenuation
     ? Math.min(
         cappedDirect(directHealthDps, damagePerShotHealth) * flatFactor
@@ -301,7 +387,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
       const shieldSeconds = remainingShield / shieldDps;
       seconds += shieldSeconds;
       // Shield-bypassing damage (Toxin) already chews health during the shield phase.
-      const bypassDps = bypassProjectile * critMultiplier * build.multishot * pullsPerSecond;
+      const bypassDps = bypassProjectile * critMultiplier * build.multishot * firePulls;
       remainingHealth = Math.max(0, remainingHealth - shieldSeconds * bypassDps);
     } else if (Number.isFinite(seconds) && remainingShield > 0) {
       remainingShield = 0; // only shield-bypassing damage: shields never break, health still drops
@@ -443,6 +529,40 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   };
 }
 
+/** Stacks `seconds` into the fight: the procs of the last `life` seconds, up to the cap. */
+function stacksAt(build: ResolvedBuild, procs: number, life: number, cap: number, seconds: number): number {
+  return Math.min(cap, procs * firedWithin(build, seconds, life));
+}
+
+/**
+ * Puncture, Cold and Tau from the build's own procs, as the simulation applies them (simulate.ts),
+ * all additive after mods: Puncture +5% crit chance per stack (5, 10 s); Cold +0.1, then +0.05 per
+ * stack, to the crit multiplier (+0.5 at 9, 6 s; Cryogenic adds stacks per Puncture proc); Tau
+ * +10% status chance per stack (10, 8 s).
+ * shortcut: Cold's freeze at 10 stacks (+1.0 for 3 s) is left out; model it if Cold builds misrank.
+ */
+function withSteadyCrit(build: ResolvedBuild, seconds: number): ResolvedBuild {
+  const pulls = sustainedPulls(build);
+  const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
+  const rates = procRates(build, pulls, hitProfile(build, null).critChance);
+  const own = (type: DamageType): number => rates(type).natural + rates(type).forced;
+  const extra = arcaneProcRates(build, pulls, own);
+  const rate = (type: DamageType): number => own(type) + (extra[type] ?? 0);
+  const puncture = stacksAt(build, rate('puncture'), 10 * duration, 5, seconds);
+  const cold = stacksAt(build, rate('cold') + rate('puncture') * (build.cryogenicStacks ?? 0), 6 * duration, 9, seconds);
+  const tau = stacksAt(build, rate('tau'), 8 * duration, 10, seconds);
+  if (puncture <= 0 && cold <= 0 && tau <= 0) return build;
+  return {
+    ...build,
+    critChance: build.critChance + 0.05 * puncture,
+    critMultiplier: build.critMultiplier + (cold > 0 ? Math.min(0.5, 0.1 + 0.05 * (cold - 1)) : 0),
+    statusChance: build.statusChance * (1 + Math.min(1, 0.1 * tau)),
+  };
+}
+
+/** Heat's armour strip rises by these every 0.5 s of the chain, to 50% (simulate.ts). */
+const HEAT_RAMP_STEPS = [0.15, 0.15, 0.1, 0.1];
+
 /** Expected status procs per trigger pull, by damage type. */
 export function statusProcs(build: ResolvedBuild): Array<{ type: DamageType; procs: number }> {
   const totalRaw = build.damage.projectileTotal || 1;
@@ -455,17 +575,21 @@ export function statusProcs(build: ResolvedBuild): Array<{ type: DamageType; pro
 /**
  * Status stacks a build keeps up on its own at a steady rate of fire (procs per second x the
  * status duration, capped), for the `steadyStatus` option. Player-given stacks are a floor.
+ * With a time into the fight, the state by then: stacks rise at the proc rate from 0, and Heat's
+ * strip climbs 15/30/40/50% every 0.5 s (simulate.ts).
  */
-export function steadyStatusDebuffs(build: ResolvedBuild): Pick<DotContext, 'viralStacks' | 'corrosiveStacks' | 'heatStrip'> {
+export function steadyStatusDebuffs(build: ResolvedBuild, seconds = Infinity): Pick<DotContext, 'viralStacks' | 'corrosiveStacks' | 'heatStrip'> {
   const pulls = sustainedPulls(build);
   const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
   const rates = procRates(build, pulls, hitProfile(build, null).critChance);
   const rate = (type: DamageType): number => rates(type).natural + rates(type).forced;
   // Arcanes add procs: Encumber's random statuses, Debilitate's base statuses (dot.ts).
   const extra = arcaneProcRates(build, pulls, rate);
-  const viral = Math.min(10, (rate('viral') + (extra.viral ?? 0)) * 6 * duration);
-  const corrosive = Math.min(10 + (build.corrosiveCapBonus ?? 0), (rate('corrosive') + (extra.corrosive ?? 0)) * 8 * duration);
-  const heat = 0.5 * (1 - Math.exp(-(rate('heat') + (extra.heat ?? 0)) * 6 * duration));
+  const stacks = (procs: number, life: number, cap: number): number => stacksAt(build, procs, life, cap, seconds);
+  const viral = stacks(rate('viral') + (extra.viral ?? 0), 6 * duration, 10);
+  const corrosive = stacks(rate('corrosive') + (extra.corrosive ?? 0), 8 * duration, 10 + (build.corrosiveCapBonus ?? 0));
+  const ramp = HEAT_RAMP_STEPS.reduce((sum, rise, i) => sum + rise * rampAt(seconds, 0.5 * (i + 1) * duration, 0), 0);
+  const heat = ramp * (1 - Math.exp(-stacks(rate('heat') + (extra.heat ?? 0), 6 * duration, Infinity)));
   return {
     viralStacks: Math.max(viral, build.debuffs?.viralStacks ?? 0),
     corrosiveStacks: Math.max(corrosive, build.debuffs?.corrosiveStacks ?? 0),

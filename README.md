@@ -31,7 +31,8 @@ and in-game calibration. On top of it this fork adds:
   other weapon is checked for a single arcane.
 - **Fight simulation**: Viral, Corrosive, Heat (refresh and ramped strip), Magnetic, Cold,
   Puncture, Tau, Blast and the DoTs build up during the fight and feed back into damage until
-  the target dies; beams ramp up. Searches rank on steady-state stacks and simulate the best.
+  the target dies; beams ramp up. Searches rank on a fast estimate of the same build-up (stacks
+  and DoT ticks only as far as they get before the kill) and simulate the best.
 - **Hit location**: `--hit head|body` with the wiki's weak-point model (3x, 1.5x weak point
   damage on heads, headshot multipliers, weak point crit chance, head crits).
 - **Stacks**: `--stacks none|max` or per source (`--source-stacks "Primary Merciless=6"`); caps

@@ -90,7 +90,7 @@ export interface SearchRequest {
   /** Steel Path target: health and shields x2.5. `level` stays the enemy's actual level. */
   steelPath?: boolean;
   /**
-   * Status effects build up over the fight: builds are compared with steady-state stacks and the
+   * Status effects build up over the fight: builds are compared with a fast estimate of it and the
    * returned ones are simulated (see simulate.ts). Default false here; the CLI and API turn it on.
    */
   simulate?: boolean;
@@ -543,7 +543,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     if (!scoreCache.get(keyOf(names))) evaluateOrder(names);
     const cached = scoreCache.get(keyOf(names))!;
     // What is reported comes from the fight simulation when asked for; the search itself ran on
-    // steady-state stacks.
+    // the fast build-up estimate.
     const scored = request.simulate
       ? { ...cached, hit: hitEnemy(snapshot, cached.resolved, scaled, { attenuation: request.attenuation, simulate: true }) }
       : cached;

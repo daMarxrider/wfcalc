@@ -391,3 +391,35 @@ test('a drawback twin (Heavy Caliber = Serration - accuracy) is only used next t
     if (names.includes('Heavy Caliber')) assert.ok(names.includes('Serration'), names.join(', '));
   }
 });
+
+test('the ranking estimate follows the simulated build-up: Acceltra Prime kills in 0.31 s, not 0.47 s', async () => {
+  const snapshot = loadSnapshot();
+  const base = { arcanes: ['Primary Compression'], conditions: { aiming: 1 } };
+  const scaled = scaleTarget(snapshot, {}, snapshot.enemies.Bombard, 150);
+  // Stacks at their cap from the first shot ranked this Thermite build at 0.09 s; the fight takes 0.47 s.
+  const mods = ['Primed Cryo Rounds', 'Infected Clip', 'Thermite Rounds', 'Critical Delay', 'Serration', 'Split Chamber', 'Vile Acceleration', 'Vital Sense', 'Vigilante Supplies'];
+  const resolved = resolveBuild(snapshot, { ...base, weapon: 'Acceltra Prime', mods: mods.map((name) => ({ name })) });
+  const estimate = hitEnemy(snapshot, resolved, scaled, { steadyStatus: true }).timeToKill!;
+  const simulated = hitEnemy(snapshot, resolved, scaled, { simulate: true }).timeToKill!;
+  assert.ok(Math.abs(estimate / simulated - 1) < 0.1, `estimate ${estimate} vs simulated ${simulated}`);
+
+  // A shortlist of 18 is enough: stacks at their cap from the first shot already chose the 0.47 s build there.
+  const result = await bruteForce(snapshot, { weapon: 'Acceltra Prime', enemy: 'Bombard', level: 150, base, limit: 1, pool: 18 });
+  assert.ok(result.builds[0].timeToKill! < 0.32, `best ${result.builds[0].timeToKill}`);
+});
+
+test('the Exilus slot takes a Forma, and pinned mods are fitted around the Exilus drain', async () => {
+  const snapshot = loadSnapshot();
+  // Vigilante Supplies (Naramon) on Acceltra Prime's Madurai Exilus slot: 5 drain with a Forma, not 9.
+  const fixed = ['Primed Firestorm', 'Primed Cryo Rounds', 'Critical Delay', 'Serration', 'Split Chamber', 'Vile Acceleration', 'Vital Sense', 'Vigilante Supplies'];
+  const result = await bruteForce(snapshot, { weapon: 'Acceltra Prime', enemy: 'Bombard', level: 150, fixed, limit: 1,
+    base: { arcanes: ['Primary Compression'], conditions: { aiming: 1 } } });
+  assert.ok(result.builds[0].capacityUsed <= 60);
+  assert.equal(result.builds[0].formaNeeded, 5);
+});
+
+test('blast radius mods are searched: they feed Primary Compression', () => {
+  const snapshot = loadSnapshot();
+  const plan = planBruteForce(snapshot, { weapon: 'Acceltra Prime', enemy: 'Bombard', level: 150, base: { arcanes: ['Primary Compression'], conditions: { aiming: 1 } } });
+  assert.ok(plan.candidates.includes('Primed Firestorm'));
+});
