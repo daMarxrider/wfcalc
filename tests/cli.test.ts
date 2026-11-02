@@ -376,7 +376,8 @@ test('the answer states the damage per pull that actually lands on the target', 
     damagePerShotHealth: number; damagePerShotShield: number;
   };
   assert.equal(result.projectileTotal.toFixed(2), '31.80');
-  assert.equal(result.damagePerShotHealth.toFixed(4), '6.2110');
+  // Base crit 3.0 is stored as 3.0007 (32/4095 steps).
+  assert.equal(result.damagePerShotHealth.toFixed(4), '6.2119');
   assert.equal(result.damagePerShotShield, 0);
   assert.ok(result.damagePerShotHealth < result.averageShotDamage / 8, 'armour must show up in the per-shot number');
 

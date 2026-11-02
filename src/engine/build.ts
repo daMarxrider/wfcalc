@@ -92,7 +92,7 @@ export interface Build {
    * a value of 0 means none.
    */
   elementBonus?: { type: DamageType; value: number };
-  /** Round each damage type to 1/32 of the modded base damage, as the game does. Default true. */
+  /** Round each damage type to 1/32 of the modded base damage and the base crit multiplier to 32/4095 steps, as the game does. Default true. */
   quantize?: boolean;
   /** Riven mod stats for this weapon. */
   riven?: RivenSpec;
@@ -424,6 +424,13 @@ export function statsForMode(weapon: WeaponData, modeName?: string): { stats: We
 }
 
 /** Where an Incarnon "Increase Base X" bonus lands in the weapon's stats. */
+/**
+ * The base critical multiplier, plus effects that add to the base (Incarnon), is stored as a 12-bit
+ * code over 0..32 before mods multiply it (wiki: Critical Hit): 2.2 becomes 2.2037.
+ */
+export const quantizeCritBase = (x: number): number =>
+  Math.fround((Math.floor((Math.min(32, Math.max(0, x)) * 4095) / 32 + 0.5) * 32) / 4095);
+
 const BASE_STAT: Record<string, keyof WeaponStats> = {
   critChance: 'critChance', statusChance: 'statusChance', critDamage: 'critMultiplier',
   multishot: 'multishot', magazine: 'magazineSize', fireRate: 'fireRate',
@@ -1003,6 +1010,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     if (!add.base || add.critChanceBelow !== undefined || !key) continue;
     stats = { ...stats, [key]: (stats[key] ?? 0) + add.value };
   }
+  if (build.quantize !== false) stats = { ...stats, critMultiplier: quantizeCritBase(stats.critMultiplier ?? 1) };
 
 
   // ---------------------------------------------------------------- base damage
@@ -1061,6 +1069,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     const base = stats[type] ?? 0;
     if (base <= 0) continue;
     damage[type] = base * (1 + bonus(type)) * damageBonus;
+  }
+  // Madurai Phoenix Talons (wiki: Focus/Madurai): 30% of the whole base damage, elements included,
+  // added after physical mods and split over the physical types by their modded weight.
+  const physicalTotal = PHYSICAL_TYPES.reduce((sum, type) => sum + (damage[type] ?? 0), 0);
+  if (bonus('maduraiPhysical') > 0 && physicalTotal > 0) {
+    const added = baseTotal * bonus('maduraiPhysical') * damageBonus;
+    for (const type of PHYSICAL_TYPES) if (damage[type]) damage[type]! += (added * damage[type]!) / physicalTotal;
   }
 
   // Non-combinable damage the weapon already has (true, void, tau, or innate combined elements),
@@ -1224,7 +1239,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     if (add.base) gatedCritBase += add.value;
     else gatedCritBonus += add.value;
   }
-  const critMultiplier = ((stats.critMultiplier ?? 1) + gatedCritBase) * (1 + bonus('critDamage') + gatedCritBonus) + bonus('critDamageFlat') + doughty;
+  const critBase = (stats.critMultiplier ?? 1) + gatedCritBase;
+  const critMultiplier = (build.quantize !== false ? quantizeCritBase(critBase) : critBase) * (1 + bonus('critDamage') + gatedCritBonus) + bonus('critDamageFlat') + doughty;
   // Melee Duplicate (wiki): a base (yellow, tier 1) crit strikes again, rerolling crit and status,
   // which is one more pellet on that share of hits.
   const yellowCrit = critChance < 1 ? critChance : Math.max(0, 2 - critChance);

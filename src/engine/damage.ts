@@ -199,6 +199,9 @@ function firedWithin(build: ResolvedBuild, seconds: number, life: number): numbe
 
 /** DoT seconds after the proc before ticking, and how long it ticks (simulate.ts). */
 const DOT_TIMING: Record<string, { delay: number; length: number }> = {
+  // Electricity and Gas tick at once, the others from 1 s (wiki: Damage over Time).
+  slash: { delay: 1, length: 6 },
+  toxin: { delay: 1, length: 6 },
   heat: { delay: 1, length: 6 },
   // A single hit: the procs of a short window 1.5 s back.
   blast: { delay: 1.5, length: 0.25 },
@@ -305,7 +308,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   const damagePerShotOverguard = perProjectileOverguard * critMultiplier * shots * factionMultiplier;
 
   // Sequential kill, as rates rather than shots so status damage counts:
-  // shields first (only shield-capable damage), then health (direct + DoT).
+  // shields first (shield-capable direct damage + DoT), then health (direct + DoT).
   const dot = computeDot(snapshot, build, scaled, debuffs, factionMultiplier);
   // A short fight only sees the ticks that land before the kill.
   if (options.steadyStatus && options.at !== undefined && options.at !== Infinity) {
@@ -313,10 +316,16 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
     for (const entry of dot) {
       const timing = DOT_TIMING[entry.type] ?? { delay: 0, length: 6 };
       const length = entry.type === 'blast' ? timing.length : timing.length * durationScale;
-      entry.dps *= firedWithin(build, options.at - timing.delay, length) / length;
+      const share = firedWithin(build, options.at - timing.delay, length) / length;
+      entry.dps *= share;
+      entry.shieldDps *= share;
     }
   }
   const dotDps = dot.reduce((sum, entry) => sum + entry.dps, 0);
+  // Ticks hit shields too, Slash included (U27.2); bypassing Toxin goes to health instead (not counted there).
+  const dotShieldDps = shieldType
+    ? dot.reduce((sum, entry) => sum + (entry.type === 'toxin' && scaled.enemy.toxinBypassesShields ? 0 : entry.shieldDps), 0)
+    : 0;
   const pullsPerSecond = sustainedPulls(build);
 
   // `undefined` means "automatic" (Eidolons); `null`/"none" means the caller explicitly
@@ -358,8 +367,12 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
       )
     : directHealthDps + dotDps;
   const effectiveShieldDps = attenuation
-    ? cappedDirect(directShieldDps, damagePerShotShield) * flatFactor
-    : directShieldDps;
+    ? Math.min(
+        cappedDirect(directShieldDps, damagePerShotShield) * flatFactor
+          + Math.min(dotShieldDps * statusFactor, attenuation.mdps > 0 ? attenuation.mdps : Infinity),
+        attenuation.mdps > 0 ? attenuation.mdps : Infinity,
+      )
+    : directShieldDps + dotShieldDps;
   const effectiveOverguardDps = attenuation
     ? cappedDirect(directOverguardDps, damagePerShotOverguard) * flatFactor
     : directOverguardDps;

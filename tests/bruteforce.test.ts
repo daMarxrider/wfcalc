@@ -421,5 +421,6 @@ test('the Exilus slot takes a Forma, and pinned mods are fitted around the Exilu
 test('blast radius mods are searched: they feed Primary Compression', () => {
   const snapshot = loadSnapshot();
   const plan = planBruteForce(snapshot, { weapon: 'Acceltra Prime', enemy: 'Bombard', level: 150, base: { arcanes: ['Primary Compression'], conditions: { aiming: 1 } } });
-  assert.ok(plan.candidates.includes('Primed Firestorm'));
+  // Ranked with the rest (whether it makes the shortlist depends on the budget).
+  assert.ok([...plan.candidates, ...plan.leftOut].includes('Primed Firestorm'));
 });
