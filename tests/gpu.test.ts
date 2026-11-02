@@ -29,6 +29,21 @@ for (const [weapon, enemy, simulate] of cases) {
   });
 }
 
+test('GPU pre-filter blends Athodai Overdrive by uptime, like the exact pass', async () => {
+  const request = { weapon: 'Athodai', enemy: 'Bombard', level: 150, pool: 14, limit: 1, workers: 1, simulate: false, base: { stackMode: 'max' as const, hit: 'head' as const } };
+  const model = gpuModel(snapshot, request, 150);
+  assert.ok(model.params.some((value) => value === 8), 'Overdrive seconds reach the model');
+  const exact = await bruteForce(snapshot, request);
+  const shortlist = cpuSearch(model).map(({ combo }) => combo.map((i: number) => model.candidates[i]));
+  const filtered = await bruteForceFromCombinations(snapshot, request, shortlist, { combinations: model.combinations, elapsedMs: 0 });
+  assert.deepEqual(filtered.builds[0].mods.map((mod) => mod.name).sort(), exact.builds[0].mods.map((mod) => mod.name).sort());
+  // Static mode uses the same formulas: within 3% (always-on Overdrive is ~7% fast here).
+  const best = cpuSearch(model)[0];
+  const exactTtk = exact.builds[0].timeToKill!;
+  const ratio = 1 / proxyScore(model, best.combo) / exactTtk;
+  assert.ok(ratio > 0.97 && ratio < 1.03, `proxy/exact kill time ${ratio}`);
+});
+
 test('the reduced model refuses incompatible pairs and builds over the drain bound', () => {
   const model = gpuModel(snapshot, { weapon: 'Soma Prime', enemy: 'Bombard', capacity: 10 }, 10);
   const at = (name: string) => model.candidates.indexOf(name);
