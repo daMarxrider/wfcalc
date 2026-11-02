@@ -149,6 +149,8 @@ export interface BruteForceBuild {
   totalDps: number;
   timeToKill: number | null;
   shotsToKill: number | null;
+  /** Kills per minute against a stream of these targets (EnemyHit.killsPerMinute). */
+  killsPerMinute: number;
   critChance: number;
   critMultiplier: number;
   statusChance: number;
@@ -444,9 +446,11 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   const leftOut = ranked.filter((name) => !candidates.includes(name));
 
   assumptions.push(`${capacity} capacity${capacity === 60 ? ' (Orokin Catalyst)' : ''}${maxForma !== null ? `, at most ${maxForma} Forma` : ''}`);
-  assumptions.push(objective === 'ttk'
-    ? `Objective: kill ${enemy.name} at level ${level} as fast as possible`
-    : `Objective: highest damage per second against ${enemy.name} at level ${level}, status damage included`);
+  assumptions.push({
+    ttk: `Objective: kill ${enemy.name} at level ${level} as fast as possible`,
+    dps: `Objective: highest damage per second against ${enemy.name} at level ${level}, status damage included`,
+    kpm: `Objective: most kills per minute of ${enemy.name} at level ${level}, one after the other (reloads between kills count)`,
+  }[objective]);
   if (request.steelPath) assumptions.push('Steel Path: target health and shields x2.5 (armour unchanged)');
   if (request.eximus) assumptions.push('Eximus target: raised base health/shields and Overguard');
   if (requireStatus.length) assumptions.push(`Every build carries ${requireStatus.join(', ')} damage`);
@@ -548,6 +552,7 @@ export function makeScorer(
       const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate' });
       const tie = 1 - 1e-9 * tiePenalty(snapshot, mods);
       if (objective === 'dps') return hit.totalDps * tie;
+      if (objective === 'kpm') return hit.killsPerMinute > 0 ? hit.killsPerMinute * tie : -Infinity;
       if (hit.timeToKill === null) return -Infinity;
       // Builds that one-shot all share a kill time; the harder hit wins the tie (at most a 1e-4
       // relative nudge, so it never reorders builds whose times really differ).
@@ -735,6 +740,7 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
     totalDps: hit.totalDps,
     timeToKill: hit.timeToKill,
     shotsToKill: Number.isFinite(hit.shotsToKill) ? hit.shotsToKill : null,
+    killsPerMinute: hit.killsPerMinute,
     critChance: resolved.critChance,
     critMultiplier: resolved.critMultiplier,
     statusChance: resolved.statusChance,

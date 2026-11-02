@@ -119,7 +119,7 @@ Finds the best eight-slot build for a target. Same options as the CLI's `wfcalc 
 }
 ```
 
-- `objective`: `ttk` (default) minimises time to kill; `dps` maximises damage on the target.
+- `objective`: `ttk` (default) minimises time to kill; `dps` maximises damage on the target; `kpm` maximises kills per minute against a stream of these targets, the next one shot as soon as the last dies (reloads between kills count).
 - `mustInclude` / `exclude` are mod names; a comma-separated string is also accepted.
 - `maxForma: null` means "as many as needed" (that is the default when omitted).
 - `chooseIncarnon` lets the search pick evolution perks; it is off by default.

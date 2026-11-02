@@ -211,9 +211,9 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
 }
 
 /**
- * Kills per minute when the targets keep coming: the shots per kill at the sustained pull rate,
- * so a kill that starts mid-magazine pays its share of the reloads.
- * shortcut: no time to switch targets, and statuses start fresh on each one; add a switch delay if asked.
+ * Kills per minute when the targets keep coming: the next one is shot as soon as the last dies
+ * (no switch time) and starts with no statuses. Shots per kill at the sustained pull rate, so a
+ * kill that starts mid-magazine pays its share of the reloads.
  */
 function killRate(build: ResolvedBuild, shots: number): number {
   return Number.isFinite(shots) && shots > 0 ? (60 * sustainedPulls(build)) / shots : 0;

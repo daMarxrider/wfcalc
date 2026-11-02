@@ -806,7 +806,7 @@ async function main(): Promise<void> {
         flagAll(args, name).flatMap((entry) => entry.split(',')).map((entry) => entry.trim()).filter(Boolean);
       const request = {
         weapon: item.name,
-        objective: (flag(args, 'objective') as 'ttk' | 'dps' | undefined) ?? 'ttk',
+        objective: (flag(args, 'objective') as 'ttk' | 'dps' | 'kpm' | undefined) ?? 'ttk',
         enemy: flag(args, 'enemy') ?? 'Bombard',
         level: flag(args, 'level') ? Number(flag(args, 'level')) : 150,
         capacity: flag(args, 'capacity') ? Number(flag(args, 'capacity')) : 60,
@@ -853,7 +853,7 @@ async function main(): Promise<void> {
       console.log(`${result.weapon} vs ${result.enemy} level ${result.level} — best ${result.builds.length} of ${result.evaluated} builds tried (${result.elapsedMs}ms)\n`);
       result.builds.forEach((build, index) => {
         const ttk = build.timeToKill === null ? 'cannot kill' : `${build.timeToKill.toFixed(2)}s (${Math.ceil(build.shotsToKill ?? 0)} shots)`;
-        console.log(`${index + 1}. ${build.timeToKill === null ? '' : `${ttk}  `}${num(build.totalDps, 0)} dps on target (${num(build.sustainedDps, 0)} direct)  crit ${pct(build.critChance)}x${num(build.critMultiplier, 1)}  status ${pct(build.statusChance)}  multishot ${num(build.multishot, 2)}`);
+        console.log(`${index + 1}. ${build.timeToKill === null ? '' : `${ttk}  ${num(build.killsPerMinute, 1)} kills/min  `}${num(build.totalDps, 0)} dps on target (${num(build.sustainedDps, 0)} direct)  crit ${pct(build.critChance)}x${num(build.critMultiplier, 1)}  status ${pct(build.statusChance)}  multishot ${num(build.multishot, 2)}`);
         if (build.arcanes.length) console.log(`   Arcane: ${build.arcanes.map((arcane) => arcane.name).join(', ')}`);
         if (build.conditionalMods.length) console.log(`   Conditional: ${build.conditionalMods.join(', ')} (activate with --stacks/--aiming)`);
         if (build.incarnonNames.length) console.log(`   Incarnon: ${build.incarnonNames.join(' | ')}`);
@@ -877,7 +877,7 @@ async function main(): Promise<void> {
         return value;
       };
       const objective = flag(args, 'objective') ?? 'ttk';
-      if (objective !== 'ttk' && objective !== 'dps') throw new CliError('--objective must be ttk or dps', 'invalid_argument');
+      if (objective !== 'ttk' && objective !== 'dps' && objective !== 'kpm') throw new CliError('--objective must be ttk, dps or kpm', 'invalid_argument');
       if (commaList('incarnon').includes('auto')) {
         throw new CliError('bruteforce takes the Incarnon evolutions as input: --incarnon "EVO2:0,EVO4:1" (see `wfcalc incarnon`)', 'invalid_argument');
       }
@@ -927,7 +927,7 @@ async function main(): Promise<void> {
         + ` — ${result.exhaustive ? `exhaustive over all ${result.candidates.length} candidate mods` : `exhaustive over a shortlist of ${result.candidates.length}`}\n`);
       result.builds.forEach((build, index) => {
         const ttk = build.timeToKill === null ? 'cannot kill' : `${build.timeToKill.toFixed(2)}s (${Math.ceil(build.shotsToKill ?? 0)} shots)`;
-        console.log(`${index + 1}. ${ttk}  ${num(build.totalDps, 0)} dps on target (${num(build.sustainedDps, 0)} direct)  crit ${pct(build.critChance)}x${num(build.critMultiplier, 1)}  status ${pct(build.statusChance)}  multishot ${num(build.multishot, 2)}`);
+        console.log(`${index + 1}. ${ttk}${build.timeToKill === null ? '' : `  ${num(build.killsPerMinute, 1)} kills/min`}  ${num(build.totalDps, 0)} dps on target (${num(build.sustainedDps, 0)} direct)  crit ${pct(build.critChance)}x${num(build.critMultiplier, 1)}  status ${pct(build.statusChance)}  multishot ${num(build.multishot, 2)}`);
         console.log(`   elements ${build.elements.slice(0, 4).map((entry) => `${entry.type} ${pct(entry.share)}`).join(', ')}`);
         console.log(`   capacity ${build.capacityUsed}/${build.capacity}${build.formaNeeded ? ` — ${build.formaNeeded} forma` : ''}`);
         console.log(`   ${modList(build)}\n`);
@@ -1243,7 +1243,7 @@ Ability options:
          --enemy NAME --level N  apply the target's modifiers and armour
 
 Search options:
-         --objective ttk|dps   (default ttk: kill the target fastest)
+         --objective ttk|dps|kpm  (default ttk: kill the target fastest; kpm: most kills per minute, one target after another)
          --capacity 30|60      (default 60, i.e. with an Orokin Catalyst)
          --forma N             maximum Forma the search may spend
          --must "A,B"          mods that must be in the build

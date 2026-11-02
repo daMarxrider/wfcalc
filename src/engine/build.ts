@@ -485,7 +485,17 @@ export function resolveBuild(snapshot: Snapshot, build: Build): ResolvedBuild {
   if (!timed) return resolved;
   // shortcut: turning the source off drops all its conditional effects; fine while a timed trait is its weapon's only one.
   const off = resolveGated(snapshot, { ...build, sourceStacks: { ...(build.sourceStacks ?? {}), [timed.name]: 0 } });
-  return { ...resolved, timedBuff: { ...timed, off } };
+  return { ...withoutPistoleer(resolved, timed.name), timedBuff: { ...timed, off: withoutPistoleer(off, timed.name) } };
+}
+
+/**
+ * Overdrive takes precedence over Arcane Pistoleer (wiki: Athodai): every weak-point kill starts
+ * Overdrive or lands while it runs, so Pistoleer never triggers.
+ */
+function withoutPistoleer(resolved: ResolvedBuild, weapon: string): ResolvedBuild {
+  const buffs = resolved.ammo.buffs.filter((buff) => buff.name !== 'Arcane Pistoleer');
+  if (buffs.length === resolved.ammo.buffs.length) return resolved;
+  return { ...resolved, ammo: { ...resolved.ammo, buffs }, warnings: [...resolved.warnings, `Arcane Pistoleer: never triggers, ${weapon}'s Overdrive takes precedence`] };
 }
 
 function resolveGated(snapshot: Snapshot, build: Build): ResolvedBuild {
