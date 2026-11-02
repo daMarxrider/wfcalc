@@ -522,6 +522,9 @@ async function runRivenPicker() {
   }
   const payload = {
     ...buildPayload({ contributions: false }),
+    // The riven only takes one of the eight standard slots; Exilus and stance stay.
+    mods: state.mods.slice(0, EXILUS_SLOT).filter((mod) => mod.name && mod.name !== RIVEN),
+    fixed: state.mods.slice(EXILUS_SLOT).filter((mod) => mod.name),
     riven: null,
     form,
     objective: $('riven-objective').value,

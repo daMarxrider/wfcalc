@@ -59,6 +59,14 @@ const WEAK_POINT_CONDITION = /weakpoint|weak_point|headshot/i;
 /** Conditions that describe how the player plays: "max" stacks never assume them, the switch decides. */
 const PLAYED_CONDITIONS = ['aiming', 'surgeShot', 'sliding', 'airborne', 'sprinting'];
 
+export const COMPRESSION_NOT_AIMING = 'Primary Compression does nothing while not aiming: tick "aiming" (CLI: --stacks aiming=1)';
+
+/** True when the build carries Primary Compression but does not aim, so the arcane is dead. */
+export function needsAiming(build: Partial<Build>): boolean {
+  const aiming = build.stackMode !== 'none' && Boolean(build.conditions?.aiming);
+  return !aiming && (build.arcanes ?? []).some((entry) => (typeof entry === 'string' ? entry : entry.name) === 'Primary Compression');
+}
+
 /** Buff/condition toggles: `{ onKill: 5 }` means the on-kill effect has 5 stacks. */
 export type Conditions = Record<string, number | boolean>;
 
@@ -1019,6 +1027,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`Primary Compression: no explosion radius known for ${weapon.name}, so no damage bonus`);
     } else if (!active) {
       collected.inactive.push('Primary Compression: active while aiming');
+      collected.warnings.push(COMPRESSION_NOT_AIMING);
     } else {
       const radius = entry.radius * (1 + bonus('blastRadius'));
       const value = (0.5 + 0.1 * compressionRank) * 0.8 * radius * entry.effectiveness;

@@ -120,8 +120,14 @@ build  —  Kuva Bramma (Bow) vs Bombard lv150
 
 Interactive UI: `wfcalc serve` → <http://127.0.0.1:7777>. Tabs: **Build** (mods, target,
 armour strip from Corrosive Projections / Shattering Impact / an ability), **Find** (the best
-eight-slot build for a target, with its Forma), **Abilities** (damage per cast), Compare and
-Saved.
+eight-slot build for a target, with its Forma), **Abilities** (damage per cast), Compare,
+Saved and **Riven** (which riven to roll and which mod it replaces).
+
+The Riven tab has no settings of its own besides the goal and a stat filter: it uses the Build
+tab's weapon, mods, target, arcanes, buffs, Incarnon perks, headshots and the Conditions & stacks
+panel. Set those on the Build tab first; for Primary Compression tick "aiming" there, or the
+arcane does nothing and radius mods look useless. The riven only takes one of the eight
+standard slots; the Exilus and stance mods always stay.
 
 ### From the phone or another device
 

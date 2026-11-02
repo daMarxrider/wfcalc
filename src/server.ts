@@ -163,6 +163,7 @@ function rivenRequestFrom(body: any): RivenPickerRequest | { error: string; sugg
   return {
     weapon: weapon.name,
     mods: (build.mods ?? []).map((mod) => (typeof mod === 'string' ? { name: mod } : mod)).filter((mod) => mod.name && mod.name !== 'Riven'),
+    fixed: Array.isArray(body.fixed) ? body.fixed.filter((mod: any) => typeof mod?.name === 'string').map((mod: any) => ({ name: mod.name, rank: mod.rank })) : [],
     base: { ...build, incarnon, mods: [] },
     enemy: body.enemy ?? 'Bombard',
     level: body.level !== undefined ? Number(body.level) : 150,
