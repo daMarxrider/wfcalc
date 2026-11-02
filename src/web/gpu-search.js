@@ -46,6 +46,7 @@ export const P = (() => {
   field('viralFloor'); field('corrosiveFloor'); field('corrosiveCap'); field('toxinStatusBonus'); field('overguardMultiplier');
   field('fixedStatusTypes'); field('extraStatusTypes'); field('requireMask'); field('fixedElementMask');
   field('vigilante', 8); field('gladiator', 8); field('capacityHalf'); field('steady');
+  field('timedSeconds'); field('timedFireRate'); field('plainMagazine');
   layout.size = at;
   return layout;
 })();
@@ -138,7 +139,21 @@ export function proxyScore(model, combo) {
   return best;
 }
 
+/**
+ * A timed trait buff (Athodai's Overdrive, damage.ts hitEnemy): the kill speed with it and without
+ * it, blended by its uptime, seconds / (seconds + kill time at the plain rate).
+ */
 function scoreOrder(params, A, B, order) {
+  const on = scoreState(params, A, B, order, false);
+  const seconds = params[P.timedSeconds];
+  if (!(seconds > 0) || !(on > 0)) return on;
+  const plain = scoreState(params, A, B, order, true);
+  const uptime = plain > 0 ? seconds / (seconds + 1 / plain) : 0;
+  return uptime * on + (1 - uptime) * plain;
+}
+
+/** Kill speed with the timed buff on, or `plain` without its fire rate and Infinite Ammo. */
+function scoreState(params, A, B, order, plain) {
   const stats = params.slice(P.stats, P.stats + 16);
   // Status types: the build's own (types it deals, forced ones) plus the extra ones, unless pinned.
   const shape = composition(params, A.map((a, c) => a + B[c]), 1, order);
@@ -172,9 +187,9 @@ function scoreOrder(params, A, B, order) {
   const critBase = params[P.critChance] * (1 + S[CH.critChance]) + S[CH.critChanceFlat] + pieces(P.gladiator, S[CH.gladiator]) * params[P.comboFactor];
   const critMods = params[P.critMultiplier] * (1 + S[CH.critDamage]) + S[CH.critDamageFlat];
   const multishot = params[P.multishot] * (1 + S[CH.multishot]);
-  const fireRate = S[CH.fireRateLock] > 0 ? params[P.fireRate] : params[P.fireRate] * (1 + S[CH.fireRate]);
+  const fireRate = S[CH.fireRateLock] > 0 ? params[P.fireRate] : params[P.fireRate] * (1 + S[CH.fireRate] - (plain ? params[P.timedFireRate] : 0));
   const reload = params[P.reloadTime] / (1 + S[CH.reloadSpeed]);
-  const magazine = Math.max(1, Math.round(params[P.magazineSize] * (1 + S[CH.magazine])));
+  const magazine = Math.max(1, Math.round(params[plain ? P.plainMagazine : P.magazineSize] * (1 + S[CH.magazine])));
   const status = params[P.statusChance] * (1 + S[CH.statusChance]) + S[CH.statusChanceFlat];
   const tier = pieces(P.vigilante, S[CH.vigilante]);
   const head = params[P.head] > 0;
@@ -414,7 +429,18 @@ fn compose(db: f32, orderIn: array<u32, 4>, len: u32) {
   }
 }
 
+// A timed trait buff (Athodai's Overdrive): on and plain kill speeds blended by uptime (JS scoreOrder).
 fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
+  let on = scoreState(order, len, false);
+  let seconds = params[${P.timedSeconds}u];
+  if (!(seconds > 0.0) || !(on > 0.0)) { return on; }
+  let plain = scoreState(order, len, true);
+  var uptime = 0.0;
+  if (plain > 0.0) { uptime = seconds / (seconds + 1.0 / plain); }
+  return uptime * on + (1.0 - uptime) * plain;
+}
+
+fn scoreState(order: array<u32, 4>, len: u32, plain: bool) -> f32 {
   for (var c = 0u; c < NC; c++) { S[c] = A[c] + B[c]; }
   compose(1.0, order, len);
   let status0 = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
@@ -448,10 +474,13 @@ fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
   let critBase = params[${P.critChance}u] * (1.0 + S[${CH.critChance}u]) + S[${CH.critChanceFlat}u] + pieces(${P.gladiator}u, S[${CH.gladiator}u]) * params[${P.comboFactor}u];
   kCritMods = params[${P.critMultiplier}u] * (1.0 + S[${CH.critDamage}u]) + S[${CH.critDamageFlat}u];
   kMultishot = params[${P.multishot}u] * (1.0 + S[${CH.multishot}u]);
-  kFireRate = params[${P.fireRate}u] * (1.0 + S[${CH.fireRate}u]);
+  var timedFireRate = 0.0;
+  var magazineBase = params[${P.magazineSize}u];
+  if (plain) { timedFireRate = params[${P.timedFireRate}u]; magazineBase = params[${P.plainMagazine}u]; }
+  kFireRate = params[${P.fireRate}u] * (1.0 + S[${CH.fireRate}u] - timedFireRate);
   if (S[${CH.fireRateLock}u] > 0.0) { kFireRate = params[${P.fireRate}u]; }
   let reload = params[${P.reloadTime}u] / (1.0 + S[${CH.reloadSpeed}u]);
-  let magazine = max(1.0, round(params[${P.magazineSize}u] * (1.0 + S[${CH.magazine}u])));
+  let magazine = max(1.0, round(magazineBase * (1.0 + S[${CH.magazine}u])));
   kStatus = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
   kTier = pieces(${P.vigilante}u, S[${CH.vigilante}u]);
   kHead = params[${P.head}u] > 0.0;

@@ -146,6 +146,11 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   params[P.reloadTime] = stats.reloadTime ?? 0;
   // Ammo Efficiency from the fixed part of the build (arcanes, Incarnon, riven, buffs) stretches the magazine.
   params[P.magazineSize] = (stats.magazineSize ?? 1) / Math.max(1e-6, zero.ammo.cost);
+  // A timed trait buff (Athodai's Overdrive) is in the fixed part: the shader blends it by uptime.
+  const plain = zero.timedBuff?.off;
+  params[P.timedSeconds] = plain ? zero.timedBuff!.seconds : 0;
+  params[P.timedFireRate] = plain ? (zero.bonusTotals.fireRate ?? 0) - (plain.bonusTotals.fireRate ?? 0) : 0;
+  params[P.plainMagazine] = (stats.magazineSize ?? 1) / Math.max(1e-6, (plain ?? zero).ammo.cost);
   params[P.comboFactor] = Math.max(0, zero.comboMultiplier - 1);
   // The player's strips are fixed; Corrosive and Heat build up per combination, in the shader.
   params[P.armor] = effectiveArmor(scaled.armor, { ...zero.debuffs, armorBase: armorPool?.amount, corrosiveStacks: 0, heatStrip: 0 });
