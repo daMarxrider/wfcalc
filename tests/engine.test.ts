@@ -18,6 +18,7 @@ import { parseModEffects } from '../src/mods/parse.ts';
 import { buffEffects, buffById, abilityStrengthFromMods } from '../src/engine/buffs.ts';
 import { rivenEffects } from '../src/engine/riven.ts';
 import { enumerateRivens, rivenPicker } from '../src/engine/riven-picker.ts';
+import { loadSnapshot } from '../src/data.ts';
 import { viralMultiplier, corrosiveArmorMultiplier } from '../src/engine/dot.ts';
 import type { AbilityData, ArcaneData, EnemyData, ModData, Snapshot, WeaponData, WeaponStats } from '../src/types.ts';
 
@@ -1532,4 +1533,17 @@ test('riven picker: each riven replaces the build mod it is worth most against, 
   // The filter keeps only rivens with the stats the player has.
   const viral = await rivenPicker(snap, { weapon: 'Test Weapon', mods: [{ name: 'Serration' }, { name: 'Hellfire' }, { name: 'Cryo Rounds' }], enemy: 'Dummy', level: 1, stats: ['viral'] });
   assert.ok(viral.picks.length && viral.picks.every((pick) => pick.stats.includes('viral')));
+});
+
+test('riven picker: the riven never takes the Exilus or stance slot', async () => {
+  const real = loadSnapshot();
+  const result = await rivenPicker(real, {
+    weapon: 'Acceltra Prime', enemy: 'Bombard', level: 150, limit: 1, workers: 1,
+    mods: [{ name: 'Serration' }, { name: 'Split Chamber' }, { name: 'Vigilante Supplies' }],
+    fixed: [{ name: 'Primed Firestorm' }],
+    base: { arcanes: ['Primary Compression'], conditions: { aiming: 1 } },
+  });
+  // An Exilus mod among the mods and an explicitly fixed one both stay.
+  assert.deepEqual(Object.keys(result.replacedCounts).sort(), ['Serration', 'Split Chamber']);
+  assert.ok(['Serration', 'Split Chamber'].includes(result.picks[0].replaces));
 });

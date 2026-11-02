@@ -63,9 +63,9 @@ export interface BruteForceRequest {
   /** Everything the player decides: buffs, Ability Strength, Incarnon, arcanes, riven, debuffs. */
   base?: Partial<Build>;
   /**
-   * Status effects build up over the fight (simulate.ts). Every combination is ranked with their
-   * steady-state stacks, and the best `rerank` are simulated shot by shot for the final order.
-   * Default true; false keeps the plain steady-state model throughout.
+   * Status effects build up over the fight (simulate.ts). Every combination is ranked with a fast
+   * estimate of that build-up (damage.ts steadyStatus), and the best `rerank` are simulated shot
+   * by shot for the final order. Default true; false counts only the player's own stacks throughout.
    */
   simulate?: boolean;
   /** How many of the best combinations to simulate (default: 40 x limit, at least 200). */
@@ -801,7 +801,7 @@ export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest)
     ? (done: number) => request.onProgress!(Math.min(done, plan.plannedCombinations), plan.plannedCombinations)
     : undefined;
 
-  // Ranking uses steady-state status stacks; the best few are then simulated shot by shot,
+  // Ranking uses the fast build-up estimate; the best few are then simulated shot by shot,
   // because the stacks a fight actually reaches can reorder close builds.
   const pool = plan.simulate ? Math.max(request.rerank ?? limit * 40, 200, limit) : limit;
   const shards = workers === 1
@@ -979,7 +979,7 @@ function report(
   }
   winners = winners.slice(0, limit);
   const notes = [...plan.notes];
-  if (plan.simulate) notes.push(`Ranked with steady-state status stacks; the best ${pool} were simulated over the fight for the final order.`);
+  if (plan.simulate) notes.push(`Ranked with a fast estimate of the status build-up; the best ${pool} were simulated over the fight for the final order.`);
   if (!winners.length) {
     notes.push(plan.requireStatus.length
       ? `No combination of the candidates fits the capacity and Forma limits and carries ${plan.requireStatus.join(', ')}.`

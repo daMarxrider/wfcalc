@@ -402,8 +402,17 @@ through the target's state at that moment. Heat on expected values: a chain is a
 probability `1 − e^−W` (W = expected procs in the window). Continuous weapons ramp from 20% (Phage
 70%, Embolist 30%, Convectrix 60/80%) to full damage over 0.6 s and decay 0.8 s after stopping.
 Fights longer than four times the steady-state estimate (two hours at most) keep that estimate.
-Searches rank every build with *steady-state* stacks (rate × duration, capped) and simulate the
-best few hundred for the final order.
+Searches rank every build with a fast estimate of the same fight and simulate the best few
+hundred for the final order. The estimate puts the target's state `t` seconds in from the pulls
+fired by then (a magazine at the fire rate, then the reload): each stacking status holds the
+procs of its last duration up to its cap (Viral, Corrosive, Puncture, Cold without the freeze,
+Tau), Heat strips 15/30/40/50% at 0.5/1/1.5/2 s, and a DoT deals the share of its ticks that
+procced inside its window (Heat from 1 s, Blast 1.5 s late). The kill falls where
+`∫ dt / ttk(state at t)` reaches 1, summed over growing time steps (midpoint rule, with the pulls
+of each step); after 8 s × status duration + 1.5 s nothing changes and the rest runs at the
+settled rate. On random builds of six weapon/target pairs it lands within 1.5–3.6% of the
+simulation on average and ranks them with a Spearman correlation of 0.997–0.999 (the earlier
+estimate, stacks at their cap from the first shot: 16–38% and 0.90–0.99).
 
 ## 15. Hit location (`Enemy_Body_Parts`, `Critical_Hit → Critical Headshots`)
 

@@ -186,7 +186,7 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   ].reduce((sum, full) => sum + Math.ceil(full / 2), 0);
   const exilusDrain = exilusCost(snapshot, weapon, plan.exilus, plan.maxForma).drain;
   params[P.capacityHalf] = plan.capacity - exilusDrain - fixedHalf;
-  // The exact ranking uses steady-state status stacks only when the fight is simulated.
+  // The exact ranking estimates the status build-up only when the fight is simulated.
   params[P.steady] = plan.simulate ? 1 : 0;
 
   const slots = Math.min(plan.freeSlots, items.length);

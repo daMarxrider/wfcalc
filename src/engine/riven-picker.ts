@@ -276,7 +276,7 @@ export async function rivenPicker(snapshot: Snapshot, request: RivenPickerReques
   const assumptions = [
     'Riven values: +3 -1 layout, best roll, rank 8, disposition 1.2 (wiki); the negative stat at its worst',
     'At most one spliced stat per riven; capacity is not checked (the riven takes the replaced slot)',
-    `Scored with steady-state status stacks against ${enemyName} level ${request.level ?? 150}`,
+    `Scored with a fast estimate of the status build-up against ${enemyName} level ${request.level ?? 150}`,
   ];
   if (request.gpu) {
     assumptions.unshift(`GPU pre-filter${request.gpu.adapter ? ` on ${request.gpu.adapter}` : ''}: all ${request.gpu.rivens.toLocaleString('en-US')} rivens `

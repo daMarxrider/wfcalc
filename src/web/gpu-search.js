@@ -10,7 +10,7 @@
  * Every mod is a vector of additive channels, valued by the engine itself at 1 and 2 status types
  * (A + B x status types), so ranks, conditions, stacks and bow doubling are the engine's.
  * Left out of the model (the exact pass still has them): quantization, attenuation caps, Primed
- * Debilitate, proc damage, conversions, the shot-by-shot simulation.
+ * Debilitate, Cryogenic, ammo efficiency, proc damage, conversions, the shot-by-shot simulation.
  */
 
 export const DAMAGE_TYPES = ['impact', 'puncture', 'slash', 'heat', 'cold', 'electricity', 'toxin', 'blast',
@@ -57,7 +57,10 @@ const COMBINE = [
   [T.radiation, T.magnetic, -1, T.corrosive],
   [T.gas, T.viral, T.corrosive, -1],
 ];
-const DOT = [[T.slash, 0.35, 6], [T.heat, 0.5, 6], [T.toxin, 0.5, 6], [T.electricity, 0.5, 6], [T.gas, 0.5, 6], [T.blast, 0.5, 1]];
+/** Per DoT type: coefficient, ticks, seconds before it ticks, seconds it ticks (Blast: a short window, unscaled). */
+const DOT = [[T.slash, 0.35, 6, 0, 6], [T.heat, 0.5, 6, 1, 6], [T.toxin, 0.5, 6, 0, 6], [T.electricity, 0.5, 6, 0, 6], [T.gas, 0.5, 6, 0, 6], [T.blast, 0.5, 1, 1.5, 0.25]];
+/** Heat's armour strip rises by these every 0.5 s of the chain (damage.ts HEAT_RAMP_STEPS). */
+const HEAT_RAMP = [0.15, 0.15, 0.1, 0.1];
 
 const armorReduction = (armor) => (armor <= 0 ? 0 : armor <= 2700 ? Math.min(0.9, 0.9 * Math.sqrt(armor / 2700)) : armor / (armor + 300));
 const viralMultiplier = (stacks) => (stacks <= 0 ? 1 : 1 + Math.min(3.25, 1 + 0.25 * (stacks - 1)));
@@ -161,7 +164,7 @@ function scoreOrder(params, A, B, order) {
 
   const pieces = (table, count) => params[table + Math.min(7, Math.max(0, Math.round(count)))];
   const critBase = params[P.critChance] * (1 + S[CH.critChance]) + S[CH.critChanceFlat] + pieces(P.gladiator, S[CH.gladiator]) * params[P.comboFactor];
-  const critDamage = Math.max(1, params[P.critMultiplier] * (1 + S[CH.critDamage]) + S[CH.critDamageFlat]);
+  const critMods = params[P.critMultiplier] * (1 + S[CH.critDamage]) + S[CH.critDamageFlat];
   const multishot = params[P.multishot] * (1 + S[CH.multishot]);
   const fireRate = S[CH.fireRateLock] > 0 ? params[P.fireRate] : params[P.fireRate] * (1 + S[CH.fireRate]);
   const reload = params[P.reloadTime] / (1 + S[CH.reloadSpeed]);
@@ -172,82 +175,129 @@ function scoreOrder(params, A, B, order) {
   const location = head
     ? ((params[P.weakPointOverride] || params[P.weakPointBase]) + 1.5 * S[CH.weakPointDamage]) * (1 + S[CH.headshotMultiplier])
     : Math.max(0, 1 + S[CH.bodyshotMultiplier]);
-  const crit = Math.max(0, critBase + (head ? params[P.critChance] * S[CH.weakPointCritChance] : 0));
-  const perTier = head && params[P.critHeadshot] > 0 ? 2 * critDamage - 1 : critDamage - 1;
-  const averageCrit = 1 + (crit + Math.min(1, crit) * tier) * perTier;
-  const pCrit = Math.min(1, crit);
-  const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;
+  const crit0 = Math.max(0, critBase + (head ? params[P.critChance] * S[CH.weakPointCritChance] : 0));
   const faction = 1 + S[CH.faction];
 
-  // Steady-state Viral, Corrosive and Heat from the build's own proc rate (damage.ts steadyStatusDebuffs).
-  const cycle = magazine / Math.max(0.01, fireRate) + reload;
+  const fireTime = magazine / Math.max(0.01, fireRate);
+  const cycle = fireTime + reload;
   const pulls = magazine / cycle;
-  const pellets = multishot * pulls;
   const duration = 1 + Math.max(-0.9, S[CH.statusDuration]);
-  const forcedOf = (t) => S[CH['forcedCrit:impact'] + t] * pCrit + S[CH['forced:impact'] + t];
+  const forcedOf = (t, pCrit) => S[CH['forcedCrit:impact'] + t] * pCrit + S[CH['forced:impact'] + t];
   // Without the status build-up (simulate off) only the player's own stacks count.
-  const steady = params[P.steady] > 0 ? 1 : 0;
-  const rate = (t) => steady * pellets * (status * (damage[t] / total) + forcedOf(t));
-  const viral = viralMultiplier(Math.max(params[P.viralFloor], Math.min(10, rate(T.viral) * 6 * duration)));
-  const corrosive = Math.max(params[P.corrosiveFloor], Math.min(params[P.corrosiveCap], rate(T.corrosive) * 8 * duration));
-  const heat = 0.5 * (1 - Math.exp(-rate(T.heat) * 6 * duration));
-  const armored = params[P.armored] > 0;
-  const dr = armored ? armorReduction(params[P.armor] * corrosiveMultiplier(corrosive) * (1 - heat)) : 0;
-
-  let health = 0;
-  let shield = 0;
-  let overguard = 0;
-  let bypass = 0;
-  for (let t = 0; t < 16; t++) {
-    if (!(damage[t] > 0)) continue;
-    const landed = damage[t] * location;
-    const toHealth = Math.max(landed * (1 + params[P.healthMod + t]) * (1 - dr) * viral, armored ? 1 : 0);
-    health += toHealth;
-    const bypasses = t === T.toxin && params[P.toxinBypass] > 0;
-    if (params[P.shield] > 0 && !bypasses) shield += landed * (1 + params[P.healthMod + t]);
-    if (bypasses) bypass += toHealth;
-    overguard += landed * (1 + params[P.overguardMod + t]) * params[P.overguardMultiplier];
-  }
-  const perShot = averageCrit * multishot * faction;
-
-  // Status DoT (dot.ts computeDot).
+  const steady = params[P.steady] > 0;
   const seed = (baseTotal + S[CH.baseDamageFlat]) * db * finalFactor;
-  let dotDps = 0;
-  for (const [t, coefficient, ticks] of DOT) {
-    const share = damage[t] / total;
-    const forcedCrit = multishot * pulls * S[CH['forcedCrit:impact'] + t] * pCrit;
-    const forcedPlain = multishot * pulls * S[CH['forced:impact'] + t];
-    if (!(share > 0) && forcedCrit + forcedPlain <= 0) continue;
-    const natural = status * share * multishot * pulls;
-    const weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
-    const elemental = t >= T.heat && t <= T.toxin ? S[4 + t] : 0;
-    const typeBonus = t === T.toxin ? 1 + params[P.toxinStatusBonus] : 1;
-    const raw = (seed * faction + 1) * coefficient * (1 + elemental) * (1 + S[CH.statusDamage]) * typeBonus * faction;
-    const trueDamage = t === T.slash;
-    const tick = raw * location * (1 + (trueDamage ? 0 : params[P.healthMod + t])) * (1 - (trueDamage ? 0 : dr)) * viral;
-    dotDps += weighted * tick * ticks;
-  }
+  // Pulls fired in the first `seconds`: a magazine at the fire rate, then the reload (damage.ts pullsBy).
+  const firedBy = (seconds) => {
+    if (!(seconds > 0)) return 0;
+    const cycles = Math.floor(seconds / cycle);
+    return (cycles * fireTime + Math.min(fireTime, seconds - cycles * cycle)) * fireRate;
+  };
+  // Seconds of sustained fire in the `life` seconds up to `at` (damage.ts firedWithin).
+  const within = (at, life) => (at === Infinity ? life : (firedBy(at) - firedBy(at - life)) / pulls);
 
-  // Sequential kill: Overguard, then shields (Toxin chewing health meanwhile), then health.
-  const healthDps = health * perShot * pulls + dotDps;
-  const shieldDps = shield * perShot * pulls;
-  const overguardDps = overguard * perShot * pulls;
-  let seconds = 0;
-  if (params[P.overguard] > 0) {
-    if (!(overguardDps > 0)) return 0;
-    seconds += params[P.overguard] / overguardDps;
+  // 1 / seconds to kill with the target's state `at` seconds in, the trigger at `firing` x the
+  // sustained pull rate (damage.ts hitOnce in steady mode: withSteadyCrit, steadyStatusDebuffs).
+  const killRate = (at, firing) => {
+    const stacks = (rate, life, cap) => (steady ? Math.min(cap, rate * within(at, life)) : 0);
+    const rateAt = (t, chance, pCrit) => multishot * pulls * (chance * (damage[t] / total) + forcedOf(t, pCrit));
+    const pCrit0 = Math.min(1, crit0);
+    const puncture = stacks(rateAt(T.puncture, status, pCrit0), 10 * duration, 5);
+    const cold = stacks(rateAt(T.cold, status, pCrit0), 6 * duration, 9);
+    const tau = stacks(rateAt(T.tau, status, pCrit0), 8 * duration, 10);
+    const crit = crit0 + 0.05 * puncture;
+    const critDamage = Math.max(1, critMods + (cold > 0 ? Math.min(0.5, 0.1 + 0.05 * (cold - 1)) : 0));
+    const chance = status * (1 + Math.min(1, 0.1 * tau));
+    const perTier = head && params[P.critHeadshot] > 0 ? 2 * critDamage - 1 : critDamage - 1;
+    const averageCrit = 1 + (crit + Math.min(1, crit) * tier) * perTier;
+    const pCrit = Math.min(1, crit);
+    const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;
+    const rate = (t) => rateAt(t, chance, pCrit);
+    const viral = viralMultiplier(Math.max(params[P.viralFloor], stacks(rate(T.viral), 6 * duration, 10)));
+    const corrosive = Math.max(params[P.corrosiveFloor], stacks(rate(T.corrosive), 8 * duration, params[P.corrosiveCap]));
+    const ramp = at === Infinity ? 0.5 : HEAT_RAMP.reduce((sum, rise, i) => sum + (at >= 0.5 * (i + 1) * duration ? rise : 0), 0);
+    const heat = ramp * (1 - Math.exp(-stacks(rate(T.heat), 6 * duration, Infinity)));
+    const armored = params[P.armored] > 0;
+    const dr = armored ? armorReduction(params[P.armor] * corrosiveMultiplier(corrosive) * (1 - heat)) : 0;
+
+    let health = 0;
+    let shield = 0;
+    let overguard = 0;
+    let bypass = 0;
+    for (let t = 0; t < 16; t++) {
+      if (!(damage[t] > 0)) continue;
+      const landed = damage[t] * location;
+      const toHealth = Math.max(landed * (1 + params[P.healthMod + t]) * (1 - dr) * viral, armored ? 1 : 0);
+      health += toHealth;
+      const bypasses = t === T.toxin && params[P.toxinBypass] > 0;
+      if (params[P.shield] > 0 && !bypasses) shield += landed * (1 + params[P.healthMod + t]);
+      if (bypasses) bypass += toHealth;
+      overguard += landed * (1 + params[P.overguardMod + t]) * params[P.overguardMultiplier];
+    }
+    const perShot = averageCrit * multishot * faction;
+
+    // Status DoT (dot.ts computeDot), only the ticks that land by `at`.
+    let dotDps = 0;
+    for (const [t, coefficient, ticks, delay, length] of DOT) {
+      const share = damage[t] / total;
+      const forcedCrit = multishot * pulls * S[CH['forcedCrit:impact'] + t] * pCrit;
+      const forcedPlain = multishot * pulls * S[CH['forced:impact'] + t];
+      if (!(share > 0) && forcedCrit + forcedPlain <= 0) continue;
+      const natural = chance * share * multishot * pulls;
+      const weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
+      const elemental = t >= T.heat && t <= T.toxin ? S[4 + t] : 0;
+      const typeBonus = t === T.toxin ? 1 + params[P.toxinStatusBonus] : 1;
+      const raw = (seed * faction + 1) * coefficient * (1 + elemental) * (1 + S[CH.statusDamage]) * typeBonus * faction;
+      const trueDamage = t === T.slash;
+      const tick = raw * location * (1 + (trueDamage ? 0 : params[P.healthMod + t])) * (1 - (trueDamage ? 0 : dr)) * viral;
+      const span = t === T.blast ? length : length * duration;
+      const landed = steady && at !== Infinity ? within(at - delay, span) / span : 1;
+      dotDps += weighted * tick * ticks * landed;
+    }
+
+    // Sequential kill: Overguard, then shields (Toxin chewing health meanwhile), then health.
+    const fired = perShot * pulls * firing;
+    const healthDps = health * fired + dotDps;
+    const shieldDps = shield * fired;
+    const overguardDps = overguard * fired;
+    let seconds = 0;
+    if (params[P.overguard] > 0) {
+      if (!(overguardDps > 0)) return 0;
+      seconds += params[P.overguard] / overguardDps;
+    }
+    let remaining = params[P.health];
+    if (params[P.shield] > 0 && shieldDps > 0) {
+      const shieldSeconds = params[P.shield] / shieldDps;
+      seconds += shieldSeconds;
+      remaining = Math.max(0, remaining - shieldSeconds * bypass * fired);
+    }
+    if (remaining > 0) {
+      if (!(healthDps > 0)) return 0;
+      seconds += remaining / healthDps;
+    }
+    return seconds > 0 ? 1 / seconds : 0;
+  };
+
+  // Kill progress summed over time steps, as damage.ts fightLengthHit does.
+  const full = killRate(Infinity, 1);
+  if (!steady || !(full > 0)) return full;
+  const progress = (a, b) => (b - a) * killRate((a + b) / 2, (firedBy(b) - firedBy(a)) / ((b - a) * pulls));
+  const settled = 8 * duration + 1.5;
+  let t = 0;
+  let done = 0;
+  let step = Math.min(1 / full / 4, settled / 8);
+  for (let i = 0; i < 40 && t < settled; i++) {
+    let next = Math.min(settled, t + step);
+    let area = progress(t, next);
+    for (let k = 0; k < 4 && done + area > 1 + 1e-3; k++) {
+      next = t + ((next - t) * (1 - done)) / area;
+      area = progress(t, next);
+    }
+    if (done + area >= 1 - 1e-3) return 1 / next;
+    done += area;
+    t = next;
+    step *= 1.6;
   }
-  let remaining = params[P.health];
-  if (params[P.shield] > 0 && shieldDps > 0) {
-    const shieldSeconds = params[P.shield] / shieldDps;
-    seconds += shieldSeconds;
-    remaining = Math.max(0, remaining - shieldSeconds * bypass * perShot * pulls);
-  }
-  if (remaining > 0) {
-    if (!(healthDps > 0)) return 0;
-    seconds += remaining / healthDps;
-  }
-  return seconds > 0 ? 1 / seconds : 0;
+  return 1 / (t + (1 - done) / full);
 }
 
 /** n choose k as a float (exact below 2^53). */
@@ -384,43 +434,120 @@ fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
   if (!(total > 0.0)) { return 0.0; }
 
   let critBase = params[${P.critChance}u] * (1.0 + S[${CH.critChance}u]) + S[${CH.critChanceFlat}u] + pieces(${P.gladiator}u, S[${CH.gladiator}u]) * params[${P.comboFactor}u];
-  let critDamage = max(1.0, params[${P.critMultiplier}u] * (1.0 + S[${CH.critDamage}u]) + S[${CH.critDamageFlat}u]);
-  let multishot = params[${P.multishot}u] * (1.0 + S[${CH.multishot}u]);
-  var fireRate = params[${P.fireRate}u] * (1.0 + S[${CH.fireRate}u]);
-  if (S[${CH.fireRateLock}u] > 0.0) { fireRate = params[${P.fireRate}u]; }
+  kCritMods = params[${P.critMultiplier}u] * (1.0 + S[${CH.critDamage}u]) + S[${CH.critDamageFlat}u];
+  kMultishot = params[${P.multishot}u] * (1.0 + S[${CH.multishot}u]);
+  kFireRate = params[${P.fireRate}u] * (1.0 + S[${CH.fireRate}u]);
+  if (S[${CH.fireRateLock}u] > 0.0) { kFireRate = params[${P.fireRate}u]; }
   let reload = params[${P.reloadTime}u] / (1.0 + S[${CH.reloadSpeed}u]);
   let magazine = max(1.0, round(params[${P.magazineSize}u] * (1.0 + S[${CH.magazine}u])));
-  let status = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
-  let tier = pieces(${P.vigilante}u, S[${CH.vigilante}u]);
-  let head = params[${P.head}u] > 0.0;
-  var zoneMul = max(0.0, 1.0 + S[${CH.bodyshotMultiplier}u]);
-  var crit = max(0.0, critBase);
-  var perTier = critDamage - 1.0;
-  if (head) {
+  kStatus = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
+  kTier = pieces(${P.vigilante}u, S[${CH.vigilante}u]);
+  kHead = params[${P.head}u] > 0.0;
+  kZoneMul = max(0.0, 1.0 + S[${CH.bodyshotMultiplier}u]);
+  kCrit0 = max(0.0, critBase);
+  if (kHead) {
     var wp = params[${P.weakPointOverride}u];
     if (wp == 0.0) { wp = params[${P.weakPointBase}u]; }
-    zoneMul = (wp + 1.5 * S[${CH.weakPointDamage}u]) * (1.0 + S[${CH.headshotMultiplier}u]);
-    crit = max(0.0, critBase + params[${P.critChance}u] * S[${CH.weakPointCritChance}u]);
-    if (params[${P.critHeadshot}u] > 0.0) { perTier = 2.0 * critDamage - 1.0; }
+    kZoneMul = (wp + 1.5 * S[${CH.weakPointDamage}u]) * (1.0 + S[${CH.headshotMultiplier}u]);
+    kCrit0 = max(0.0, critBase + params[${P.critChance}u] * S[${CH.weakPointCritChance}u]);
   }
-  let averageCrit = 1.0 + (crit + min(1.0, crit) * tier) * perTier;
+  kFaction = 1.0 + S[${CH.faction}u];
+  kTotal = total;
+  kFireTime = magazine / max(0.01, kFireRate);
+  kCycle = kFireTime + reload;
+  kPulls = magazine / kCycle;
+  kDuration = 1.0 + max(-0.9, S[${CH.statusDuration}u]);
+  kSteady = params[${P.steady}u] > 0.0;
+  kSeed = (baseTotal + S[${CH.baseDamageFlat}u]) * db * finalFactor;
+
+  // Kill progress summed over time steps, as damage.ts fightLengthHit does.
+  let full = killRate(0.0, 1.0, true);
+  if (!kSteady || !(full > 0.0)) { return full; }
+  let settled = 8.0 * kDuration + 1.5;
+  var t = 0.0;
+  var done = 0.0;
+  var step = min(1.0 / full / 4.0, settled / 8.0);
+  for (var i = 0u; i < 40u && t < settled; i++) {
+    var next = min(settled, t + step);
+    var area = progress(t, next);
+    for (var k = 0u; k < 4u && done + area > 1.001; k++) {
+      next = t + (next - t) * (1.0 - done) / area;
+      area = progress(t, next);
+    }
+    if (done + area >= 0.999) { return 1.0 / next; }
+    done += area;
+    t = next;
+    step *= 1.6;
+  }
+  return 1.0 / (t + (1.0 - done) / full);
+}
+
+// What scoreOrder's kill rate needs that does not change during the fight.
+var<private> kTotal: f32;
+var<private> kCrit0: f32;
+var<private> kCritMods: f32;
+var<private> kMultishot: f32;
+var<private> kFireRate: f32;
+var<private> kFireTime: f32;
+var<private> kCycle: f32;
+var<private> kPulls: f32;
+var<private> kStatus: f32;
+var<private> kTier: f32;
+var<private> kHead: bool;
+var<private> kZoneMul: f32;
+var<private> kFaction: f32;
+var<private> kDuration: f32;
+var<private> kSteady: bool;
+var<private> kSeed: f32;
+
+// Pulls fired in the first s seconds: a magazine at the fire rate, then the reload (damage.ts pullsBy).
+fn firedBy(s: f32) -> f32 {
+  if (!(s > 0.0)) { return 0.0; }
+  let cycles = floor(s / kCycle);
+  return (cycles * kFireTime + min(kFireTime, s - cycles * kCycle)) * kFireRate;
+}
+// Seconds of sustained fire in the life seconds up to at (damage.ts firedWithin).
+fn within(at: f32, life: f32, inf: bool) -> f32 {
+  if (inf) { return life; }
+  return (firedBy(at) - firedBy(at - life)) / kPulls;
+}
+fn stacksAt(rate: f32, life: f32, cap: f32, at: f32, inf: bool) -> f32 {
+  if (!kSteady) { return 0.0; }
+  return min(cap, rate * within(at, life, inf));
+}
+fn rateAt(t: u32, chance: f32, pCrit: f32) -> f32 {
+  return kMultishot * kPulls * (chance * (dmg[t] / kTotal) + S[${CH['forcedCrit:impact']}u + t] * pCrit + S[${CH['forced:impact']}u + t]);
+}
+fn progress(a: f32, b: f32) -> f32 {
+  return (b - a) * killRate((a + b) / 2.0, (firedBy(b) - firedBy(a)) / ((b - a) * kPulls), false);
+}
+
+// 1 / seconds to kill with the target's state at seconds in (inf: settled), the trigger at firing x
+// the sustained pull rate (the JS killRate in scoreOrder).
+fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
+  let d = kDuration;
+  let pCrit0 = min(1.0, kCrit0);
+  let puncture = stacksAt(rateAt(${T.puncture}u, kStatus, pCrit0), 10.0 * d, 5.0, at, inf);
+  let cold = stacksAt(rateAt(${T.cold}u, kStatus, pCrit0), 6.0 * d, 9.0, at, inf);
+  let tau = stacksAt(rateAt(${T.tau}u, kStatus, pCrit0), 8.0 * d, 10.0, at, inf);
+  let crit = kCrit0 + 0.05 * puncture;
+  var coldBonus = 0.0;
+  if (cold > 0.0) { coldBonus = min(0.5, 0.1 + 0.05 * (cold - 1.0)); }
+  let critDamage = max(1.0, kCritMods + coldBonus);
+  let chance = kStatus * (1.0 + min(1.0, 0.1 * tau));
+  var perTier = critDamage - 1.0;
+  if (kHead && params[${P.critHeadshot}u] > 0.0) { perTier = 2.0 * critDamage - 1.0; }
+  let averageCrit = 1.0 + (crit + min(1.0, crit) * kTier) * perTier;
   let pCrit = min(1.0, crit);
   var critOnCrit = 1.0 + perTier;
   if (pCrit > 0.0) { critOnCrit = (averageCrit - (1.0 - pCrit)) / pCrit; }
-  let faction = 1.0 + S[${CH.faction}u];
-
-  let cycle = magazine / max(0.01, fireRate) + reload;
-  let pulls = magazine / cycle;
-  let pellets = multishot * pulls;
-  let duration = 1.0 + max(-0.9, S[${CH.statusDuration}u]);
-  let critCap = pCrit;
-  let steady = select(0.0, 1.0, params[${P.steady}u] > 0.0);
-  let rViral = steady * pellets * (status * (dmg[${T.viral}u] / total) + S[${CH['forcedCrit:impact']}u + ${T.viral}u] * critCap + S[${CH['forced:impact']}u + ${T.viral}u]);
-  let rCorr = steady * pellets * (status * (dmg[${T.corrosive}u] / total) + S[${CH['forcedCrit:impact']}u + ${T.corrosive}u] * critCap + S[${CH['forced:impact']}u + ${T.corrosive}u]);
-  let rHeat = steady * pellets * (status * (dmg[${T.heat}u] / total) + S[${CH['forcedCrit:impact']}u + ${T.heat}u] * critCap + S[${CH['forced:impact']}u + ${T.heat}u]);
-  let viral = viralMul(max(params[${P.viralFloor}u], min(10.0, rViral * 6.0 * duration)));
-  let corrosive = max(params[${P.corrosiveFloor}u], min(params[${P.corrosiveCap}u], rCorr * 8.0 * duration));
-  let heat = 0.5 * (1.0 - exp(-rHeat * 6.0 * duration));
+  let viral = viralMul(max(params[${P.viralFloor}u], stacksAt(rateAt(${T.viral}u, chance, pCrit), 6.0 * d, 10.0, at, inf)));
+  let corrosive = max(params[${P.corrosiveFloor}u], stacksAt(rateAt(${T.corrosive}u, chance, pCrit), 8.0 * d, params[${P.corrosiveCap}u], at, inf));
+  var ramp = 0.5;
+  if (!inf) {
+    ramp = select(0.0, 0.15, at >= 0.5 * d) + select(0.0, 0.15, at >= 1.0 * d) + select(0.0, 0.1, at >= 1.5 * d) + select(0.0, 0.1, at >= 2.0 * d);
+  }
+  let heat = ramp * (1.0 - exp(-stacksAt(rateAt(${T.heat}u, chance, pCrit), 6.0 * d, 1e30, at, inf)));
   let armored = params[${P.armored}u] > 0.0;
   var dr = 0.0;
   if (armored) { dr = armorDr(params[${P.armor}u] * corrMul(corrosive) * (1.0 - heat)); }
@@ -431,7 +558,7 @@ fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
   var bypass = 0.0;
   for (var t = 0u; t < 16u; t++) {
     if (!(dmg[t] > 0.0)) { continue; }
-    let landed = dmg[t] * zoneMul;
+    let landed = dmg[t] * kZoneMul;
     var minimum = 0.0;
     if (armored) { minimum = 1.0; }
     let toHealth = max(landed * (1.0 + params[${P.healthMod}u + t]) * (1.0 - dr) * viral, minimum);
@@ -441,35 +568,41 @@ fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
     if (bypasses) { bypass += toHealth; }
     overguard += landed * (1.0 + params[${P.overguardMod}u + t]) * params[${P.overguardMultiplier}u];
   }
-  let perShot = averageCrit * multishot * faction;
+  let perShot = averageCrit * kMultishot * kFaction;
 
-  let seed = (baseTotal + S[${CH.baseDamageFlat}u]) * db * finalFactor;
   var dotDps = 0.0;
   var dotTypes = array<u32, 6>(${DOT.map(([t]) => `${t}u`).join(', ')});
   var dotC = array<f32, 6>(${DOT.map(([, c]) => c.toFixed(2)).join(', ')});
   var dotTicks = array<f32, 6>(${DOT.map(([, , n]) => n.toFixed(1)).join(', ')});
-  for (var d = 0u; d < 6u; d++) {
-    let t = dotTypes[d];
-    let share = dmg[t] / total;
-    let forcedCrit = multishot * pulls * S[${CH['forcedCrit:impact']}u + t] * pCrit;
-    let forcedPlain = multishot * pulls * S[${CH['forced:impact']}u + t];
+  var dotDelay = array<f32, 6>(${DOT.map(([, , , delay]) => delay.toFixed(2)).join(', ')});
+  var dotLength = array<f32, 6>(${DOT.map(([, , , , length]) => length.toFixed(2)).join(', ')});
+  for (var e = 0u; e < 6u; e++) {
+    let t = dotTypes[e];
+    let share = dmg[t] / kTotal;
+    let forcedCrit = kMultishot * kPulls * S[${CH['forcedCrit:impact']}u + t] * pCrit;
+    let forcedPlain = kMultishot * kPulls * S[${CH['forced:impact']}u + t];
     if (!(share > 0.0) && forcedCrit + forcedPlain <= 0.0) { continue; }
-    let natural = status * share * multishot * pulls;
+    let natural = chance * share * kMultishot * kPulls;
     let weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
     var elemental = 0.0;
     if (t >= ${T.heat}u && t <= ${T.toxin}u) { elemental = S[4u + t]; }
     var typeBonus = 1.0;
     if (t == ${T.toxin}u) { typeBonus = 1.0 + params[${P.toxinStatusBonus}u]; }
-    let rawTick = (seed * faction + 1.0) * dotC[d] * (1.0 + elemental) * (1.0 + S[${CH.statusDamage}u]) * typeBonus * faction;
+    let rawTick = (kSeed * kFaction + 1.0) * dotC[e] * (1.0 + elemental) * (1.0 + S[${CH.statusDamage}u]) * typeBonus * kFaction;
     var hm = params[${P.healthMod}u + t];
     var tdr = dr;
     if (t == ${T.slash}u) { hm = 0.0; tdr = 0.0; }
-    dotDps += weighted * rawTick * zoneMul * (1.0 + hm) * (1.0 - tdr) * viral * dotTicks[d];
+    var span = dotLength[e] * d;
+    if (t == ${T.blast}u) { span = dotLength[e]; }
+    var landedShare = 1.0;
+    if (kSteady && !inf) { landedShare = within(at - dotDelay[e], span, false) / span; }
+    dotDps += weighted * rawTick * kZoneMul * (1.0 + hm) * (1.0 - tdr) * viral * dotTicks[e] * landedShare;
   }
 
-  let healthDps = health * perShot * pulls + dotDps;
-  let shieldDps = shield * perShot * pulls;
-  let overguardDps = overguard * perShot * pulls;
+  let fired = perShot * kPulls * firing;
+  let healthDps = health * fired + dotDps;
+  let shieldDps = shield * fired;
+  let overguardDps = overguard * fired;
   var seconds = 0.0;
   if (params[${P.overguard}u] > 0.0) {
     if (!(overguardDps > 0.0)) { return 0.0; }
@@ -479,7 +612,7 @@ fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
   if (params[${P.shield}u] > 0.0 && shieldDps > 0.0) {
     let shieldSeconds = params[${P.shield}u] / shieldDps;
     seconds += shieldSeconds;
-    remaining = max(0.0, remaining - shieldSeconds * bypass * perShot * pulls);
+    remaining = max(0.0, remaining - shieldSeconds * bypass * fired);
   }
   if (remaining > 0.0) {
     if (!(healthDps > 0.0)) { return 0.0; }

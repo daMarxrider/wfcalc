@@ -192,6 +192,20 @@ export function sustainedPulls(build: Pick<ResolvedBuild, 'magazineSize' | 'fire
 }
 
 /**
+ * Trigger pulls fired in the first `seconds` of a fight, as the simulation fires them: a
+ * magazine at the fire rate, then the spool-up and the reload (simulate.ts).
+ */
+export function pullsBy(build: Pick<ResolvedBuild, 'magazineSize' | 'fireRate' | 'reloadTime' | 'ammo'> & { spoolSeconds?: number }, seconds: number): number {
+  if (!(seconds > 0)) return 0;
+  const cost = build.ammo?.cost ?? 1;
+  if (!(cost > 1e-9) || seconds === Infinity) return seconds * build.fireRate;
+  const fireTime = Math.max(1, build.magazineSize) / cost / Math.max(0.01, build.fireRate);
+  const cycle = fireTime + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime);
+  const cycles = Math.floor(seconds / cycle);
+  return (cycles * fireTime + Math.min(fireTime, seconds - cycles * cycle)) * build.fireRate;
+}
+
+/**
  * Status procs per second of a damage type, at `pullsPerSecond` trigger pulls: natural ones
  * (status chance x the type's share of the damage, per pellet) and forced ones (Hunter
  * Munitions), whose crit-only kind lands at `critChance`.
