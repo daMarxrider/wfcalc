@@ -9,7 +9,9 @@
  *     targets that build.ts turns into a mechanic of their own (Doughty, Duplicate, Plated Round,
  *     Fortifier, Empowered, Enervate).
  */
-import type { ArcaneData, DamageType, Effect, WeaponData } from '../types.ts';
+import type { ArcaneData, DamageType, Effect, Snapshot, WeaponData } from '../types.ts';
+import type { Build, ResolvedBuild } from './build.ts';
+import { normalizeName } from '../data.ts';
 
 /** Warframe arcanes that buff one weapon class only. Absent: every weapon. */
 const WEAPON_SCOPE: Record<string, { label: string; fits: (weapon: WeaponData) => boolean }> = {
@@ -142,7 +144,8 @@ export function arcaneRankScale(arcane: ArcaneData, line: Effect, rank: number):
   const key = `${arcane.name}\u0000${line.raw}\u0000${rank}`;
   const cached = scaleCache.get(key);
   if (cached !== undefined) return cached;
-  const raw = clean(line.raw);
+  // Only the stat itself: a shared tail ("for 12s. Stacks up to 40x.") sits after the last of two stats.
+  const raw = clean(line.raw).replace(/\s+for \d.*$/i, '');
   const value = Number(raw.match(NUMBER)?.[0] ?? NaN);
   const pattern = new RegExp(raw.split(NUMBER).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('(\\d+(?:\\.\\d+)?)'));
   let scale = linear;
@@ -200,4 +203,57 @@ export function enervateCritChance(critChance: number, resets: number, pellets =
 export function enervateHitsPerShot(weapon: WeaponData, trigger: string | null | undefined, multishot: number, fireRate: number): number {
   const hits = /projectile/i.test(trigger ?? '') && !weapon.shotgunSidearm ? Math.max(1, multishot) : 1;
   return Math.min(hits, 30 / Math.max(0.01, fireRate));
+}
+
+/**
+ * An arcane whose stacks change during one fight (simulate.ts). The wiki (Primary Frostbite,
+ * Cascadia Flare, Primary Crux, Primary Merciless) gives two kinds:
+ *   - triggered by this fight's hits: each trigger adds a stack and refreshes the timer; when the
+ *     timer runs out every stack is lost. Starts at 0, grows to `stacks`.
+ *   - on kill: no kills while one target is fought, so the stacks the build counted (`stacks`)
+ *     only decay, one each time the timer runs out.
+ */
+export interface BuildUpSource {
+  name: string;
+  /** A status type ('any' for every status), every critical hit, every hit; or a kill (decay only). */
+  trigger: { status: DamageType | 'any' } | 'crit' | 'hit' | 'kill';
+  /** Chance per trigger ("30% chance for ..."), 1 when the text gives none. */
+  chance: number;
+  /** Buff duration in seconds. */
+  seconds: number;
+  /** Most stacks in the fight: what the build counted for the source. */
+  stacks: number;
+}
+
+const TRIGGERS: Array<[RegExp, (match: RegExpExecArray) => BuildUpSource['trigger']]> = [
+  [/^on_status_effect$/, () => ({ status: 'any' })],
+  [/^on_(\w+)_status_effect$/, (match) => ({ status: match[1] as DamageType })],
+  [/^on_critical_hit$/, () => 'crit'],
+  // Head hits are every hit once the build aims at the head (the resolve gates them otherwise).
+  [/^(?:onHit|onWeakPointHit)$/, () => 'hit'],
+  [/kill/i, () => 'kill'],
+];
+
+/**
+ * The build's arcanes that build up or decay in a fight. A stack count the player pinned for the
+ * source stays fixed, and so do arcanes with any other trigger (ability casts, reloads...).
+ */
+export function arcaneBuildUp(snapshot: Snapshot, build: Build, resolved: ResolvedBuild): BuildUpSource[] {
+  const equipped = [...(build.arcanes ?? []), ...(build.warframeArcanes ?? [])]
+    .map((entry) => (typeof entry === 'string' ? { name: entry } : entry));
+  const sources: BuildUpSource[] = [];
+  for (const source of resolved.conditionalSources) {
+    if (!/arcane/i.test(source.kind) || source.stacks <= 0 || build.sourceStacks?.[source.name] !== undefined) continue;
+    if (source.conditions.length !== 1) continue;
+    const rule = TRIGGERS.map(([re, make]) => { const match = re.exec(source.conditions[0]); return match && make(match); }).find(Boolean);
+    const arcane = snapshot.arcanes[source.name];
+    if (!rule || !arcane) continue;
+    const rank = Math.max(0, Math.min(arcane.maxRank, equipped.find((entry) => normalizeName(entry.name) === normalizeName(source.name))?.rank ?? arcane.maxRank));
+    const text = clean(arcane.levels?.[rank] ?? arcane.description);
+    const seconds = Number(/\bfor (\d+(?:\.\d+)?)\s*s\b/i.exec(text)?.[1]);
+    if (!(seconds > 0)) continue;
+    const chance = /(\d+(?:\.\d+)?)% chance/i.exec(text);
+    sources.push({ name: source.name, trigger: rule, chance: chance ? Number(chance[1]) / 100 : 1, seconds, stacks: source.stacks });
+  }
+  return sources;
 }
