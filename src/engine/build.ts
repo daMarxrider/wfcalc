@@ -417,7 +417,15 @@ export const ARCANE_SLOTS: Record<string, string[]> = {
   melee: ['melee'],
   archgun: ['primary', 'secondary'],
   archmelee: ['melee'],
+  amp: ['amp', 'operator'],
 };
+
+/** Arcane slots of a weapon: zaws and kitguns add a slot of their own (wiki: Arcane Enhancement). */
+export function arcaneSlotsOf(weapon: WeaponData): string[] {
+  const own = ARCANE_SLOTS[weapon.category] ?? [];
+  const kind = weapon.modular?.kind;
+  return kind === 'zaw' ? [...own, 'zaw'] : kind?.startsWith('kitgun') ? [...own, 'kitgun'] : own;
+}
 
 export function statsForMode(weapon: WeaponData, modeName?: string): { stats: WeaponData['stats']; mode: WeaponMode | null } {
   if (modeName) {
@@ -717,9 +725,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   // Weapon arcanes: the slot has to match the weapon (Primary/Secondary/Melee/Bow/Shotgun), and
   // a weapon holds one arcane per slot type. Arch-guns are the exception with two: one Primary
   // and one Secondary arcane, each unlocked by an Archgun Arcane Adapter (wiki: Arcane Enhancement).
-  const arcaneSlots = ARCANE_SLOTS;
-  const arcaneGroup = (slot: string): string => (weapon.category === 'archgun' ? (slot === 'secondary' ? 'secondary' : 'primary') : 'weapon');
-  const usedArcaneGroups = new Map<string, string>();
+  // Zaw and kitgun arcanes sit in a slot of their own; an amp holds two amp arcanes, and the
+  // Operator two of their own.
+  const allowedArcanes = arcaneSlotsOf(weapon);
+  const arcaneGroup = (slot: string): string => (weapon.category === 'archgun' ? (slot === 'secondary' ? 'secondary' : 'primary')
+    : slot === 'zaw' || slot === 'kitgun' ? 'modular' : slot === 'amp' || slot === 'operator' ? slot : 'weapon');
+  const groupSize = (group: string): number => (group === 'amp' || group === 'operator' ? 2 : 1);
+  const usedArcaneGroups = new Map<string, string[]>();
   let compressionRank: number | null = null;
   for (const entry of build.arcanes ?? []) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
@@ -730,20 +742,21 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`arcane not found: ${wanted}`);
       continue;
     }
-    const allowed = arcaneSlots[weapon.category] ?? [];
-    if (arcane.slot && !allowed.includes(arcane.slot)) {
+    if (arcane.slot && !allowedArcanes.includes(arcane.slot)) {
       collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.category} weapon`);
     } else if ((arcane.slot === 'bow' && weapon.type !== 'Bow') || (arcane.slot === 'shotgun' && weapon.type !== 'Shotgun')) {
       collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.type}`);
     }
     const group = arcaneGroup(arcane.slot ?? '');
-    const taken = usedArcaneGroups.get(group);
-    if (taken) {
+    const taken = usedArcaneGroups.get(group) ?? [];
+    if (taken.length >= groupSize(group)) {
       collected.warnings.push(weapon.category === 'archgun'
-        ? `${arcane.name}: an arch-gun holds one ${group} arcane, and ${taken} already fills it`
-        : `${arcane.name}: a weapon holds one arcane, and ${taken} already fills the slot`);
+        ? `${arcane.name}: an arch-gun holds one ${group} arcane, and ${taken[0]} already fills it`
+        : groupSize(group) > 1
+          ? `${arcane.name}: only two ${group} arcanes fit, and ${taken.join(' and ')} already fill them`
+          : `${arcane.name}: a weapon holds one ${group === 'modular' ? `${arcane.slot} ` : ''}arcane, and ${taken[0]} already fills the slot`);
     }
-    usedArcaneGroups.set(group, arcane.name);
+    usedArcaneGroups.set(group, [...taken, arcane.name]);
     if (arcane.name === 'Primary Compression') compressionRank = Math.min(rank ?? arcane.maxRank, arcane.maxRank);
     // Values come at the equipped rank already (arcanes.ts), so no further rank scaling.
     const effects = arcaneEffectsAt(arcane, rank, { heavyAttack: Boolean(build.heavyAttack), dualPistols: isDualPistols(weapon) });
