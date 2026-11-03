@@ -130,6 +130,16 @@ panel. Set those on the Build tab first; for Primary Compression tick "aiming" t
 arcane does nothing and radius mods look useless. The riven only takes one of the eight
 standard slots; the Exilus and stance mods always stay.
 
+### In the browser, no install (GitHub Pages)
+
+`npm run build:pages` writes a static version to `dist/`: the same UI, with the API running in a
+Web Worker in the browser instead of on a server (`src/api.ts` is shared by both, so they answer
+the same). The GPU search, the CPU brute force and the riven picker run on Web Workers. Every push
+to `main` publishes it through `.github/workflows/pages.yml` (repo Settings → Pages → Source:
+GitHub Actions). Searches use the visitor's CPU and GPU; mod and weapon art is linked from the
+WFCD repo and the wiki rather than cached, and the 13 mods whose art only the raw exports know
+show none.
+
 ### From the phone or another device
 
 The session shares Android's network stack, so the loopback address works from the phone's own
