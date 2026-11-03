@@ -7,8 +7,11 @@ Not a DPS leaderboard: it uses the game's own formulas (documented on the offici
 wiki) and the game's own data export, so the numbers answer the question
 "is this build better than that one, and why".
 
-Runs on Node ≥ 23 with **no runtime dependencies** — the TypeScript sources are
-executed directly through Node's type stripping.
+**Use it in the browser: <https://damarxrider.github.io/wfcalc/>** — nothing to install; the
+whole calculator, GPU search included, runs on your own machine in the page.
+
+The CLI and the local server run on Node ≥ 23 with **no runtime dependencies** — the TypeScript
+sources are executed directly through Node's type stripping.
 
 ## warframe-dmg-optimizer
 
@@ -24,8 +27,9 @@ and in-game calibration. On top of it this fork adds:
   incompatible mods; one evaluation per distinct elemental pairing rather than per slot order.
 - **GPU brute force** (web UI, Settings tab): WebGPU, so AMD, Nvidia, Intel and Apple GPUs alike.
   The browser scores every combination of up to 64 candidates with a reduced damage model
-  (`src/web/gpu-search.js`, mod vectors from `src/engine/gpu-model.ts`) and the server scores the
-  best 20,000 with the full engine. Falls back to the CPU brute force without a hardware GPU.
+  (`src/web/gpu-search.js`, mod vectors from `src/engine/gpu-model.ts`) and the full engine scores
+  the best 20,000 (on the local server, or in Web Workers on the GitHub Pages site). Falls back to
+  the CPU brute force without a hardware GPU.
 - **`--steel-path`** on every command: enemy health and shields ×2.5 (armour unchanged).
 - **Arch-guns take two arcanes**, one Primary and one Secondary (Archgun Arcane Adapter); every
   other weapon is checked for a single arcane.
@@ -46,6 +50,9 @@ and in-game calibration. On top of it this fork adds:
   on the Build, Find and Abilities tabs (optionally adding the +100 node level); a Brute force
   mode on the Find tab with fixed mods, a combination budget, and the player's loadout (arcanes,
   Warframe buffs, Ability Strength) as fixed inputs. `?tab=find` opens a tab directly.
+- **GitHub Pages version** (<https://damarxrider.github.io/wfcalc/>): the same UI with the API in
+  a Web Worker instead of a server, published from `main` on every push (see
+  [In the browser](#in-the-browser-no-install-github-pages)).
 - **DE Public Export**: `npm run public-export` downloads `ExportWeapons` from DE's official
   endpoint (with a built-in LZMA decoder for the index) and checks or updates every weapon's stat
   block against it.
@@ -62,7 +69,8 @@ and in-game calibration. On top of it this fork adds:
 
 ## Install
 
-Node ≥ 23 and nothing else (no runtime dependencies). The snapshot ships with the repo, so
+For the web UI alone there is nothing to install: open <https://damarxrider.github.io/wfcalc/>.
+For the CLI, the API and the local server: Node ≥ 23 and nothing else (no runtime dependencies). The snapshot ships with the repo, so
 a clone works without downloading the game data:
 
 ```sh
@@ -132,13 +140,32 @@ standard slots; the Exilus and stance mods always stay.
 
 ### In the browser, no install (GitHub Pages)
 
-`npm run build:pages` writes a static version to `dist/`: the same UI, with the API running in a
-Web Worker in the browser instead of on a server (`src/api.ts` is shared by both, so they answer
-the same). The GPU search, the CPU brute force and the riven picker run on Web Workers. Every push
-to `main` publishes it through `.github/workflows/pages.yml` (repo Settings → Pages → Source:
-GitHub Actions). Searches use the visitor's CPU and GPU; mod and weapon art is linked from the
-WFCD repo and the wiki rather than cached, and the 13 mods whose art only the raw exports know
-show none.
+<https://damarxrider.github.io/wfcalc/> is the same UI with every tab, but no server behind it:
+the API (`src/api.ts`, shared with `wfcalc serve`, so both answer the same) runs in a Web Worker
+in the page, and the CPU brute force, the GPU search's exact pass and the riven picker run on Web
+Workers across your cores. Saved builds and settings stay in your browser (localStorage), and a
+build link (the URL fragment) opens the same build for anyone.
+
+- The first visit downloads the data snapshot (about 3 MB, served compressed); after that the
+  browser caches it.
+- The GPU brute force needs a browser with WebGPU (Chrome, Edge, or Brave with WebGPU enabled);
+  without it the Find tab uses the CPU brute force.
+- Mod and weapon art is linked from the WFCD repo and the wiki rather than cached; the 13 mods
+  whose art only the raw exports know show none.
+
+Every push to `main` publishes it through `.github/workflows/pages.yml` (repo Settings → Pages →
+Source: GitHub Actions). To build and preview it locally:
+
+```sh
+npm run build:pages               # writes the static site to dist/ (gitignored)
+python -m http.server -d dist     # any static file server; open http://127.0.0.1:8000
+```
+
+`tools/build-pages.ts` strips the TypeScript types with Node's own stripper (still no
+dependencies) and points the engine's `node:` imports at the small browser stand-ins in
+`src/pages/shims/`; an engine module that imports anything else from Node fails the build. After
+changing anything under `src/`, `tests/pages-browser.test.ts` checks the built site against the
+Node API in a headless browser.
 
 ### From the phone or another device
 
@@ -459,8 +486,11 @@ src/engine/         build resolution, buffs, enemy scaling, damage
 tools/fetch-abilities.ts  ability/augment numbers from the wiki infoboxes
 tools/fetch-incarnon.ts   Incarnon evolution trees per weapon
 src/cli.ts          CLI
-src/server.ts       local API + static web UI
+src/api.ts          the JSON API as a function, shared by the server and the Pages build
+src/server.ts       local server: HTTP, static web UI, artwork cache
 src/web/            the UI (vanilla JS, no build step)
+src/pages/          GitHub Pages: API worker, fetch reroute, browser stand-ins for node: modules
+tools/build-pages.ts  builds the static site into dist/
 docs/formulas.md    every formula and where it comes from
 docs/api.md         the JSON API, for scripts and the web UI
 skills/wfcalc/      agent skill: the CLI operating manual
@@ -525,12 +555,14 @@ The **data** has its own terms and they are not all compatible with commercial u
   evolution trees, ability numbers and the formulas quoted in `docs/formulas.md` are derived
   from it. NC means non-commercial: a paid product built on this snapshot needs permission or a
   data source without that restriction. If you redistribute the snapshot, keep the attribution
-  and share-alike terms.
+  and share-alike terms. The GitHub Pages site serves the snapshot, so it carries the
+  attribution in its Settings tab.
 - External public builds are queried for calibration only. The battery is local and gitignored;
   no build IDs, titles or pages are shipped.
 - Warframe artwork, names and marks belong to Digital Extremes. No artwork is redistributed in
   this repository: the server fetches mod cards and images on demand and caches them locally
-  (`data/cards/` and `data/img/`, both gitignored; card frames are CSS-only). If you plan to charge for an app
+  (`data/cards/` and `data/img/`, both gitignored; card frames are CSS-only), and the GitHub
+  Pages site links them from WFCD and the wiki instead of copying them. If you plan to charge for an app
   around this, read Digital Extremes' fan content and EULA terms first.
 
 Not legal advice, but the practical reading: GPLv3 does not stop you from monetising. The wiki's
