@@ -49,7 +49,7 @@ export interface BruteForceRequest {
   overguard?: number;
   attenuation?: string | AttenuationProfile | null;
   /** `ttk` minimises time to kill the target; `dps` maximises damage per second against it. */
-  objective?: 'ttk' | 'dps';
+  objective?: 'ttk' | 'dps' | 'kpm';
   /** Mod capacity: 30, or 60 with an Orokin Catalyst. */
   capacity?: number;
   /** How many Forma the player is willing to spend; null means as many as needed. */
@@ -93,7 +93,7 @@ export interface BruteForceRequest {
 /** Everything a shard needs to walk the tree; plain data so it can cross into a worker. */
 export interface BruteForcePlan {
   weapon: string;
-  objective: 'ttk' | 'dps';
+  objective: 'ttk' | 'dps' | 'kpm';
   enemy: string;
   level: number;
   capacity: number;
@@ -167,7 +167,7 @@ export interface BruteForceBuild {
 
 export interface BruteForceResult {
   weapon: string;
-  objective: 'ttk' | 'dps';
+  objective: 'ttk' | 'dps' | 'kpm';
   enemy: string;
   level: number;
   steelPath: boolean;
@@ -540,7 +540,7 @@ export function makeScorer(
   weapon: string,
   base: Partial<Build>,
   scaled: ScaledEnemy,
-  objective: 'ttk' | 'dps',
+  objective: 'ttk' | 'dps' | 'kpm',
   attenuation: string | AttenuationProfile | null | undefined,
   mode: 'steady' | 'simulate' | 'plain' = 'plain',
   requireStatus: DamageType[] = [],

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadSnapshot } from '../src/data.ts';
-import { bruteForce, bruteForceFromCombinations } from '../src/engine/bruteforce.ts';
+import { bruteForce, bruteForceFromCombinations, gpuPlan, scoreCombinations } from '../src/engine/bruteforce.ts';
 import { gpuModel } from '../src/engine/gpu-model.ts';
 import { cpuSearch, proxyScore } from '../src/web/gpu-search.js';
 
@@ -42,6 +42,16 @@ test('GPU pre-filter blends Athodai Overdrive by uptime, like the exact pass', a
   const exactTtk = exact.builds[0].timeToKill!;
   const ratio = 1 / proxyScore(model, best.combo) / exactTtk;
   assert.ok(ratio > 0.97 && ratio < 1.03, `proxy/exact kill time ${ratio}`);
+});
+
+test('GPU pre-filter scores kills per minute like the exact ranking, not 1 / kill time', () => {
+  // Acceltra kills inside its first magazine, so 1 / kill time would skip the reloads (~40% high).
+  const request = { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, limit: 1, workers: 1, simulate: true, objective: 'kpm' as const, base: { arcanes: ['Primary Compression'] } };
+  const model = gpuModel(snapshot, request, 150);
+  const best = cpuSearch(model)[0];
+  const exact = scoreCombinations(snapshot, gpuPlan(snapshot, request), [best.combo.map((i: number) => model.candidates[i])], 1).top[0];
+  const ratio = (60 * best.score) / exact.score;
+  assert.ok(ratio > 0.99 && ratio < 1.01, `proxy/exact kills per minute ${ratio}`);
 });
 
 test('the reduced model refuses incompatible pairs and builds over the drain bound', () => {
