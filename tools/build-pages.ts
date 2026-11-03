@@ -54,6 +54,7 @@ while (queue.length) {
 
 // The UI at the root, with the API rerouted to the worker before app.js runs.
 for (const name of readdirSync(join(ROOT, 'src/web'))) {
+  if (name.endsWith('.d.ts')) continue;
   let content: string | Buffer = readFileSync(join(ROOT, 'src/web', name));
   if (name === 'index.html') {
     const html = content.toString('utf8');

@@ -432,6 +432,10 @@ export interface IncarnonOption {
     value: number;
     raw: string;
     flat?: boolean;
+    condition?: string;
+    base?: boolean;
+    form?: 'incarnon' | 'normal';
+    critChanceBelow?: number;
   }>;
   /** Perk text as the wiki writes it, for display. */
   text: string[];
