@@ -10,7 +10,8 @@
  * protect more, a vulnerability makes it protect less) — see docs/formulas.md.
  */
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
-import type { ResolvedBuild } from './build.ts';
+import { resolveBuild, type Build, type ResolvedBuild } from './build.ts';
+import { arcaneBuildUp } from './arcanes.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
 import { arcaneProcRates, atLeastTen, computeDot, procRates, pullsBy, sustainedPulls, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
@@ -46,6 +47,12 @@ export interface HitOptions {
    * state. Not used under boss attenuation, whose caps the simulation does not model.
    */
   simulate?: boolean;
+  /**
+   * The build as entered: with `simulate`, arcanes whose stacks move in a fight (arcanes.ts
+   * arcaneBuildUp) build up from 0 or decay instead of holding the counted stacks. Costs a
+   * resolve per stack step, so searches leave it out.
+   */
+  input?: Build;
   /**
    * Cheap stand-in for the simulation, used to rank many builds before the best few are
    * simulated: the statuses the build's own procs put up (Viral, Corrosive, Heat, Puncture,
@@ -125,7 +132,8 @@ export function hitEnemy(snapshot: Snapshot, build: ResolvedBuild, scaled: Scale
   const on = ammoHit(snapshot, build, scaled, options);
   const timed = build.timedBuff;
   if (!timed?.off || on.timeToKill === null) return on;
-  const off = ammoHit(snapshot, timed.off, scaled, options);
+  // shortcut: arcane build-up runs in the buffed state only; the off state keeps its counted stacks.
+  const off = ammoHit(snapshot, timed.off, scaled, { ...options, input: undefined });
   const interval = timed.trigger === 'weakPointKill'
     ? 60 / off.killsPerMinute
     : 1 / (sustainedPulls(timed.off) * Math.max(1, timed.off.multishot));
@@ -453,7 +461,16 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   let timeToKill = Number.isFinite(shotsToKill) && pullsPerSecond > 0 ? shotsToKill / pullsPerSecond : null;
   let simulation: SimulationResult | null = null;
   if (options.simulate && !attenuation) {
-    simulation = simulateKill(snapshot, build, scaled, { factionMultiplier, debuffs, estimate: timeToKill });
+    const input = options.input;
+    const sources = input ? arcaneBuildUp(snapshot, input, build) : [];
+    // Ammo buffs (ammoHit) priced the ammo cost for this build: the re-resolved ones keep it.
+    const resolveAt = (stacks: Record<string, number>): ResolvedBuild => {
+      const next = resolveBuild(snapshot, { ...input!, sourceStacks: { ...(input!.sourceStacks ?? {}), ...stacks } });
+      return build.ammo?.buffs.length ? { ...next, ammo: build.ammo } : next;
+    };
+    simulation = simulateKill(snapshot, build, scaled, { factionMultiplier, debuffs, estimate: timeToKill, buildUp: sources.length ? { sources, resolveAt } : undefined });
+    const stacks = Object.entries(simulation.arcaneStacks ?? {});
+    if (stacks.length) warnings.push(`arcane stacks build up in the fight: ${stacks.map(([name, value]) => `${name} ${value} at the kill`).join(', ')}`);
     if (simulation.timeToKill !== null) {
       timeToKill = simulation.timeToKill;
       shotsToKill = simulation.shots;

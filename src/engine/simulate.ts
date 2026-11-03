@@ -40,6 +40,10 @@
  * Continuous (beam) weapons ramp from 20% damage to full over 0.6 s on target and decay after
  * 0.8 s off it (wiki: Continuous Weapon).
  *
+ * Arcanes with `buildUp` (arcanes.ts arcaneBuildUp): stacks gained from this fight's procs, crits
+ * and hits start at 0 and drop all at once when their timer runs out; on-kill stacks only decay,
+ * one per timer. The build is resolved again whenever the stacks move (in 1/40ths of the cap).
+ *
  * Electricity's chain to nearby enemies, Gas's cloud on others and Blast's detonation on others are
  * not modelled: this is the single target's time to kill.
  */
@@ -48,6 +52,7 @@ import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
 import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, dotTicks, effectiveArmor, ENCUMBER_TYPES, GAS_CAP, healthModifier, MERGED_TICKS, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
 import { hitProfile } from './hit.ts';
+import type { BuildUpSource } from './arcanes.ts';
 
 interface StackRule {
   duration: number;
@@ -117,6 +122,8 @@ export interface SimulationOptions {
   estimate?: number | null;
   /** Time step in seconds, instead of the one sized from `estimate`. */
   step?: number;
+  /** Arcanes whose stacks move during the fight, and the build at given stacks of them. */
+  buildUp?: { sources: BuildUpSource[]; resolveAt: (stacks: Record<string, number>) => ResolvedBuild };
 }
 
 export interface SimulationSample {
@@ -141,6 +148,8 @@ export interface SimulationResult {
   /** About 60 samples of the fight, for charts. */
   timeline: SimulationSample[];
   step: number;
+  /** Stacks of each build-up arcane when the target died. */
+  arcaneStacks?: Record<string, number>;
 }
 
 /** Discrete ticks: an amount put at a step comes due again at every tick offset after it. */
@@ -160,6 +169,9 @@ class TickLine {
     return sum;
   }
 }
+
+/** Where a damage type's procs go: its stacking status, its ticks, Heat, Blast. */
+interface ProcTarget { type: string; stack: number; tick: number; heat: boolean; blast: boolean }
 
 /** A sliding window of per-step amounts with a running total, so each step costs O(1). */
 class Window {
@@ -186,7 +198,10 @@ class Window {
   }
 }
 
-export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: SimulationOptions): SimulationResult {
+export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled: ScaledEnemy, options: SimulationOptions): SimulationResult {
+  // Changes when build-up arcanes gain or lose stacks; fight-long settings (status duration,
+  // Corrosive cap, Debilitate, Encumber, Cryogenic, Overguard, beam ramp) are read from `initial`.
+  let build = initial;
   const estimate = options.estimate && Number.isFinite(options.estimate) ? options.estimate : 30;
   // Statuses only shorten a fight, but the steady-state guess can be off early on: allow four
   // times the estimate (at least 10 minutes, at most two hours) before calling it unkillable.
@@ -200,23 +215,23 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
 
   const healthClass = scaled.enemy.healthClass;
   const faction = options.factionMultiplier;
-  const hit = hitProfile(build, scaled.enemy.faction);
   const debuffs = options.debuffs;
   const hasArmor = scaled.pools.some((pool) => pool.category === 'armor') && scaled.armor > 0;
   const hasShieldPool = scaled.pools.some((pool) => pool.category === 'shield');
   const toxinBypass = Boolean(scaled.enemy.toxinBypassesShields);
   const modOf = (type: DamageType, against = healthClass): number => 1 + healthModifier(snapshot, type, against);
 
-  // ---- everything that does not change during the fight, as flat arrays
-  const perProjectile = build.damage.perProjectile;
-  const total = build.damage.projectileTotal || 1;
-  const types = DAMAGE_TYPES.filter((type) => (perProjectile[type] ?? 0) > 0);
-  const landed = types.map((type) => (perProjectile[type] ?? 0) * hit.location);
-  const healthMod = types.map((type) => modOf(type));
-  const overguardMod = types.map((type) => modOf(type, 'Overguard') * (build.overguardDamageMultiplier ?? 1));
-  const bypass = types.map((type) => type === 'toxin' && toxinBypass);
-  const shares = types.map((type) => (perProjectile[type] ?? 0) / total);
-  const statusDamage = 1 + (build.statusDamageBonus ?? 0);
+  // ---- what the build gives, as flat arrays; derive() redoes them when the build changes
+  let hit = hitProfile(build, scaled.enemy.faction);
+  let perProjectile = build.damage.perProjectile;
+  let total = 1;
+  let types: DamageType[] = [];
+  let landed: number[] = [];
+  let healthMod: number[] = [];
+  let overguardMod: number[] = [];
+  let bypass: boolean[] = [];
+  let shares: number[] = [];
+  let statusDamage = 1;
   const elementBonus = (type: string): number =>
     type === 'gas' || type === 'blast' ? 0 : (build.elementBonuses as Record<string, number | undefined>)[type] ?? 0;
   // Attacker-side seed of one tick, before crit (wiki DoT formula, as in dot.ts): the hit's
@@ -235,7 +250,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const ticks = dotTicks(durationScale);
   const tickLines = TICKING.map((type) => new TickLine(Array.from({ length: ticks }, (_, k) => Math.round((FIRST_TICK[type] + k) / dt))));
   const tickIndex = new Map<string, number>(TICKING.map((type, i) => [type, i]));
-  const tickSeeds = TICKING.map((type) => tickSeed(type, TICK_COEFFICIENT[type] ?? 0.5));
+  let tickSeeds: number[] = [];
   // Enemy-side multipliers of each ticking type: [health with armour, shield, is True damage].
   const tickHealthMod = TICKING.map((type) => (TICK_DAMAGE_TYPE[type] === 'true' ? 1 : modOf(TICK_DAMAGE_TYPE[type] ?? type)));
   const tickTrue = TICKING.map((type) => TICK_DAMAGE_TYPE[type] === 'true');
@@ -243,11 +258,11 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const gasTick = tickIndex.get('gas')!;
   // Gas stacks on the target, for the 10-stack cap and the merged tick's +1.
   const gasWindow = new Window(slots(DOT_DURATION));
-  const gasOne = tickScale('gas', TICK_COEFFICIENT.gas ?? 0.5);
-  const heatOne = tickScale('heat', TICK_COEFFICIENT.heat ?? 0.5);
-  const heatSeed = tickSeed('heat', TICK_COEFFICIENT.heat ?? 0.5);
+  let gasOne = 0;
+  let heatOne = 0;
+  let heatSeed = 0;
   const heatMod = modOf('heat');
-  const blastSeed = ((total * faction) + 1) * BLAST_COEFFICIENT * statusDamage * faction * hit.location;
+  let blastSeed = 0;
   const blastMod = modOf('blast');
   const blastLine = new Window(Math.round(BLAST_DELAY / dt));
   const heatWindow = new Window(slots(HEAT_DURATION));
@@ -261,14 +276,15 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const heatSeedWindow = new Window(slots(HEAT_DURATION));
 
   // Which status (if any) a damage type's procs feed: [stack index, tick index].
-  const procTargets = (type: string): { stack: number; tick: number; heat: boolean; blast: boolean } => ({
+  const procTargets = (type: string): ProcTarget => ({
+    type,
     stack: stackIndex.get(type) ?? -1,
     tick: tickIndex.get(type) ?? -1,
     heat: type === 'heat',
     blast: type === 'blast',
   });
-  const typeTargets = types.map(procTargets);
-  const forced = (build.forcedProcs ?? []).map((proc) => ({ ...procTargets(proc.type), chance: proc.chance, requiresCrit: proc.requiresCrit }));
+  let typeTargets: Array<ReturnType<typeof procTargets>> = [];
+  let forced: Array<ReturnType<typeof procTargets> & { chance: number; requiresCrit?: boolean }> = [];
 
   const stackProcs = new Float64Array(STACK_TYPES.length);
   const tickWeight = new Float64Array(TICKING.length);
@@ -292,19 +308,78 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   const sampleEvery = Math.max(1, Math.round(Math.min(maxSeconds, estimate * 1.5) / dt / 60));
 
   // Ammo Efficiency stretches a magazine; at cost 0 (Infinite Ammo) the weapon never reloads.
-  const ammoCost = build.ammo?.cost ?? 1;
-  const magazine = ammoCost > 1e-9 ? Math.max(1, build.magazineSize) / ammoCost : Infinity;
-  const fireTime = magazine / Math.max(0.01, build.fireRate);
-  // Spool-up (traits.ts) costs shots at the start of each magazine: counted as time without fire.
-  const cycle = fireTime + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime);
-  /** Seconds spent firing inside [a, b). */
-  const firing = (a: number, b: number): number => {
-    if (!Number.isFinite(cycle)) return b - a;
+  let magazine = Infinity;
+  const derive = (): void => {
+    hit = hitProfile(build, scaled.enemy.faction);
+    perProjectile = build.damage.perProjectile;
+    total = build.damage.projectileTotal || 1;
+    types = DAMAGE_TYPES.filter((type) => (perProjectile[type] ?? 0) > 0);
+    landed = types.map((type) => (perProjectile[type] ?? 0) * hit.location);
+    healthMod = types.map((type) => modOf(type));
+    overguardMod = types.map((type) => modOf(type, 'Overguard') * (build.overguardDamageMultiplier ?? 1));
+    bypass = types.map((type) => type === 'toxin' && toxinBypass);
+    shares = types.map((type) => (perProjectile[type] ?? 0) / total);
+    statusDamage = 1 + (build.statusDamageBonus ?? 0);
+    tickSeeds = TICKING.map((type) => tickSeed(type, TICK_COEFFICIENT[type] ?? 0.5));
+    gasOne = tickScale('gas', TICK_COEFFICIENT.gas ?? 0.5);
+    heatOne = tickScale('heat', TICK_COEFFICIENT.heat ?? 0.5);
+    heatSeed = tickSeed('heat', TICK_COEFFICIENT.heat ?? 0.5);
+    blastSeed = ((total * faction) + 1) * BLAST_COEFFICIENT * statusDamage * faction * hit.location;
+    typeTargets = types.map(procTargets);
+    forced = (build.forcedProcs ?? []).map((proc) => ({ ...procTargets(proc.type), chance: proc.chance, requiresCrit: proc.requiresCrit }));
+    const ammoCost = build.ammo?.cost ?? 1;
+    magazine = ammoCost > 1e-9 ? Math.max(1, build.magazineSize) / ammoCost : Infinity;
+  };
+  derive();
+  // The trigger: a magazine at the fire rate, then spool-up (traits.ts: shots it costs at the
+  // start of each magazine, counted as time without fire) and the reload. Pulls left in the
+  // magazine and seconds left without fire carry across steps and build changes.
+  // Build-up arcanes: each one's triggers in its last timer window, stacks gained since its chain
+  // began (refresh-all, like Heat), and the stacks now. The build is cached per 1/40th of a cap.
+  const buildUp = options.buildUp?.sources ?? [];
+  const upWindows = buildUp.map((source) => new Window(Math.round(source.seconds / dt)));
+  const upGained = new Float64Array(buildUp.length);
+  const upStacks = buildUp.map((source) => (source.trigger === 'kill' ? source.stacks : 0));
+  const statusProcs = new Map<string, number>();
+  const builds = new Map<string, ResolvedBuild>();
+  let buildKey = '';
+  const rebuild = (): void => {
+    const steps = upStacks.map((stacks, i) => Math.round((stacks / buildUp[i].stacks) * 40));
+    const key = steps.join(',');
+    if (key === buildKey) return;
+    buildKey = key;
+    let next = builds.get(key);
+    if (!next) {
+      next = options.buildUp!.resolveAt(Object.fromEntries(buildUp.map((source, i) => [source.name, (steps[i] / 40) * source.stacks])));
+      builds.set(key, next);
+    }
+    build = next;
+    derive();
+  };
+  if (buildUp.length) rebuild();
+
+  let ammoLeft = magazine;
+  let waitLeft = 0;
+  /** Seconds spent firing in the next `span` seconds. */
+  const firing = (span: number): number => {
     let seconds = 0;
-    let start = Math.floor(a / cycle) * cycle;
-    while (start < b) {
-      seconds += Math.max(0, Math.min(b, start + fireTime) - Math.max(a, start));
-      start += cycle;
+    while (span > 1e-12) {
+      if (waitLeft > 0) {
+        const wait = Math.min(waitLeft, span);
+        waitLeft -= wait;
+        span -= wait;
+        if (waitLeft <= 1e-12) { waitLeft = 0; ammoLeft = magazine; }
+        continue;
+      }
+      const rate = Math.max(0.01, build.fireRate);
+      const fire = Math.min(span, ammoLeft / rate);
+      seconds += fire;
+      ammoLeft -= fire * rate;
+      span -= fire;
+      if (ammoLeft <= 1e-9) {
+        waitLeft = Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime);
+        ammoLeft = waitLeft > 0 ? 0 : magazine;
+      }
     }
     return seconds;
   };
@@ -376,7 +451,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;
 
     // ---- direct damage this step, per layer
-    const firingSeconds = firing(t, t + dt);
+    const firingSeconds = firing(dt);
     const pulls = firingSeconds * build.fireRate;
     shots += pulls;
     if (rampStart !== null) {
@@ -405,6 +480,7 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
 
     // ---- procs this step (under Overguard only Magnetic and Cold land; no Cold while frozen)
     stackProcs.fill(0);
+    statusProcs.clear();
     tickWeight.fill(0);
     let gasProcs = 0;
     let heatProcs = 0;
@@ -422,9 +498,10 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
     if (pulls > 0) {
       const pellets = pulls * build.multishot;
       const statusChance = build.statusChance * (1 + tauStatusBonus(tau));
-      const add = (target: { stack: number; tick: number; heat: boolean; blast: boolean }, procs: number, crit: number): void => {
+      const add = (target: ProcTarget, procs: number, crit: number): void => {
         if (target.stack === iCold && frozen) return;
         if (immune && target.stack !== iMagnetic && target.stack !== iCold) return;
+        if (buildUp.length) statusProcs.set(target.type, (statusProcs.get(target.type) ?? 0) + procs);
         if (target.stack >= 0) stackProcs[target.stack] += procs;
         if (target.tick >= 0) tickWeight[target.tick] += procs * crit;
         if (target.tick === gasTick) gasProcs += procs;
@@ -572,6 +649,32 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
       heatAccumulated = 0;
     }
 
+    // Build-up arcanes: this step's triggers, then the stacks the next step fights with.
+    if (buildUp.length) {
+      buildUp.forEach((source, i) => {
+        // On kill: no kills while this target lives, so a stack drops each time the timer runs out.
+        if (source.trigger === 'kill') {
+          upStacks[i] = Math.max(0, source.stacks - Math.floor((t + dt) / source.seconds));
+          return;
+        }
+        let triggers = 0;
+        if (source.trigger === 'crit') triggers = pulls * build.multishot * pCrit;
+        else if (source.trigger === 'hit') triggers = pulls * build.multishot;
+        else if (pulls > 0) {
+          const { status } = source.trigger;
+          const procs = status === 'any' ? [...statusProcs.values()].reduce((sum, value) => sum + value, 0) : statusProcs.get(status) ?? 0;
+          // One stack per hit however many pellets proc (wiki: Cascadia Flare).
+          triggers = pulls * (1 - Math.exp(-procs / pulls));
+        }
+        triggers *= source.chance;
+        upWindows[i].put(next, triggers);
+        // The chain ends when a whole timer passes without a trigger: every stack is lost.
+        upGained[i] = upWindows[i].total > 1e-9 ? upGained[i] + triggers : 0;
+        upStacks[i] = (1 - Math.exp(-upWindows[i].total)) * Math.min(source.stacks, Math.max(1, upGained[i]));
+      });
+      rebuild();
+    }
+
     t += dt;
     step++;
   }
@@ -580,5 +683,6 @@ export function simulateKill(snapshot: Snapshot, build: ResolvedBuild, scaled: S
   TICKING.forEach((type, i) => { if (bySource[i] > 0) damageBySource[type] = bySource[i]; });
   if (bySource[TICKING.length] > 0) damageBySource.heat = bySource[TICKING.length];
   if (bySource[TICKING.length + 1] > 0) damageBySource.blast = bySource[TICKING.length + 1];
-  return { timeToKill: killedAt, shots, damageBySource, atEnd: end, timeline, step: dt };
+  const arcaneStacks = buildUp.length ? Object.fromEntries(buildUp.map((source, i) => [source.name, Math.round(upStacks[i] * 100) / 100])) : undefined;
+  return { timeToKill: killedAt, shots, damageBySource, atEnd: end, timeline, step: dt, arcaneStacks };
 }
