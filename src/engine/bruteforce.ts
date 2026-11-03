@@ -717,8 +717,9 @@ function leafScorer(snapshot: Snapshot, plan: BruteForcePlan) {
 function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy, combination: ScoredCombination): BruteForceBuild {
   const weapon = snapshot.weapons[plan.weapon];
   const fixedNames = new Set(plan.fixed.map((mod) => mod.name));
-  const resolved = resolveBuild(snapshot, { ...plan.base, weapon: weapon.name, mods: plan.exilus ? [...combination.mods, plan.exilus] : combination.mods });
-  const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation, simulate: plan.simulate });
+  const input = { ...plan.base, weapon: weapon.name, mods: plan.exilus ? [...combination.mods, plan.exilus] : combination.mods };
+  const resolved = resolveBuild(snapshot, input);
+  const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation, simulate: plan.simulate, input });
   const rivenMod = plan.base.riven ? rivenAsMod(plan.base.riven) : null;
   const entries = [
     ...combination.mods.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? snapshot.mods[mod.name].maxRank })),

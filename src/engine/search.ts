@@ -319,7 +319,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   );
 
   let evaluated = 0;
-  const scoreCache = new Map<string, { score: number; resolved: ReturnType<typeof resolveBuild>; hit: ReturnType<typeof hitEnemy> }>();
+  const scoreCache = new Map<string, { score: number; build: Build; resolved: ReturnType<typeof resolveBuild>; hit: ReturnType<typeof hitEnemy> }>();
 
   // Incarnon evolutions are part of the build: the same mods score differently depending on
   // which perks are installed, so the selection is part of the cache key.
@@ -355,7 +355,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     } catch {
       return -1;
     }
-    scoreCache.set(key, { score, resolved, hit });
+    scoreCache.set(key, { score, build, resolved, hit });
     return score;
   };
 
@@ -548,7 +548,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     // What is reported comes from the fight simulation when asked for; the search itself ran on
     // the fast build-up estimate.
     const scored = request.simulate
-      ? { ...cached, hit: hitEnemy(snapshot, cached.resolved, scaled, { attenuation: request.attenuation, simulate: true }) }
+      ? { ...cached, hit: hitEnemy(snapshot, cached.resolved, scaled, { attenuation: request.attenuation, simulate: true, input: cached.build }) }
       : cached;
     const fit = fits(names);
     return {
