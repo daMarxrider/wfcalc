@@ -25,7 +25,7 @@ const STATE_FILE = join(ROOT, 'data/raw/.upstream-state.json');
 const LOG_FILE = join(ROOT, 'docs/sync-log.md');
 
 /** Run after every rebuild, in this order (package.json "update" runs the same list). */
-const PATCH_TOOLS = ['public-export.ts', 'fetch-compression.ts', 'fetch-snipers.ts', 'fetch-forced-procs.ts'];
+const PATCH_TOOLS = ['public-export.ts', 'fetch-compression.ts', 'fetch-snipers.ts', 'fetch-forced-procs.ts', 'fetch-modular.ts'];
 
 const args = process.argv.slice(2);
 const checkOnly = args.includes('--check');

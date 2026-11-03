@@ -123,6 +123,20 @@ const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> =
       effect('critDamage', value, `Per combo multiplier consumed: +${pct(value)} Critical Damage`, { condition: 'comboConsumed', maxStacks: 12 }),
     ];
   },
+  // Amp arcanes (wiki: Virtuos/Eternal Arcanes). The Virtuos converters turn the amp's Void into
+  // an element, which then combines with other elements like a mod would.
+  // shortcut: converts every damage type, not only Void; amp attacks are all Void except the
+  // Dissic/Exard scaffolds' small Impact direct hit.
+  ...Object.fromEntries(([['Forge', 'heat'], ['Spike', 'puncture'], ['Surge', 'electricity'], ['Trojan', 'viral']] as const).map(([name, element]) => [
+    `Virtuos ${name}`,
+    (r: number) => [effect('element', [0.24, 0.48, 0.72, 0.98][r], `On Hit: converts ${pct([0.24, 0.48, 0.72, 0.98][r])} Void Damage to ${element}`, { op: 'convert', element: 'void', convertsTo: element })],
+  ])),
+  'Eternal Eradicate': (r) => [effect('baseDamage', 0.1 * (r + 1), `On Operator Ability: +${pct(0.1 * (r + 1))} Damage to Amps for 8s`, { condition: 'onAbilityCast' })],
+  'Eternal Logistics': (r) => [effect('ammoEfficiency', 0.125 * (r + 1), `On Void Sling: +${pct(0.125 * (r + 1))} Amp Ammo Efficiency for 8s`, { condition: 'onVoidSling' })],
+  // shortcut: energy regeneration as reload speed, so it shortens the recharge delay too.
+  'Virtuos Null': (r) => [effect('reloadSpeed', 0.05 * (r + 1), `On Kill: +${pct(0.05 * (r + 1))} Amp Energy Regeneration for 4s`, { condition: 'onKill' })],
+  // Multiplies the Heat the amp deals (a Virtuos Forge conversion), like Accelerant does.
+  'Magus Melt': (r) => [effect('elementMultiplier', 0.3, `On Void Sling: +30% Heat Damage in Operator Mode for 15s, up to ${r + 2}x`, { op: 'mult', element: 'heat', condition: 'onVoidSling', maxStacks: r + 2 })],
   // Per Cold stack on the target (10 at most); additive to Hornet Strike.
   'Secondary Shiver': (r) => [effect('baseDamage', 0.075 * (r + 1), `+${pct(0.075 * (r + 1))} damage per Cold stack on the target`, { condition: 'on_cold_status_effect', maxStacks: 10 })],
 };
