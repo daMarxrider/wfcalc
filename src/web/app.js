@@ -405,7 +405,11 @@ const parseNameList = (text) =>
 /** ---------- tabs ---------- */
 
 function showTab(name) {
-  for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.tab === name);
+  for (const tab of document.querySelectorAll('.tab')) {
+    tab.classList.toggle('active', tab.dataset.tab === name);
+    // the tab bar scrolls on phones: keep the chosen tab visible
+    if (tab.dataset.tab === name) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
   for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.toggle('active', panel.id === `tab-${name}`);
   if (name === 'find') renderFindForm();
   if (name === 'riven') renderRivenTab();
