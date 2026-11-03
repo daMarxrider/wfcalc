@@ -640,7 +640,7 @@ async function initSettings() {
   if (!adapter) box.checked = false;
   $('setting-gpu-status').textContent = adapter
     ? `Found: ${adapterName(adapter)}.`
-    : 'No hardware WebGPU in this browser, so brute force runs on the server. On Linux, Chrome and Brave need '
+    : 'No hardware WebGPU in this browser, so brute force runs on the CPU. On Linux, Chrome and Brave need '
       + '"Unsafe WebGPU Support" and "Vulkan" in chrome://flags (brave://flags), and under Wayland also the '
       + '--ozone-platform=x11 start flag: Vulkan on a Wayland window leaves the browser invisible.';
 }
