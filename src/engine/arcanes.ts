@@ -142,7 +142,8 @@ export function arcaneRankScale(arcane: ArcaneData, line: Effect, rank: number):
   const key = `${arcane.name}\u0000${line.raw}\u0000${rank}`;
   const cached = scaleCache.get(key);
   if (cached !== undefined) return cached;
-  const raw = clean(line.raw);
+  // Only the stat itself: a shared tail ("for 12s. Stacks up to 40x.") sits after the last of two stats.
+  const raw = clean(line.raw).replace(/\s+for \d.*$/i, '');
   const value = Number(raw.match(NUMBER)?.[0] ?? NaN);
   const pattern = new RegExp(raw.split(NUMBER).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('(\\d+(?:\\.\\d+)?)'));
   let scale = linear;
