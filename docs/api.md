@@ -153,6 +153,31 @@ Response (abridged):
 }
 ```
 
+## `GET /api/modular` and `GET /api/weapon?name=...`
+
+Modular part names per kind, in weapon-name order. Combinations are weapons named
+`"Balla / Kroostra / Vargeet Jai II"`; they are not in `/api/weapons` (about 3,300), so
+`/api/weapon` answers for one of them (same fields, plus `modular: { kind, parts }`).
+
+```json
+{ "zaw": [["Balla", "..."], ["Jayap", "..."], ["Ekwana II Jai", "..."]],
+  "kitgun-primary": [...], "kitgun-secondary": [...], "amp": [["Cantic Prism", "..."], [...], ["Clapkra Brace", "..."]] }
+```
+
+## `POST /api/part-search`
+
+Best part combination of a modular kind. Same body as `/api/search` without `weapon`, plus `kind`
+(`zaw`, `kitgun-primary`, `kitgun-secondary`, `amp`), `parts` (allowed parts per position, the ones
+the player owns; `null` or missing = all) and `top` (combinations searched in full, default 5).
+Every combination is scored with the mods its first part's best combination wants; the best `top`
+get a search of their own (`chooseArcane` included). Amps: the scaffold is picked by its alt-fire.
+
+```json
+{ "kind": "zaw", "objective": "ttk", "enemy": "Bombard", "level": 150, "combinations": 1760, "elapsedMs": 4400,
+  "results": [{ "weapon": "Plague Keewar / Peye / Ekwana II Jai", "parts": ["Plague Keewar", "Peye", "Ekwana II Jai"],
+                "build": { "...": "a /api/search build" } }] }
+```
+
 ## `POST /api/bruteforce`
 
 Exhaustive build search: every feasible mod combination, scored against one target. Same body as
