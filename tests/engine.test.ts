@@ -1598,3 +1598,8 @@ test('riven picker: the riven never takes the Exilus or stance slot', async () =
   assert.deepEqual(Object.keys(result.replacedCounts).sort(), ['Serration', 'Split Chamber']);
   assert.ok(['Serration', 'Split Chamber'].includes(result.picks[0].replaces));
 });
+
+test('a shared "for 12s. Stacks up to 40x." tail caps both stats of an "A and B" line (Primary Blight)', () => {
+  const { effects } = parseModEffects([['On Toxin Status Effect:\n+3.6% Critical Damage and +1.8% Multishot for 12s. Stacks up to 40x.']]);
+  assert.deepEqual(effects.map((effect) => [effect.target, effect.maxStacks]), [['critDamage', 40], ['multishot', 40]]);
+});
