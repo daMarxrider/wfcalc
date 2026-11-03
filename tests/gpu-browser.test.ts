@@ -38,7 +38,7 @@ function started(child: ChildProcess, ready: RegExp): Promise<void> {
 async function evaluate(port: number, url: string, expression: string): Promise<any> {
   let targets: Array<{ type: string; webSocketDebuggerUrl: string }> = [];
   for (let i = 0; i < 100 && !targets.length; i++) {
-    try { targets = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).filter((t: any) => t.type === 'page'); }
+    try { targets = ((await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as any[]).filter((t: any) => t.type === 'page'); }
     catch { await new Promise((r) => setTimeout(r, 100)); }
   }
   const socket = new WebSocket(targets[0].webSocketDebuggerUrl);
