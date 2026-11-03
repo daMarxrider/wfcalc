@@ -64,7 +64,7 @@ const SEARCH_SLOTS = 8;
 export interface SearchRequest {
   weapon: string;
   /** `ttk` minimises time to kill the target; `dps` maximises sustained damage. */
-  objective?: 'ttk' | 'dps';
+  objective?: 'ttk' | 'dps' | 'kpm';
   enemy?: string;
   level?: number;
   /** Mod capacity: 30, or 60 with an Orokin Catalyst. */
@@ -139,7 +139,7 @@ export interface SearchBuild {
 
 export interface SearchResult {
   weapon: string;
-  objective: 'ttk' | 'dps';
+  objective: 'ttk' | 'dps' | 'kpm';
   enemy: string;
   level: number;
   capacity: number;
