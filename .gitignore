@@ -6,3 +6,4 @@ data/img/
 data/calibration-builds.json
 data/public-export-report.json
 AUDIT.md
+dist/

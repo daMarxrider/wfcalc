@@ -786,6 +786,8 @@ function runInWorkers(
         onProgress?.(progress.reduce((sum, done) => sum + done, 0) / workers);
       } else {
         resolve(message.result);
+        // A Node thread exits by itself once its shard is done; a Web Worker (GitHub Pages build) does not.
+        void worker.terminate();
       }
     });
     worker.on('error', reject);

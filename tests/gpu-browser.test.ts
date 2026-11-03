@@ -22,7 +22,7 @@ const browser = [process.env.WFCALC_BROWSER, 'brave', 'chromium', 'google-chrome
 const REQUESTS = [
   { weapon: 'Soma Prime', enemy: 'Bombard', level: 150, pool: 14, simulate: false, limit: 1, form: 'normal' },
   { weapon: 'Hek', enemy: 'Corpus Tech', level: 150, pool: 14, simulate: true, limit: 1 },
-  { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, simulate: true, limit: 1, objective: 'kpm', base: { arcanes: ['Primary Compression'] } },
+  { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, simulate: true, limit: 1, objective: 'kpm' as const, base: { arcanes: ['Primary Compression'] } },
 ];
 
 /** Starts a process and resolves once a stdout line matches. */

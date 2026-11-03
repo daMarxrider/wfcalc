@@ -22,6 +22,7 @@
     "public-export": "node tools/public-export.ts",
     "public-export:check": "node tools/public-export.ts --check",
     "serve": "node src/server.ts",
+    "build:pages": "node tools/build-pages.ts",
     "calc": "node src/cli.ts",
     "check": "tsc --noEmit",
     "test": "node --test tests/*.test.ts",

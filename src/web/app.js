@@ -8,6 +8,10 @@
 
 import { gpuAdapter, adapterName, gpuSearch, gpuRivenSearch } from './gpu-search.js';
 
+/** Artwork: the server caches it under /img/ and /card/; the GitHub Pages build (src/pages/pages.js) links the sources. */
+const imgUrl = (file) => globalThis.wfcalcArt?.img(file) ?? `/img/${file}`;
+const cardUrl = (file) => globalThis.wfcalcArt?.card(file) ?? `/card/${encodeURIComponent(file)}`;
+
 const MAX_SLOTS = 8; // plus exilus; melee also gets a stance slot that adds capacity
 const STORAGE_KEY = 'wfcalc.builds';
 const GPU_KEY = 'wfcalc.gpu';
@@ -99,7 +103,7 @@ function modCardMarkup(mod, options = {}) {
       ${mod.isExilus ? '<span class="mcard-exilus" title="Exilus mod: only fits the Exilus slot">exilus</span>' : ''}
       <span class="mcard-drain">${drain}<i class="polarity" style="color:${polarityColor(mod.polarity)}">${glyph(mod.polarity)}</i></span>
       <figure class="mcard-image">
-        ${mod.image ? `<img src="/img/${mod.image}" alt="" loading="lazy" draggable="false" onerror="this.style.display='none'" />` : ''}
+        ${mod.image ? `<img src="${imgUrl(mod.image)}" alt="" loading="lazy" draggable="false" onerror="this.style.display='none'" />` : ''}
       </figure>
       <div class="mcard-text">
         <b>${mod.name}</b>
@@ -459,7 +463,7 @@ async function renderIncarnonPicker({ weaponChanged = false } = {}) {
   const picked = new Set(picks.map((entry) => chosenOption(entry, options)).filter(Boolean));
   const tiers = [...new Set(options.map((option) => option.tier))];
   const card = (attributes, image, label, selected, title) => `<button type="button" class="evo-option${selected ? ' selected' : ''}" aria-pressed="${selected}" title="${escapeHtml(title)}" ${attributes}>
-      ${image ? `<img src="/card/${encodeURIComponent(image)}" alt="" loading="lazy" />` : '<span class="evo-glyph" aria-hidden="true">✦</span>'}
+      ${image ? `<img src="${cardUrl(image)}" alt="" loading="lazy" />` : '<span class="evo-glyph" aria-hidden="true">✦</span>'}
       <span>${escapeHtml(label)}</span></button>`;
   box.innerHTML = `
     <div class="evo-row"><span class="evo-tier">Form</span><div class="evo-options">
@@ -786,7 +790,7 @@ function showPreview(modName, event) {
   if (!mod || !bubble) return;
   const drain = (mod.baseDrain ?? 0) + (mod.maxRank ?? 0);
   bubble.innerHTML = `
-    ${mod.card ? `<img src="/card/${mod.card}" alt="" />` : ''}
+    ${mod.card ? `<img src="${cardUrl(mod.card)}" alt="" />` : ''}
     <div class="pv-body">
       <div class="pv-title"><span class="polarity" style="color:${polarityColor(mod.polarity)}">${glyph(mod.polarity)}</span>${mod.name}</div>
       <div class="pv-text">${(mod.description || '').replace(/\n/g, '<br>')}</div>
@@ -1284,11 +1288,11 @@ function renderWeaponMeta(result) {
   // `type` is usually the first mod class, so don't print it twice.
   const classes = weapon.modClasses.filter((name) => name !== weapon.type);
   const meta = weaponData.get(state.weapon);
-  $('weapon-art').innerHTML = meta?.image ? `<img src="/img/${meta.image}" alt="" />` : '';
+  $('weapon-art').innerHTML = meta?.image ? `<img src="${imgUrl(meta.image)}" alt="" />` : '';
   // The weapon's artwork, blurred, becomes the board's backdrop.
   const board = document.querySelector('.board');
   if (board) {
-    board.style.setProperty('--silhouette', meta?.image ? `url("/img/${meta.image}")` : 'none');
+    board.style.setProperty('--silhouette', meta?.image ? `url("${imgUrl(meta.image)}")` : 'none');
   }
   // The weapon's flavour text, the way the game prints it under the build name.
   const description = String(meta?.description ?? '').trim();
