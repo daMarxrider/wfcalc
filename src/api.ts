@@ -161,6 +161,7 @@ function calculate(body: any) {
       attenuation,
       targets: body.targets !== undefined ? Number(body.targets) : undefined,
       simulate: body.simulate !== false,
+      input: build,
     });
     hitWarnings = hit.warnings;
     target = { name: enemy.name, faction: enemy.faction, pools: scaled.pools, ...hit };

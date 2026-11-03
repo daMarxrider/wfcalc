@@ -413,6 +413,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
     attenuation: attenuationFromArgs(args),
     targets: flag(args, 'targets') ? Number(flag(args, 'targets')) : undefined,
     simulate: !args.flags.has('no-sim'),
+    input: build,
   });
   const allWarnings = [...resolved.warnings, ...hit.warnings];
   const capacityLimit = flag(args, 'capacity') ? Number(flag(args, 'capacity')) : 60;
@@ -1130,6 +1131,7 @@ async function main(): Promise<void> {
             steelPath: Boolean(record.steelPath),
           }), {
             simulate: record.simulate !== false,
+            input: build,
             targets: record.targets !== undefined ? Number(record.targets) : undefined,
             attenuation: record.attenuation ?? (record.mdpt !== undefined || record.mdps !== undefined
               ? {

@@ -375,8 +375,13 @@ export function splitStatLines(stats: string[]): string[] {
       const inline = /^((?:On|When|While|After)\b[^:]{0,40}?):\s*(.+)$/i.exec(s);
       return inline ? [`${inline[1]}:`, inline[2]] : [s];
     })
-    // "+40% Weapon Recoil and +40% Accuracy" is two effects on a single line.
-    .flatMap((s) => s.split(/\s+and\s+(?=[+-]?\d)/))
+    // "+40% Weapon Recoil and +40% Accuracy" is two effects on a single line. A tail after the
+    // last one ("for 12s. Stacks up to 40x.") covers both (wiki: Primary Blight, 144% at 40x).
+    .flatMap((s) => {
+      const parts = s.split(/\s+and\s+(?=[+-]?\d)/);
+      const tail = /\s+(?:for \d+(?:\.\d+)?\s*s\b.*|stacks? up to .*)$/i.exec(parts[parts.length - 1])?.[0] ?? '';
+      return parts.map((part, i) => (i < parts.length - 1 ? part + tail : part));
+    })
     // "+25% Critical Chance and Damage" means both stats.
     .flatMap((s) => {
       const both = /^(\S+%?) (?:Critical|Crit) Chance and Damage(.*)$/i.exec(s);
