@@ -38,7 +38,7 @@ export interface RivenPickerRequest {
   level?: number;
   steelPath?: boolean;
   eximus?: boolean;
-  objective?: 'ttk' | 'dps';
+  objective?: 'ttk' | 'dps' | 'kpm';
   /** How many of the best riven groups to report (default 200). */
   limit?: number;
   /** Only rivens with all of these positive stats (ids), e.g. a riven the player owns. */
@@ -73,7 +73,7 @@ export interface RivenPickerResult {
   weapon: string;
   enemy: string;
   level: number;
-  objective: 'ttk' | 'dps';
+  objective: 'ttk' | 'dps' | 'kpm';
   baseline: { score: number; timeToKill: number | null };
   /** Rivens enumerated, effect groups scored, builds evaluated. */
   rivens: number;
@@ -346,7 +346,7 @@ export function rivenGpuModel(snapshot: Snapshot, request: RivenPickerRequest): 
     weapon: weapon.name, enemy: enemyName, fixed, exilus: null,
     base: { ...(request.base ?? {}), riven: undefined, mods: [] },
     level: request.level ?? 150, eximus: Boolean(request.eximus), overguard: undefined, steelPath: Boolean(request.steelPath),
-    simulate: true, requireStatus: [], capacity: 1e9, maxForma: null, freeSlots: 0,
+    simulate: true, objective: request.objective ?? 'ttk', requireStatus: [], capacity: 1e9, maxForma: null, freeSlots: 0,
   };
   const model = vectorModel(snapshot, plan, items, 0, items.map(() => -1));
   const position = new Map(items.map((item, i) => [item.name, i]));

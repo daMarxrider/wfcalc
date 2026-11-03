@@ -46,7 +46,7 @@ export const P = (() => {
   field('viralFloor'); field('corrosiveFloor'); field('corrosiveCap'); field('toxinStatusBonus'); field('overguardMultiplier');
   field('fixedStatusTypes'); field('extraStatusTypes'); field('requireMask'); field('fixedElementMask');
   field('vigilante', 8); field('gladiator', 8); field('capacityHalf'); field('steady');
-  field('timedSeconds'); field('timedFireRate'); field('plainMagazine');
+  field('timedSeconds'); field('timedFireRate'); field('plainMagazine'); field('kpm');
   layout.size = at;
   return layout;
 })();
@@ -307,6 +307,9 @@ function scoreState(params, A, B, order, plain) {
   // Kill progress summed over time steps, as damage.ts fightLengthHit does.
   const full = killRate(Infinity, 1);
   if (!steady || !(full > 0)) return full;
+  // Kills per minute (damage.ts killRate): pulls per second over the pulls the kill took, so a
+  // kill inside the first magazine does not get the reloads' credit 1 / seconds would give it.
+  const finish = (seconds) => (params[P.kpm] > 0 ? pulls / firedBy(seconds) : 1 / seconds);
   const progress = (a, b) => (b - a) * killRate((a + b) / 2, (firedBy(b) - firedBy(a)) / ((b - a) * pulls));
   const settled = 8 * duration + 1.5;
   let t = 0;
@@ -319,12 +322,12 @@ function scoreState(params, A, B, order, plain) {
       next = t + ((next - t) * (1 - done)) / area;
       area = progress(t, next);
     }
-    if (done + area >= 1 - 1e-3) return 1 / next;
+    if (done + area >= 1 - 1e-3) return finish(next);
     done += area;
     t = next;
     step *= 1.6;
   }
-  return 1 / (t + (1 - done) / full);
+  return finish(t + (1 - done) / full);
 }
 
 /** n choose k as a float (exact below 2^53). */
@@ -515,12 +518,18 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool) -> f32 {
       next = t + (next - t) * (1.0 - done) / area;
       area = progress(t, next);
     }
-    if (done + area >= 0.999) { return 1.0 / next; }
+    if (done + area >= 0.999) { return finish(next); }
     done += area;
     t = next;
     step *= 1.6;
   }
-  return 1.0 / (t + (1.0 - done) / full);
+  return finish(t + (1.0 - done) / full);
+}
+
+// 1 / kill time, or kills per second at the sustained pull rate (proxyScore's finish).
+fn finish(seconds: f32) -> f32 {
+  if (params[${P.kpm}u] > 0.0) { return kPulls / firedBy(seconds); }
+  return 1.0 / seconds;
 }
 
 // What scoreOrder's kill rate needs that does not change during the fight.
