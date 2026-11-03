@@ -4,11 +4,14 @@
  * two cannot drift apart. See docs/api.md for the endpoints.
  */
 import { findEnemy, findWeapon, loadSnapshot, modsForWeapon } from './data.ts';
-import { ARCANE_SLOTS, hasBonusElement, resolveBuild, type Build } from './engine/build.ts';
+import { arcaneSlotsOf, hasBonusElement, resolveBuild, type Build } from './engine/build.ts';
 import { scaleEnemy } from './engine/enemy.ts';
 import { hitEnemy, statusProcs } from './engine/damage.ts';
 import { availableBuffs } from './engine/buffs.ts';
-import { search } from './engine/search.ts';
+import { search, type SearchRequest } from './engine/search.ts';
+import { modularParts } from './engine/modular.ts';
+import { partSearch } from './engine/part-search.ts';
+import type { ModularKind, WeaponData } from './types.ts';
 import { bruteForce, bruteForceFromCombinations, warmExactPool, type BruteForceRequest } from './engine/bruteforce.ts';
 import { gpuModel } from './engine/gpu-model.ts';
 import { rivenGpuModel, rivenPicker, type RivenPickerRequest } from './engine/riven-picker.ts';
@@ -243,24 +246,63 @@ function calculate(body: any) {
   };
 }
 
+/** What the client keeps per weapon (/api/weapons, /api/weapon). */
+const weaponSummary = (w: WeaponData) => ({
+  name: w.name, category: w.category, type: w.type, masteryRank: w.masteryRank,
+  // Needed by the client to work out mod capacity and polarity matches.
+  polarities: w.polarities, exilusPolarity: w.exilusPolarity, modClasses: w.modClasses,
+  trigger: w.trigger ?? null,
+  // The Find tab asks for normal or Incarnon form before a search on these.
+  incarnonForm: Boolean(w.incarnonForm),
+  stancePolarity: w.stancePolarity ?? art.stance.get(w.name) ?? null,
+  image: w.image ?? art.weapon.get(w.name) ?? null,
+  description: w.description ?? '',
+  modular: w.modular ?? null,
+});
+
+/** Everything of a /api/search body except the weapon; /api/part-search takes the same. */
+function searchOptions(body: any, base: Build): Omit<SearchRequest, 'weapon'> {
+  const asList = (value: unknown): string[] =>
+    Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
+  const chooseIncarnon = Boolean(body.chooseIncarnon) || body.incarnon === 'auto';
+  return {
+    objective: objectiveOf(body.objective),
+    enemy: body.enemy ?? 'Bombard',
+    level: body.level !== undefined ? Number(body.level) : 150,
+    capacity: body.capacity !== undefined ? Number(body.capacity) : 60,
+    maxForma: body.maxForma === null ? null : body.maxForma !== undefined ? Number(body.maxForma) : undefined,
+    exclude: asList(body.exclude),
+    mustInclude: asList(body.mustInclude ?? body.must),
+    limit: body.limit !== undefined ? Number(body.limit) : 3,
+    budget: body.budget !== undefined ? Number(body.budget) : undefined,
+    chooseIncarnon,
+    chooseArcane: Boolean(body.chooseArcane) || body.arcane === 'auto',
+    eximus: Boolean(body.eximus),
+    overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
+    steelPath: Boolean(body.steelPath),
+    simulate: body.simulate !== false,
+    attenuation: body.attenuation !== undefined
+      ? body.attenuation
+      : (body.mdpt !== undefined || body.mdps !== undefined
+        ? { id: 'custom', mdpi: Number(body.mdpt ?? 0), mdps: Number(body.mdps ?? 0) }
+        : undefined),
+    // Choosing perks keeps the player's form switch.
+    base: chooseIncarnon ? { ...base, incarnon: (base.incarnon ?? []).filter((choice) => choice.toLowerCase() === 'form') } : base,
+  };
+}
+
 /** Answers one API request; null when `url` is not an API endpoint (or not for this method). */
 export async function handleApi(method: string, url: URL, body: any, io: ApiIo = {}): Promise<ApiReply | null> {
   try {
     if (url.pathname === '/api/weapons') {
-      const list = Object.values(snapshot.weapons)
-        .map((w) => ({
-          name: w.name, category: w.category, type: w.type, masteryRank: w.masteryRank,
-          // Needed by the client to work out mod capacity and polarity matches.
-          polarities: w.polarities, exilusPolarity: w.exilusPolarity, modClasses: w.modClasses,
-          trigger: w.trigger ?? null,
-          // The Find tab asks for normal or Incarnon form before a search on these.
-          incarnonForm: Boolean(w.incarnonForm),
-          stancePolarity: w.stancePolarity ?? art.stance.get(w.name) ?? null,
-          image: w.image ?? art.weapon.get(w.name) ?? null,
-          description: w.description ?? '',
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+      const list = Object.values(snapshot.weapons).map(weaponSummary).sort((a, b) => a.name.localeCompare(b.name));
       return reply(200, list);
+    }
+    // One weapon, modular ones included (they are not in /api/weapons: ~3,300 combinations).
+    if (url.pathname === '/api/weapon') {
+      const query = url.searchParams.get('name') ?? '';
+      const { item, suggestions } = findWeapon(snapshot, query);
+      return item ? reply(200, weaponSummary(item)) : reply(404, { error: `weapon not found: ${query}`, suggestions });
     }
     if (url.pathname === '/api/enemies') {
       const list = Object.values(snapshot.enemies)
@@ -311,7 +353,7 @@ export async function handleApi(method: string, url: URL, body: any, io: ApiIo =
     if (url.pathname === '/api/arcanes') {
       const weaponName = url.searchParams.get('weapon') ?? '';
       const { item } = findWeapon(snapshot, weaponName);
-      const allowed = item ? (ARCANE_SLOTS[item.category] ?? []) : ['primary', 'secondary', 'melee', 'bow', 'shotgun'];
+      const allowed = item ? arcaneSlotsOf(item) : ['primary', 'secondary', 'melee', 'bow', 'shotgun'];
       const list = Object.values(snapshot.arcanes)
         .filter((arcane) => arcane.slot && allowed.includes(arcane.slot))
         .map((arcane) => ({ name: arcane.name, slot: arcane.slot, maxRank: arcane.maxRank, description: arcane.description }))
@@ -322,8 +364,6 @@ export async function handleApi(method: string, url: URL, body: any, io: ApiIo =
       const query: string = body.weapon ?? '';
       const { item: weapon, suggestions } = findWeapon(snapshot, query);
       if (!weapon) return reply(404, { error: `weapon not found: ${query}`, suggestions });
-      const asList = (value: unknown): string[] =>
-        Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
       // The search picks the mods; everything else about the build can still be fixed, either
       // under `base` or at the top level (the shape /api/calc accepts).
       const baseSource = body.base && typeof body.base === 'object' ? body.base : body;
@@ -333,34 +373,21 @@ export async function handleApi(method: string, url: URL, body: any, io: ApiIo =
       } catch (error) {
         return reply(400, { error: String((error as Error).message) });
       }
-      const chooseIncarnon = Boolean(body.chooseIncarnon) || body.incarnon === 'auto';
-      const chooseArcane = Boolean(body.chooseArcane) || body.arcane === 'auto';
-      const result = search(snapshot, {
-        weapon: weapon.name,
-        objective: objectiveOf(body.objective),
-        enemy: body.enemy ?? 'Bombard',
-        level: body.level !== undefined ? Number(body.level) : 150,
-        capacity: body.capacity !== undefined ? Number(body.capacity) : 60,
-        maxForma: body.maxForma === null ? null : body.maxForma !== undefined ? Number(body.maxForma) : undefined,
-        exclude: asList(body.exclude),
-        mustInclude: asList(body.mustInclude ?? body.must),
-        limit: body.limit !== undefined ? Number(body.limit) : 3,
-        budget: body.budget !== undefined ? Number(body.budget) : undefined,
-        chooseIncarnon,
-        chooseArcane,
-        eximus: Boolean(body.eximus),
-        overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
-        steelPath: Boolean(body.steelPath),
-        simulate: body.simulate !== false,
-        attenuation: body.attenuation !== undefined
-          ? body.attenuation
-          : (body.mdpt !== undefined || body.mdps !== undefined
-            ? { id: 'custom', mdpi: Number(body.mdpt ?? 0), mdps: Number(body.mdps ?? 0) }
-            : undefined),
-        // Choosing perks keeps the player's form switch.
-        base: chooseIncarnon ? { ...base, incarnon: (base.incarnon ?? []).filter((choice) => choice.toLowerCase() === 'form') } : base,
-      });
+      const result = search(snapshot, { weapon: weapon.name, ...searchOptions(body, base) });
       return reply(200, result);
+    }
+    if (url.pathname === '/api/modular') {
+      return reply(200, snapshot.modular ? modularParts(snapshot.modular) : {});
+    }
+    if (url.pathname === '/api/part-search' && method === 'POST') {
+      const lists = snapshot.modular ? modularParts(snapshot.modular)[body.kind as ModularKind] : undefined;
+      if (!lists) return reply(400, { error: `kind must be one of zaw, kitgun-primary, kitgun-secondary, amp` });
+      const parts = Array.isArray(body.parts) ? body.parts.slice(0, 3).map((list: unknown) => (Array.isArray(list) ? list.map(String) : null)) : undefined;
+      const baseSource = body.base && typeof body.base === 'object' ? body.base : body;
+      // Any combination of the kind stands in for buildFromJson's weapon checks (arcane slots...).
+      const base = { ...buildFromJson(snapshot, baseSource, lists.map((list) => list[0]).join(' / ')), mods: [] };
+      const top = body.top !== undefined ? Math.max(1, Math.min(20, Number(body.top) || 5)) : undefined;
+      return reply(200, partSearch(snapshot, { ...searchOptions(body, base), kind: body.kind, parts, top }));
     }
     if (url.pathname === '/api/shards') return reply(200, SHARD_BONUSES);
     if (url.pathname === '/api/frame-mods') {
