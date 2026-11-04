@@ -132,7 +132,7 @@ const emptyState = () => ({
   weapon: '',
   mods: [], // [{ name, rank }]
   slotPolarities: [], // per-slot forma polarity override, null = weapon's own
-  reactor: false,
+  catalyst: false,
   arcanes: [],
   buffs: [],
   frame: '',
@@ -519,6 +519,9 @@ function showTab(name) {
 /** ---------- Incarnon evolutions ---------- */
 
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+// Firefox and mobile browsers show only the option text, so it must lead with the value.
+const listOption = (value, hint) => `<option value="${escapeHtml(value)}">${escapeHtml(hint ? `${value} · ${hint}` : value)}</option>`;
+const arcaneHint = (arcane) => (arcane.description || '').split('\n')[0].slice(0, 44);
 
 const incarnonCache = new Map();
 const incarnonOptions = (weapon) => {
@@ -865,10 +868,10 @@ function cycleForma(index) {
 
 /**
  * Mod capacity, as the game counts it: a mod costs `baseDrain + rank`, halved (rounded up)
- * when its polarity matches the slot's. Rank-30 weapons have 30 points, 60 with a reactor.
+ * when its polarity matches the slot's. Rank-30 weapons have 30 points, 60 with a Catalyst.
  */
 function capacityInfo() {
-  let total = state.reactor ? 60 : 30;
+  let total = state.catalyst ? 60 : 30;
   let used = 0;
   state.mods.forEach((mod, index) => {
     if (!mod.name) return;
@@ -1390,7 +1393,7 @@ async function refreshFindArcanes() {
   if (!weapon) return;
   try {
     const arcanes = await getJson(`/api/arcanes?weapon=${encodeURIComponent(weapon)}`);
-    $('find-arcane-list').innerHTML = arcanes.map((arcane) => `<option value="${arcane.name}">${(arcane.description || '').split('\n')[0].slice(0, 44)}</option>`).join('');
+    $('find-arcane-list').innerHTML = arcanes.map((arcane) => listOption(arcane.name, arcaneHint(arcane))).join('');
   } catch {
     /* the list is a convenience; typing a name still works */
   }
@@ -2063,7 +2066,7 @@ function renderFind(result) {
         // The answer carries the enemy's actual level; keep the Build tab's node-level reading.
         level: result.steelPath && state.steelPathNodeLevel ? result.level - 100 : result.level,
         steelPath: Boolean(result.steelPath),
-        reactor: result.capacity >= 60,
+        catalyst: result.capacity >= 60,
         slotPolarities,
         // The riven keeps the slot the search gave it; its stats stay in state.riven.
         mods: Object.assign(
@@ -2192,7 +2195,7 @@ const TIPS = {
   'hit-head': 'On: every shot is a headshot (3x weak point, 1.5x for Murmur/Techrot, head crits double the crit multiplier, weak-point mods and arcanes work). Off: bodyshots.',
   'simulate': 'Simulate the fight shot by shot: Viral, Corrosive, Heat, Magnetic, Cold and the damage-over-time statuses build up from zero and expire. Off: statuses are counted at their long-run average.',
   'edit-conditions': 'Open the Conditions & stacks panel, which "custom" reads.',
-  'reactor': 'Orokin Catalyst/Reactor: 60 mod capacity instead of 30.',
+  'catalyst': 'Orokin Catalyst: 60 mod capacity instead of 30.',
   'arcane-input': 'Weapon arcane. Arch-guns hold a Primary and a Secondary one.',
   'arcane2-input': 'Arch-guns only: the Secondary arcane (needs an Archgun Arcane Adapter).',
   'mod-filter': 'Search the mods that fit this weapon.',
@@ -2360,7 +2363,7 @@ function syncInputs() {
   $('heavy').checked = Boolean(state.heavyAttack);
   $('aoe-input').value = String(state.aoeDistance ?? 0);
   $('aoe-value').textContent = state.aoeDistance ? `${state.aoeDistance} m` : 'centre';
-  $('reactor').checked = Boolean(state.reactor);
+  $('catalyst').checked = Boolean(state.catalyst);
   $('cp-input').value = String(state.corrosiveProjections ?? 0);
   $('strip-input').value = String(state.armorStripPercent ?? 0);
   $('shattering-input').value = String(state.shatteringImpactHits ?? 0);
@@ -2423,8 +2426,8 @@ function bindEvents() {
   $('filter-sort').addEventListener('change', () => renderLibrary());
   $('filter-type').addEventListener('change', () => renderLibrary());
   $('filter-rarity').addEventListener('change', () => renderLibrary());
-  $('reactor').addEventListener('change', (event) => {
-    state.reactor = event.target.checked;
+  $('catalyst').addEventListener('change', (event) => {
+    state.catalyst = event.target.checked;
     renderSlots();
   });
   $('mode-select').addEventListener('change', (event) => {
@@ -2690,10 +2693,9 @@ async function loadStaticLists() {
   weaponData.clear();
   for (const weapon of weapons) weaponData.set(weapon.name, weapon);
   // Type filter options come from the mods we ship; filled on first weapon load.
-  $('weapon-list').innerHTML = weapons.map((weapon) => `<option value="${weapon.name}">${weapon.type}</option>`).join('');
-  $('weapon-list').innerHTML = weapons.map((weapon) => `<option value="${weapon.name}">${weapon.type}</option>`).join('');
-  $('enemy-list').innerHTML = enemies.map((enemy) => `<option value="${enemy.name}">${enemy.faction ?? ''} hp${enemy.health}</option>`).join('');
-  $('arcane-list').innerHTML = arcanes.map((arcane) => `<option value="${arcane.name}">${(arcane.description || '').split('\n')[0].slice(0, 44)}</option>`).join('');
+  $('weapon-list').innerHTML = weapons.map((weapon) => listOption(weapon.name, weapon.type)).join('');
+  $('enemy-list').innerHTML = enemies.map((enemy) => listOption(enemy.name, `${enemy.faction ?? ''} hp${enemy.health}`.trim())).join('');
+  $('arcane-list').innerHTML = arcanes.map((arcane) => listOption(arcane.name, arcaneHint(arcane))).join('');
   allBuffs = buffs;
   allAbilities = abilities;
   renderBuffList();
@@ -2733,7 +2735,7 @@ async function loadModsForWeapon() {
   const types = [...new Set(mods.flatMap((mod) => mod.classes ?? []))].sort();
   $('filter-type').innerHTML = '<option value="">All types</option>' + types.map((type) => `<option value="${type.toLowerCase()}">${type}</option>`).join('');
   renderModList('');
-  $('arcane-list').innerHTML = arcanes.map((arcane) => `<option value="${arcane.name}">${(arcane.description || '').split('\n')[0].slice(0, 44)}</option>`).join('');
+  $('arcane-list').innerHTML = arcanes.map((arcane) => listOption(arcane.name, arcaneHint(arcane))).join('');
   renderSniperFields();
   // A non-arch-gun keeps only its first arcane.
   if (!secondArcaneLabel(state.weapon) && (state.arcanes?.length ?? 0) > 1) state.arcanes = state.arcanes.slice(0, 1);
