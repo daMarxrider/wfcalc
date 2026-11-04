@@ -16,7 +16,7 @@ import type { DamageType, Effect, WeaponData } from '../types.ts';
 type StrengthRule = 'linear' | { perStrength: number; offset: number };
 
 /** Weapon family (the wiki's `Family`) -> its ability, the frame that casts it, and its rule. */
-export const EXALTED: Record<string, { ability: string; frame: string; strength: StrengthRule }> = {
+export const EXALTED: Record<string, { ability: string; frame: string; strength: StrengthRule; arcanes?: boolean }> = {
   'Artemis Bow': { ability: 'Artemis Bow', frame: 'Ivara', strength: 'linear' },
   Lizzie: { ability: 'Exalted Solo', frame: 'Temple', strength: { perStrength: 1.25, offset: -1 } },
   Neutralizer: { ability: 'Neutralize', frame: 'Cyte-09', strength: { perStrength: 1.25, offset: -1 } },
@@ -24,7 +24,8 @@ export const EXALTED: Record<string, { ability: string; frame: string; strength:
   'Dex Pixia': { ability: 'Razorwing', frame: 'Titania', strength: 'linear' },
   Glory: { ability: 'Glory on High', frame: 'Jade', strength: 'linear' },
   Noctua: { ability: 'Noctua', frame: 'Dante', strength: 'linear' },
-  Regulators: { ability: 'Peacemaker', frame: 'Mesa', strength: { perStrength: 1.5, offset: 0 } },
+  // Regulators take secondary arcanes (wiki: Peacemaker), the other exalted weapons none.
+  Regulators: { ability: 'Peacemaker', frame: 'Mesa', strength: { perStrength: 1.5, offset: 0 }, arcanes: true },
   'Desert Wind': { ability: 'Serene Storm', frame: 'Baruuk', strength: 'linear' },
   Diwata: { ability: 'Razorwing', frame: 'Titania', strength: 'linear' },
   'Exalted Blade': { ability: 'Exalted Blade', frame: 'Excalibur', strength: 'linear' },
@@ -56,14 +57,30 @@ export const EXALTED_AUGMENTS: Record<string, { family: string; ranks: number[];
 };
 
 /** What the UI shows for an exalted weapon: its ability, frame and the augments that change it. */
-export function exaltedInfo(weapon: WeaponData): { frame: string; ability: string; augments: Array<{ name: string; text: string }> } | null {
+export function exaltedInfo(weapon: WeaponData): { frame: string; ability: string; arcanes: boolean; augments: Array<{ name: string; text: string }> } | null {
   const rule = weapon.exalted && EXALTED[weapon.exalted.family];
   if (!rule) return null;
   const augments = Object.entries(EXALTED_AUGMENTS)
     .filter(([, augment]) => augment.family === weapon.exalted?.family)
     .map(([name, augment]) => ({ name, text: augment.text }));
-  return { frame: rule.frame, ability: rule.ability, augments };
+  return { frame: rule.frame, ability: rule.ability, arcanes: Boolean(rule.arcanes), augments };
 }
+
+/**
+ * Peacemaker's ramp (wiki): bursts of 2 shots, +7.5% total damage per burst (the first burst
+ * included) up to +150% at the 20th, multiplicative with everything else; fire rate climbs from
+ * 25% to 100% over 3.5 s of firing. The build's stats are the fully ramped ones; the fight
+ * simulation starts from the first burst.
+ */
+export const PEACEMAKER_RAMP = { perBurst: 0.075, bursts: 20, shotsPerBurst: 2, rateStart: 0.25, rateSeconds: 3.5 };
+const PEACEMAKER_FULL = 1 + PEACEMAKER_RAMP.perBurst * PEACEMAKER_RAMP.bursts;
+export const isPeacemaker = (weapon: WeaponData): boolean => weapon.exalted?.family === 'Regulators';
+/** Share of the fully ramped damage after `shots` shots. */
+export const peacemakerDamageShare = (shots: number): number =>
+  (1 + PEACEMAKER_RAMP.perBurst * Math.min(PEACEMAKER_RAMP.bursts, Math.floor(shots / PEACEMAKER_RAMP.shotsPerBurst) + 1)) / PEACEMAKER_FULL;
+/** Share of the full fire rate after `seconds` of firing (shortcut: linear climb, the wiki gives only the ends). */
+export const peacemakerRateShare = (seconds: number): number =>
+  PEACEMAKER_RAMP.rateStart + (1 - PEACEMAKER_RAMP.rateStart) * Math.min(1, seconds / PEACEMAKER_RAMP.rateSeconds);
 
 export const CHROMATIC_ELEMENTS = ['heat', 'cold', 'electricity', 'toxin'] as const;
 export type ChromaticElement = (typeof CHROMATIC_ELEMENTS)[number];
@@ -146,7 +163,10 @@ export function exaltedSetup(
       name: rule.ability,
       effects: [{ target: 'baseDamage', op: 'add', value, raw: `${value >= 0 ? '+' : ''}${(value * 100).toFixed(0)}% base damage (${rule.ability}, x Ability Strength, adds to Serration)` }],
     });
-    if (rule.ability === 'Peacemaker') setup.lines.push('Peacemaker burst ramp (+150% at 20 bursts) not counted');
+    if (rule.ability === 'Peacemaker') {
+      setup.sources.push({ name: 'Peacemaker ramp', effects: [{ target: 'damageMultiplier', op: 'mult', value: PEACEMAKER_FULL - 1, raw: 'x2.5 total damage at 20 bursts (Peacemaker ramp)' }] });
+      setup.lines.push('Peacemaker ramp: stats at 20 bursts (x2.5 damage, full fire rate); the fight simulation ramps from the first burst');
+    }
   }
 
   const chromatic = augments.get('Chromatic Blade');

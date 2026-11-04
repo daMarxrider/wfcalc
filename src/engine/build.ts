@@ -40,7 +40,7 @@ import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
 import { hitProfile } from './hit.ts';
 import { InputError } from '../errors.ts';
 import { overloadMultiplies } from './overload.ts';
-import { exaltedDefaultMode, exaltedSetup, type ChromaticElement } from './exalted.ts';
+import { EXALTED, exaltedDefaultMode, exaltedSetup, type ChromaticElement } from './exalted.ts';
 
 export interface BuildMod {
   name: string;
@@ -427,8 +427,8 @@ export const ARCANE_SLOTS: Record<string, string[]> = {
 
 /** Arcane slots of a weapon: zaws and kitguns add a slot of their own (wiki: Arcane Enhancement). */
 export function arcaneSlotsOf(weapon: WeaponData): string[] {
-  // Exalted weapons take no arcanes (wiki: Exalted Weapon).
-  if (weapon.exalted) return [];
+  // Exalted weapons take no arcanes (wiki: Exalted Weapon), except Regulators.
+  if (weapon.exalted && !EXALTED[weapon.exalted.family]?.arcanes) return [];
   const own = ARCANE_SLOTS[weapon.category] ?? [];
   const kind = weapon.modular?.kind;
   return kind === 'zaw' ? [...own, 'zaw'] : kind?.startsWith('kitgun') ? [...own, 'kitgun'] : own;
@@ -749,7 +749,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`arcane not found: ${wanted}`);
       continue;
     }
-    if (weapon.exalted) {
+    if (weapon.exalted && !EXALTED[weapon.exalted.family]?.arcanes) {
       collected.warnings.push(`${weapon.name} is an exalted weapon and takes no arcanes; ${arcane.name} ignored`);
       continue;
     }
