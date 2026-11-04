@@ -21,6 +21,7 @@ import { abilityCast } from './engine/ability.ts';
 import { buildFromJson } from './request.ts';
 import { InputError } from './errors.ts';
 import { capacityOf } from './engine/capacity.ts';
+import { exaltedInfo } from './engine/exalted.ts';
 
 export const snapshot = loadSnapshot();
 
@@ -258,6 +259,8 @@ const weaponSummary = (w: WeaponData) => ({
   image: w.image ?? art.weapon.get(w.name) ?? null,
   description: w.description ?? '',
   modular: w.modular ?? null,
+  // Exalted weapons: the ability and frame they come from, and the augments the UI offers.
+  exalted: w.exalted ? exaltedInfo(w) : null,
 });
 
 /** Everything of a /api/search body except the weapon; /api/part-search takes the same. */

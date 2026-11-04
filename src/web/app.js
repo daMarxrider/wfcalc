@@ -139,6 +139,8 @@ const emptyState = () => ({
   frameMods: [],
   warframeArcanes: [],
   abilityStrength: 100,
+  augments: [],
+  chromaticElement: null,
   riven: null,
   rivenRoll: 1,
   rivenRank: 8,
@@ -2229,6 +2231,8 @@ const TIPS = {
   'strip-from': 'Take the armour strip of a Warframe ability, at the Ability Strength set below.',
   'frame-input': 'Your Warframe: checks that it can use the chosen buffs (Helminth).',
   'strength-input': 'Ability Strength in percent: scales Roar, Eclipse and the other buffs.',
+  'exalted-strength': 'Ability Strength in percent: scales the exalted weapon\'s damage (same value as under Frame & buffs).',
+  'chromatic-element': 'Excalibur\'s emissive colour: Chromatic Blade turns Exalted Blade\'s physical damage into this element.',
   'framemods-input': 'Warframe mods that change Ability Strength (Intensify, Blind Rage); overrides the slider.',
   'framearcane-input': 'Warframe arcanes: Arcane Avenger crit, Molt Augmented strength...',
   'covenant-damage': 'Harrow\'s Covenant: damage prevented during it, which sets its crit bonus.',
@@ -2321,6 +2325,31 @@ const MIRRORED_FIELDS = [
 
 /** ---------- inputs ---------- */
 
+/** Exalted weapons: their frame, the strength slider and the frame's augments that change them. */
+function renderExalted() {
+  const info = weaponData.get(state.weapon)?.exalted;
+  $('exalted-box').hidden = !info;
+  $('mod-arcane').hidden = Boolean(info && !info.arcanes); // only Regulators take arcanes
+  if (!info) return;
+  const fromMods = (state.frameMods ?? []).length > 0;
+  $('exalted-info').textContent = `${info.frame}'s ${info.ability}: damage scales with Ability Strength`
+    + (fromMods ? ' (taken from the Warframe mods under Frame & buffs, the slider is ignored).' : '.');
+  const picked = new Map((state.augments ?? []).map((augment) => [augment.name, augment.rank ?? 3]));
+  // An augment typed into the Warframe mods field counts too (the engine reads both lists).
+  const inFrameMods = new Set((state.frameMods ?? []).map((mod) => mod.name.toLowerCase()));
+  $('exalted-augments').innerHTML = info.augments.length
+    ? info.augments.map((augment) => {
+        const typed = inFrameMods.has(augment.name.toLowerCase());
+        return `<label data-augment="${escapeHtml(augment.name)}" title="${escapeHtml(typed ? 'Set in the Warframe mods field under Frame & buffs' : augment.text)}">
+        <input type="checkbox" ${picked.has(augment.name) || typed ? 'checked' : ''} ${typed ? 'disabled' : ''} /> ${escapeHtml(augment.name)}${typed ? ' <small>(Warframe mods)</small>' : ''}
+        <select aria-label="${escapeHtml(augment.name)} rank" ${typed ? 'hidden' : ''}>${[0, 1, 2, 3].map((rank) => `<option value="${rank}" ${(picked.get(augment.name) ?? 3) === rank ? 'selected' : ''}>R${rank}</option>`).join('')}</select>
+      </label>`;
+      }).join('')
+    : '<span class="hint">No augment changes this weapon\'s damage.</span>';
+  $('chromatic-field').hidden = !picked.has('Chromatic Blade') && !inFrameMods.has('chromatic blade');
+  $('chromatic-element').value = state.chromaticElement ?? 'heat';
+}
+
 function syncInputs() {
   $('weapon-input').value = state.weapon;
   $('enemy-input').value = state.enemy;
@@ -2347,10 +2376,9 @@ function syncInputs() {
   $('surge-shot').value = state.conditions.surgeShot ? String(state.conditions.surgeShot) : '';
   $('residual-element').value = state.residualElement ?? 'toxin';
   renderArcaneFields();
-  $('strength-input').value = String(state.abilityStrength ?? 100);
-  $('find-strength').value = String(state.abilityStrength ?? 100);
-  $('find-strength-value').textContent = `${state.abilityStrength ?? 100}%`;
-  $('strength-value').textContent = `${state.abilityStrength ?? 100}%`;
+  $('strength-input').value = $('find-strength').value = $('exalted-strength').value = String(state.abilityStrength ?? 100);
+  $('find-strength-value').textContent = $('strength-value').textContent = $('exalted-strength-value').textContent = `${state.abilityStrength ?? 100}%`;
+  renderExalted();
   $('framemods-input').value = (state.frameMods ?? []).map((mod) => mod.name).join(', ');
   $('framearcane-input').value = (state.warframeArcanes ?? []).map((mod) => mod.name).join(', ');
   $('frame-input').value = state.frame ?? '';
@@ -2410,6 +2438,7 @@ function bindEvents() {
     await ensureWeaponMeta(name);
     state.weapon = name;
     renderModularBuilder();
+    renderExalted();
     state.mods = [];
     state.elementBonus = null; // the new weapon's own default (60% Heat on Kuva/Tenet/Coda)
     allMods = [];
@@ -2523,16 +2552,28 @@ function bindEvents() {
   debuffInput('viral', 'viralStacks');
   debuffInput('corrosive', 'corrosiveStacks');
 
-  for (const id of ['strength-input', 'find-strength']) {
+  for (const id of ['strength-input', 'find-strength', 'exalted-strength']) {
     $(id).addEventListener('input', (event) => {
       state.abilityStrength = Number(event.target.value);
-      $('strength-input').value = $('find-strength').value = String(state.abilityStrength);
-      $('strength-value').textContent = $('find-strength-value').textContent = `${state.abilityStrength}%`;
+      $('strength-input').value = $('find-strength').value = $('exalted-strength').value = String(state.abilityStrength);
+      $('strength-value').textContent = $('find-strength-value').textContent = $('exalted-strength-value').textContent = `${state.abilityStrength}%`;
       recalc();
     });
   }
+  $('exalted-augments').addEventListener('change', () => {
+    state.augments = [...document.querySelectorAll('#exalted-augments [data-augment]')]
+      .filter((row) => row.querySelector('input').checked && !row.querySelector('input').disabled)
+      .map((row) => ({ name: row.dataset.augment, rank: Number(row.querySelector('select').value) }));
+    renderExalted();
+    recalc();
+  });
+  $('chromatic-element').addEventListener('change', (event) => {
+    state.chromaticElement = event.target.value;
+    recalc();
+  });
   $('framemods-input').addEventListener('change', (event) => {
     state.frameMods = parseNameList(event.target.value);
+    renderExalted();
     recalc();
   });
   $('framearcane-input').addEventListener('change', (event) => {
@@ -2701,7 +2742,8 @@ async function loadStaticLists() {
   weaponData.clear();
   for (const weapon of weapons) weaponData.set(weapon.name, weapon);
   // Type filter options come from the mods we ship; filled on first weapon load.
-  $('weapon-list').innerHTML = weapons.map((weapon) => listOption(weapon.name, weapon.type)).join('');
+  // Exalted weapons carry their Warframe in the hint, so typing the frame's name finds them.
+  $('weapon-list').innerHTML = weapons.map((weapon) => listOption(weapon.name, weapon.exalted ? `exalted · ${weapon.exalted.frame}` : weapon.type)).join('');
   $('enemy-list').innerHTML = enemies.map((enemy) => listOption(enemy.name, `${enemy.faction ?? ''} hp${enemy.health}`.trim())).join('');
   $('arcane-list').innerHTML = arcanes.map((arcane) => listOption(arcane.name, arcaneHint(arcane))).join('');
   allBuffs = buffs;
