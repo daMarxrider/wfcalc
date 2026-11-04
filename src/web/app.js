@@ -2329,19 +2329,24 @@ const MIRRORED_FIELDS = [
 function renderExalted() {
   const info = weaponData.get(state.weapon)?.exalted;
   $('exalted-box').hidden = !info;
-  $('mod-arcane').hidden = Boolean(info); // exalted weapons take no arcanes
+  $('mod-arcane').hidden = Boolean(info && !info.arcanes); // only Regulators take arcanes
   if (!info) return;
   const fromMods = (state.frameMods ?? []).length > 0;
   $('exalted-info').textContent = `${info.frame}'s ${info.ability}: damage scales with Ability Strength`
     + (fromMods ? ' (taken from the Warframe mods under Frame & buffs, the slider is ignored).' : '.');
   const picked = new Map((state.augments ?? []).map((augment) => [augment.name, augment.rank ?? 3]));
+  // An augment typed into the Warframe mods field counts too (the engine reads both lists).
+  const inFrameMods = new Set((state.frameMods ?? []).map((mod) => mod.name.toLowerCase()));
   $('exalted-augments').innerHTML = info.augments.length
-    ? info.augments.map((augment) => `<label data-augment="${escapeHtml(augment.name)}" title="${escapeHtml(augment.text)}">
-        <input type="checkbox" ${picked.has(augment.name) ? 'checked' : ''} /> ${escapeHtml(augment.name)}
-        <select aria-label="${escapeHtml(augment.name)} rank">${[0, 1, 2, 3].map((rank) => `<option value="${rank}" ${(picked.get(augment.name) ?? 3) === rank ? 'selected' : ''}>R${rank}</option>`).join('')}</select>
-      </label>`).join('')
+    ? info.augments.map((augment) => {
+        const typed = inFrameMods.has(augment.name.toLowerCase());
+        return `<label data-augment="${escapeHtml(augment.name)}" title="${escapeHtml(typed ? 'Set in the Warframe mods field under Frame & buffs' : augment.text)}">
+        <input type="checkbox" ${picked.has(augment.name) || typed ? 'checked' : ''} ${typed ? 'disabled' : ''} /> ${escapeHtml(augment.name)}${typed ? ' <small>(Warframe mods)</small>' : ''}
+        <select aria-label="${escapeHtml(augment.name)} rank" ${typed ? 'hidden' : ''}>${[0, 1, 2, 3].map((rank) => `<option value="${rank}" ${(picked.get(augment.name) ?? 3) === rank ? 'selected' : ''}>R${rank}</option>`).join('')}</select>
+      </label>`;
+      }).join('')
     : '<span class="hint">No augment changes this weapon\'s damage.</span>';
-  $('chromatic-field').hidden = !picked.has('Chromatic Blade');
+  $('chromatic-field').hidden = !picked.has('Chromatic Blade') && !inFrameMods.has('chromatic blade');
   $('chromatic-element').value = state.chromaticElement ?? 'heat';
 }
 
@@ -2557,7 +2562,7 @@ function bindEvents() {
   }
   $('exalted-augments').addEventListener('change', () => {
     state.augments = [...document.querySelectorAll('#exalted-augments [data-augment]')]
-      .filter((row) => row.querySelector('input').checked)
+      .filter((row) => row.querySelector('input').checked && !row.querySelector('input').disabled)
       .map((row) => ({ name: row.dataset.augment, rank: Number(row.querySelector('select').value) }));
     renderExalted();
     recalc();
