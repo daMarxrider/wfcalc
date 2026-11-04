@@ -1418,11 +1418,13 @@ function renderWeaponMeta(result) {
   // `type` is usually the first mod class, so don't print it twice.
   const classes = weapon.modClasses.filter((name) => name !== weapon.type);
   const meta = weaponData.get(state.weapon);
-  $('weapon-art').innerHTML = meta?.image ? `<img src="${imgUrl(meta.image)}" alt="" />` : '';
+  // Exalted weapon art is named after the wiki's files, which WFCD does not have: fetch it from the wiki.
+  const art = meta?.image ? (meta.exalted ? cardUrl(meta.image) : imgUrl(meta.image)) : null;
+  $('weapon-art').innerHTML = art ? `<img src="${art}" alt="" />` : '';
   // The weapon's artwork, blurred, becomes the board's backdrop.
   const board = document.querySelector('.board');
   if (board) {
-    board.style.setProperty('--silhouette', meta?.image ? `url("${imgUrl(meta.image)}")` : 'none');
+    board.style.setProperty('--silhouette', art ? `url("${art}")` : 'none');
   }
   // The weapon's flavour text, the way the game prints it under the build name.
   const description = String(meta?.description ?? '').trim();
