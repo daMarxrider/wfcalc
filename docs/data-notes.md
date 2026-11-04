@@ -219,6 +219,11 @@ Cloudflare. Do not use it.
     level 27 Drekar Elite Lancer: our per-type 1.00 / 3.09 / 4.60 truncate to 1+3+4 = 8,
     matching the game exactly, where rounding the total would have shown 9.
 
+44. **The wiki module lags behind WFCD on new mods.** Primed Blunderbuss, Primed Charged Chamber
+    and Soaring Truth were in WFCD and DE's export but not in Module:Mods/data (2026-11-04).
+    `build-data.ts` (`addWfcdOnlyMods`) fills in weapon mods the wiki lacks (PvP excluded) from
+    WFCD; they have no card image and copy the incompatibilities of their base mod.
+
 ## Coverage
 
 `npm run coverage` prints the current state (83% of weapon-relevant mods fully
@@ -253,3 +258,7 @@ After a game update, `node tools/survey-weapon-traits.ts --force --new` re-reads
 and lists only the weapons whose trait text is new or changed since the last review
 (`data/weapon-trait-review.json`); read them, update `src/engine/traits.ts` / `ammo.ts`, then
 record the review with `--reviewed`.
+
+`build-data.ts` prints `mods: <name> taken from WFCD` for every mod the wiki module still lacks.
+After a rebuild, check those three are still there (or that the wiki now has them, which makes the
+line disappear); `tests/coverage.test.ts` fails if one drops out.
