@@ -25,6 +25,11 @@ and in-game calibration. On top of it this fork adds:
   the search must keep. Warframe buffs (`--buff`, `--strength`) and Incarnon evolutions
   (`--incarnon`) are inputs, not searched. Parallel across cores; pruned by capacity, Forma and
   incompatible mods; one evaluation per distinct elemental pairing rather than per slot order.
+- **Modular weapons**: every zaw, kitgun and amp part combination (wiki part data,
+  `tools/fetch-modular.ts`), named `"Strike / Grip / Link"`, `"Chamber / Grip / Loader"` or
+  `"Prism / Scaffold / Brace"`, with their own arcane slots (Exodia, Pax, Residual, Virtuos,
+  Eternal, Magus). **`wfcalc parts <kind>`** (web UI: Find tab, "Modular parts") finds the best
+  part combination for a target, mods and arcane included, optionally limited to the parts you own.
 - **GPU brute force** (web UI, Settings tab): WebGPU, so AMD, Nvidia, Intel and Apple GPUs alike.
   The browser scores every combination of up to 64 candidates with a reduced damage model
   (`src/web/gpu-search.js`, mod vectors from `src/engine/gpu-model.ts`) and the full engine scores
@@ -186,6 +191,7 @@ after closing the terminal: `setsid wfcalc serve --host 0.0.0.0 >/tmp/wfcalc.log
 |---|---|
 | `wfcalc search <weapon> [options]` | Find the best build for a target (greedy + local search) |
 | `wfcalc bruteforce <weapon> [options]` | Try every mod combination for a target (exhaustive) |
+| `wfcalc parts zaw\|kitgun-primary\|kitgun-secondary\|amp [--optimize] [--parts "A,B\|C\|"]` | Best modular parts for a target (search options apply) |
 | `wfcalc calc <weapon> [options]` | Full damage report |
 | `wfcalc compare <weapon> --vs a,b --vs c,d` | Same build, different mod choices |
 | `wfcalc weapons [query]` | Search the 622 weapons |
