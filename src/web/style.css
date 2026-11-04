@@ -96,6 +96,11 @@ select option { background: var(--solid-2); color: var(--text); }
 button.ghost { background: transparent; }
 button.danger:hover { border-color: var(--error); color: var(--error); }
 input[type="range"] { padding: 0; accent-color: var(--accent); }
+/* Firefox draws its own range and a placeholder in the faded text colour; match Chrome's look. */
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--border-strong); }
+input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--accent); }
+::placeholder { color: var(--muted); opacity: .75; }
 input[type="number"] { padding: 6px 8px; }
 
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
