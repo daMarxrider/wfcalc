@@ -26,3 +26,19 @@ test('bow and melee utility mods are not marked partial', () => {
   assert.equal(partials('Bow'), 0);
   assert.equal(partials('Melee'), 1);
 });
+
+test('weapon mods the wiki module lacks come from WFCD (issue #31)', () => {
+  const blunderbuss = snapshot.mods['Primed Blunderbuss'];
+  assert.deepEqual(blunderbuss.effects.map((e) => [e.target, e.value]), [['critChance', 1.65]]);
+  assert.equal(blunderbuss.maxRank, 10);
+  assert.ok(blunderbuss.incompatible.includes('Blunderbuss') && snapshot.mods['Blunderbuss'].incompatible.includes('Primed Blunderbuss'));
+  assert.ok(snapshot.mods['Critical Deceleration'].incompatible.includes('Primed Blunderbuss'));
+  const chamber = snapshot.mods['Primed Charged Chamber'];
+  assert.deepEqual(chamber.effects.map((e) => [e.target, e.value, e.condition]), [['baseDamage', 1.1, 'firstShot']]);
+  assert.ok(snapshot.mods['Charged Chamber'].incompatible.includes('Primed Charged Chamber'));
+  // Syndicate stats ('Purity', 'Truth', 'Blight', ...) are out of scope, not unknown.
+  const soaring = snapshot.mods['Soaring Truth'];
+  assert.equal(soaring.partial, false);
+  assert.deepEqual(soaring.outOfScopeLines, ["+1 'Purity'"]);
+  assert.equal(snapshot.mods['Bright Purity'].partial, false);
+});
