@@ -377,8 +377,15 @@ export function cpuSearch(model, limit = model.keep) {
   return top.result();
 }
 
-/** The damage model in WGSL, shared by both searches; layout constants baked in. */
-function scoringWgsl() {
+/**
+ * The damage model in WGSL, shared by both searches; layout constants baked in. `unroll` writes
+ * killRate's two loops out per type: 1.7x faster on hardware GPUs in Chromium and Firefox, but
+ * SwiftShader's compiler needs over 5 GB for it, so software adapters get the loops.
+ */
+function scoringWgsl(unroll) {
+  const repeat = (name, values, body) => (unroll
+    ? values.map((value) => `{ let ${name} = ${value}u; ${body} }`).join('\n  ')
+    : `for (var ${name} = 0u; ${name} < ${values.length}u; ${name}++) { ${body} }`);
   // Orders of 1, 2, 3 and 4 elements, rows of 4 (unused entries 0), starting at rows 0, 1, 3, 9.
   const rows = [1, 3, 7, 15].flatMap((mask) => permutations(mask)).map((order) => [...order, 0, 0, 0].slice(0, 4));
   return /* wgsl */ `
@@ -606,8 +613,7 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
   var shield = 0.0;
   var overguard = 0.0;
   var bypass = 0.0;
-  for (var t = 0u; t < 16u; t++) {
-    if (!(dmg[t] > 0.0)) { continue; }
+  ${repeat('t', Array.from({ length: 16 }, (_, t) => t), `if (dmg[t] > 0.0) {
     let landed = dmg[t] * kZoneMul;
     var minimum = 0.0;
     if (armored) { minimum = 1.0; }
@@ -617,7 +623,7 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
     if (params[${P.shield}u] > 0.0 && !bypasses) { shield += landed * (1.0 + params[${P.healthMod}u + t]); }
     if (bypasses) { bypass += toHealth; }
     overguard += landed * (1.0 + params[${P.overguardMod}u + t]) * params[${P.overguardMultiplier}u];
-  }
+  }`)}
   let perShot = averageCrit * kMultishot * kFaction;
 
   var dotDps = 0.0;
@@ -627,12 +633,12 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
   var dotTicks = array<f32, 6>(${DOT.map(([, , n]) => n.toFixed(1)).join(', ')});
   var dotDelay = array<f32, 6>(${DOT.map(([, , , delay]) => delay.toFixed(2)).join(', ')});
   var dotLength = array<f32, 6>(${DOT.map(([, , , , length]) => length.toFixed(2)).join(', ')});
-  for (var e = 0u; e < 6u; e++) {
+  ${repeat('e', DOT.map((_, e) => e), `
     let t = dotTypes[e];
     let share = dmg[t] / kTotal;
     let forcedCrit = kMultishot * kPulls * S[${CH['forcedCrit:impact']}u + t] * pCrit;
     let forcedPlain = kMultishot * kPulls * S[${CH['forced:impact']}u + t];
-    if (!(share > 0.0) && forcedCrit + forcedPlain <= 0.0) { continue; }
+    if (!(!(share > 0.0) && forcedCrit + forcedPlain <= 0.0)) {
     let natural = chance * share * kMultishot * kPulls;
     let weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
     var elemental = 0.0;
@@ -655,7 +661,7 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
     let landed = weighted * rawTick * kZoneMul * (1.0 + hm) * ticks * landedShare * kept;
     dotDps += landed * (1.0 - tdr) * viral;
     if (params[${P.shield}u] > 0.0 && !(t == ${T.toxin}u && params[${P.toxinBypass}u] > 0.0)) { dotShield += landed; }
-  }
+  }`)}
 
   let fired = perShot * kPulls * firing;
   let healthDps = health * fired + dotDps;
@@ -704,9 +710,9 @@ fn bestScore(mask: u32) -> f32 {
 }
 
 /** WGSL for the combination search of one model. */
-export function shaderSource(model) {
+export function shaderSource(model, unroll = true) {
   const k = model.slots;
-  return scoringWgsl() + /* wgsl */ `
+  return scoringWgsl(unroll) + /* wgsl */ `
 const K: u32 = ${k}u;
 struct Batch { top: u32, base: u32, count: u32, threshold: f32 }
 struct Hit { score: f32, rank: u32 }
@@ -780,8 +786,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
  * WGSL for the riven picker: thread (riven r, slot i) scores the build without its mod i plus the
  * riven's four stat vectors (candidates slots + ... in the model).
  */
-export function rivenShaderSource() {
-  return scoringWgsl() + /* wgsl */ `
+export function rivenShaderSource(unroll = true) {
+  return scoringWgsl(unroll) + /* wgsl */ `
 struct RivenBatch { base: u32, count: u32, slots: u32, pad: u32 }
 @group(0) @binding(2) var<storage, read> rivens: array<u32>;
 @group(0) @binding(3) var<uniform> rivenBatch: RivenBatch;
@@ -829,10 +835,12 @@ function unrank(top, rank, k) {
  * The GPU to use, or null. A software fallback adapter (SwiftShader) is refused unless asked for:
  * it runs on the CPU and is slower than the server's own brute force.
  */
+const isFallback = (adapter) => Boolean(adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter);
+
 export async function gpuAdapter(allowFallback = false) {
   if (typeof navigator === 'undefined' || !navigator.gpu) return null;
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null);
-  if (!adapter || (!allowFallback && (adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter))) return null;
+  if (!adapter || (!allowFallback && isFallback(adapter))) return null;
   return adapter;
 }
 
@@ -872,7 +880,7 @@ export async function gpuSearch(model, { onProgress, signal, allowFallback = fal
   const adapter = await gpuAdapter(allowFallback);
   if (!adapter) throw new Error('WebGPU: no hardware GPU adapter in this browser');
   const setupStarted = performance.now();
-  const { device, pipeline } = await devicePipeline(adapter, shaderSource(model));
+  const { device, pipeline } = await devicePipeline(adapter, shaderSource(model, !isFallback(adapter)));
   const setupMs = performance.now() - setupStarted;
   const buffers = [];
   try {
@@ -979,7 +987,7 @@ export async function gpuRivenSearch(model, { onProgress, signal, allowFallback 
   const adapter = await gpuAdapter(allowFallback);
   if (!adapter) throw new Error('WebGPU: no hardware GPU adapter in this browser');
   const started = performance.now();
-  const { device, pipeline } = await devicePipeline(adapter, rivenShaderSource());
+  const { device, pipeline } = await devicePipeline(adapter, rivenShaderSource(!isFallback(adapter)));
   const buffers = [];
   try {
     const slots = model.slots;
