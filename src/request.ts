@@ -6,6 +6,7 @@
  */
 import type { Build } from './engine/build.ts';
 import { RESIDUAL_ELEMENTS } from './engine/arcanes.ts';
+import { CHROMATIC_ELEMENTS } from './engine/exalted.ts';
 import { resolveStrip } from './engine/strip.ts';
 import type { Snapshot } from './types.ts';
 
@@ -34,6 +35,8 @@ export function buildFromJson(snapshot: Snapshot, body: any, weaponName: string)
     abilityStrength: strength ? Number(strength) : undefined,
     frameMods: Array.isArray(body.frameMods) ? body.frameMods : [],
     frame: body.frame || undefined,
+    augments: Array.isArray(body.augments) ? body.augments : [],
+    chromaticElement: CHROMATIC_ELEMENTS.find((element) => element === body.chromaticElement),
     warframeArcanes: Array.isArray(body.warframeArcanes) ? body.warframeArcanes : [],
     incarnon: Array.isArray(body.incarnon) ? body.incarnon.map(String) : [],
     // Kuva/Tenet/Coda element: null means "not set" (60% Heat on such a weapon); "none" or 0 means none.

@@ -244,6 +244,11 @@ every candidate mod was enumerated, false when a shortlist was), `candidates`, `
 - `mode` is optional; omitted means the arsenal stat block.
 - `arcanes`: weapon arcanes; the slot must match the weapon category.
 - `buffs`: registry ids from `GET /api/buffs`; `abilityStrength` is a percentage (100 = unmodded).
+- Exalted weapons (Exalted Blade, Regulators, Artemis Bow...; `exalted` in `GET /api/weapons` names
+  the frame and its augments) scale with `abilityStrength`. The frame's augments go in `augments`
+  (`[{ "name": "Chromatic Blade", "rank": 3 }]`), not `frameMods`, which replace `abilityStrength` with
+  their own total. `chromaticElement` (`heat`, `cold`, `electricity`, `toxin`; default `heat`) is
+  Chromatic Blade's element. Exalted weapons take no arcanes or riven.
 - `riven` is resolved against the weapon's own disposition; `roll` (0.9-1.1) and `rank` (0-8) are optional.
 - `incarnon` picks evolution tiers (`"EVO2:0"` = first option of tier EVO2, or `"EVO2:Name"`; see
   `GET /api/incarnons`). Perks also work untransformed; add `"form"` to switch to the transformed
