@@ -748,7 +748,9 @@ async function initSettings() {
   // The saved choice is kept for a browser that gains WebGPU, but without a GPU the switch reads off.
   if (!adapter) box.checked = false;
   $('setting-gpu-status').textContent = adapter
-    ? `Found: ${adapterName(adapter)}.`
+    ? `Found: ${adapterName(adapter)}.${/Firefox\//.test(navigator.userAgent)
+      ? ' Firefox runs the GPU brute force over 10x slower than Chrome or Brave (measured November 2026); leave this off in Firefox.'
+      : ''}`
     : 'No hardware WebGPU in this browser, so brute force runs on the CPU. On Linux, Chrome and Brave need '
       + '"Unsafe WebGPU Support" and "Vulkan" in chrome://flags (brave://flags), and under Wayland also the '
       + '--ozone-platform=x11 start flag: Vulkan on a Wayland window leaves the browser invisible. '
