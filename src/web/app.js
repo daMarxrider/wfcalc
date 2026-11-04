@@ -751,7 +751,8 @@ async function initSettings() {
     ? `Found: ${adapterName(adapter)}.`
     : 'No hardware WebGPU in this browser, so brute force runs on the CPU. On Linux, Chrome and Brave need '
       + '"Unsafe WebGPU Support" and "Vulkan" in chrome://flags (brave://flags), and under Wayland also the '
-      + '--ozone-platform=x11 start flag: Vulkan on a Wayland window leaves the browser invisible.';
+      + '--ozone-platform=x11 start flag: Vulkan on a Wayland window leaves the browser invisible. '
+      + 'Firefox has WebGPU on Windows and Apple-silicon Macs; elsewhere it needs dom.webgpu.enabled in about:config.';
 }
 
 /**
@@ -2396,6 +2397,10 @@ function bindEvents() {
   for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => showTab(tab.dataset.tab);
   void initSettings();
   $('riven-run').addEventListener('click', () => void runRivenPicker());
+  // Picking a datalist entry fires only `input` in Firefox and mobile browsers; blurring commits it as `change`.
+  document.addEventListener('input', (event) => {
+    if (event.target.list && (!(event instanceof InputEvent) || event.inputType === 'insertReplacementText')) event.target.blur();
+  });
 
   $('weapon-input').addEventListener('change', async (event) => {
     const name = event.target.value;
