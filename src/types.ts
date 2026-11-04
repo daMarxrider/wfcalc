@@ -197,6 +197,11 @@ export interface WeaponData {
   shotgunSidearm?: boolean;
   /** Assembled from modular parts (src/engine/modular.ts), never stored in the snapshot file. */
   modular?: { kind: ModularKind; parts: string[] };
+  /**
+   * Summoned by a Warframe ability (tools/build-exalted.ts). Stats are the ability's max rank at
+   * 100% Ability Strength; src/engine/exalted.ts scales them. `fixedRate`: attack speed mods do nothing.
+   */
+  exalted?: { frames: string[]; family: string; fixedRate?: boolean };
 }
 
 export type ModularKind = 'zaw' | 'kitgun-primary' | 'kitgun-secondary' | 'amp';

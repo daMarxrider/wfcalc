@@ -118,6 +118,8 @@ async function main(): Promise<void> {
   const profileMismatch: string[] = [];
   const unmatched: string[] = [];
   for (const weapon of Object.values(snapshot.weapons) as WeaponData[]) {
+    // The export holds rank-0 ability values for exalted weapons; the wiki's max rank wins.
+    if (weapon.exalted) continue;
     const options = byName.get(weapon.name.toLowerCase()) ?? [];
     const source = options.find((candidate) => CATEGORY[candidate.productCategory ?? ''] === weapon.category) ?? (options.length === 1 ? options[0] : undefined);
     if (!source) { unmatched.push(weapon.name); continue; }
