@@ -521,7 +521,8 @@ function showTab(name) {
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 // Firefox and mobile browsers show only the option text, so it must lead with the value.
 const listOption = (value, hint) => `<option value="${escapeHtml(value)}">${escapeHtml(hint ? `${value} · ${hint}` : value)}</option>`;
-const arcaneHint = (arcane) => (arcane.description || '').split('\n')[0].slice(0, 44);
+// Arcane descriptions hold colour tags and literal "\n" sequences.
+const arcaneHint = (arcane) => (arcane.description || '').replace(/<[^>]*>/g, '').replace(/\\n|\n/g, ' ').slice(0, 60);
 
 const incarnonCache = new Map();
 const incarnonOptions = (weapon) => {
