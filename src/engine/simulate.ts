@@ -53,6 +53,7 @@ import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
 import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, dotTicks, effectiveArmor, ENCUMBER_TYPES, GAS_CAP, healthModifier, MERGED_TICKS, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
 import { hitProfile } from './hit.ts';
 import type { BuildUpSource } from './arcanes.ts';
+import { isPeacemaker, peacemakerDamageShare, peacemakerRateShare } from './exalted.ts';
 
 interface StackRule {
   duration: number;
@@ -407,6 +408,9 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   const rampStart = beamStart(build);
   let ramp = rampStart ?? 1;
   let idle = 0;
+  // Peacemaker: damage per burst and fire rate both ramp from the cast (exalted.ts).
+  const peacemaker = isPeacemaker(build.weapon);
+  let firedFor = 0;
 
   let t = 0;
   let step = 0;
@@ -452,7 +456,12 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
 
     // ---- direct damage this step, per layer
     const firingSeconds = firing(dt);
-    const pulls = firingSeconds * build.fireRate;
+    let pulls = firingSeconds * build.fireRate;
+    if (peacemaker) {
+      pulls *= peacemakerRateShare(firedFor);
+      firedFor += firingSeconds;
+      ramp = peacemakerDamageShare(shots);
+    }
     shots += pulls;
     if (rampStart !== null) {
       if (firingSeconds > 0) {

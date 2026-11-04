@@ -40,6 +40,7 @@ import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
 import { hitProfile } from './hit.ts';
 import { InputError } from '../errors.ts';
 import { overloadMultiplies } from './overload.ts';
+import { EXALTED, exaltedDefaultMode, exaltedSetup, type ChromaticElement } from './exalted.ts';
 
 export interface BuildMod {
   name: string;
@@ -115,6 +116,10 @@ export interface Build {
   heavyAttack?: boolean;
   /** Element of the Residual zone the Theorem arcanes draw on (default Toxin). */
   residualElement?: ResidualElement;
+  /** The frame's augment mods (Chromatic Blade, Rubble Heap...); they change its exalted weapon. */
+  augments?: BuildMod[];
+  /** Element Chromatic Blade turns Exalted Blade's physical damage into (Excalibur's emissive colour; default Heat). */
+  chromaticElement?: ChromaticElement;
   /**
    * Chosen Incarnon evolutions, as `"EVO2:Final Fusillade"`, `"evo4:1"` or just the
    * option name. Tiers that are not listed stay unselected.
@@ -422,6 +427,8 @@ export const ARCANE_SLOTS: Record<string, string[]> = {
 
 /** Arcane slots of a weapon: zaws and kitguns add a slot of their own (wiki: Arcane Enhancement). */
 export function arcaneSlotsOf(weapon: WeaponData): string[] {
+  // Exalted weapons take no arcanes (wiki: Exalted Weapon), except Regulators.
+  if (weapon.exalted && !EXALTED[weapon.exalted.family]?.arcanes) return [];
   const own = ARCANE_SLOTS[weapon.category] ?? [];
   const kind = weapon.modular?.kind;
   return kind === 'zaw' ? [...own, 'zaw'] : kind?.startsWith('kitgun') ? [...own, 'kitgun'] : own;
@@ -557,7 +564,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
 
   let aoeWarning: string | null = null;
-  const resolvedMode = statsForMode(weapon, build.mode);
+  const resolvedMode = statsForMode(weapon, build.mode ?? exaltedDefaultMode(weapon, [...(build.frameMods ?? []), ...(build.augments ?? [])]));
   const conditions = build.conditions ?? {};
   let stats = resolvedMode.stats;
   const mode = resolvedMode.mode;
@@ -742,6 +749,10 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`arcane not found: ${wanted}`);
       continue;
     }
+    if (weapon.exalted && !EXALTED[weapon.exalted.family]?.arcanes) {
+      collected.warnings.push(`${weapon.name} is an exalted weapon and takes no arcanes; ${arcane.name} ignored`);
+      continue;
+    }
     if (arcane.slot && !allowedArcanes.includes(arcane.slot)) {
       collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.category} weapon`);
     } else if ((arcane.slot === 'bow' && weapon.type !== 'Bow') || (arcane.slot === 'shotgun' && weapon.type !== 'Shotgun')) {
@@ -801,7 +812,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
 
   // Riven: values depend on the weapon's disposition, so it is resolved per weapon.
-  if (build.riven) {
+  if (build.riven && weapon.exalted) collected.warnings.push(`${weapon.name} is an exalted weapon and has no riven slot; riven ignored`);
+  if (build.riven && !weapon.exalted) {
     const riven = rivenEffects(snapshot, weapon, build.riven);
     for (const warning of riven.warnings) collected.warnings.push(`riven: ${warning}`);
     const source: (typeof sources)[number] = { name: 'Riven', maxRank: 0, effects: riven.effects, partial: false, incompatible: [], kind: 'riven' };
@@ -820,6 +832,21 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const shards = shardEffects(build.shards, weapon.category);
   for (const warning of shards.warnings) collected.warnings.push(warning);
   const abilityStrength = frameStrength ? frameStrength.strength + shards.abilityStrength : build.abilityStrength ?? 100;
+  // Exalted weapons: Ability Strength scales the damage, the frame's augments add their part.
+  const exalted = exaltedSetup(weapon, {
+    strength: abilityStrength, frameMods: [...(build.frameMods ?? []), ...(build.augments ?? [])], frame: build.frame,
+    modeName: mode?.name ?? weapon.modes[0]?.name, chromaticElement: build.chromaticElement, stackMode: build.stackMode,
+  });
+  if (exalted) {
+    collected.warnings.push(...exalted.warnings);
+    for (const source of exalted.sources) sources.push({ ...source, maxRank: 0, partial: false, incompatible: [], kind: 'buff' });
+    if (weapon.exalted?.fixedRate) sources.push({ name: weapon.name, maxRank: 0, effects: [{ target: 'fireRateLock', op: 'add', value: 1, raw: 'Attack speed cannot be modified' }], partial: false, incompatible: [], kind: 'weapon' });
+    if (exalted.scale !== 1) stats = { ...stats, ...Object.fromEntries(DAMAGE_TYPES.map((type) => [type, (stats[type] ?? 0) * exalted.scale])) };
+    if (exalted.element) {
+      const physical = PHYSICAL_TYPES.reduce((sum, type) => sum + (stats[type] ?? 0), 0);
+      stats = { ...stats, impact: 0, puncture: 0, slash: 0, [exalted.element]: (stats[exalted.element] ?? 0) + physical };
+    }
+  }
   if (shards.effects.length) {
     sources.push({ name: 'Archon Shards', maxRank: 0, effects: shards.effects, partial: false, incompatible: [], kind: 'shard' });
   }
@@ -1358,6 +1385,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       ...weaponTraits.filter((effect) => !collected.inactive.includes(`${weapon.name}: ${effect.raw}`)).map((effect) => effect.raw),
       ...(motovoreLine ? ['Impact, Puncture and Slash mods x6', motovoreLine] : []),
       ...(spool > 0 ? [`Spool-up: ${spool.toFixed(2)}s lost per magazine`] : []),
+      ...(exalted?.lines ?? []),
     ],
     spoolSeconds: spool,
     incarnonLines,

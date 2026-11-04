@@ -178,6 +178,22 @@
   </div>
 
   <section class="panel stack-panel">
+    <details id="exalted-box" open hidden>
+      <summary>Exalted weapon &amp; augments</summary>
+      <p id="exalted-info" class="hint"></p>
+      <div class="row">
+        <label class="field"><span>Ability strength <b id="exalted-strength-value">100%</b></span>
+          <input id="exalted-strength" type="range" min="40" max="500" step="5" value="100" /></label>
+        <label class="field" id="chromatic-field" hidden><span>Chromatic Blade element</span>
+          <select id="chromatic-element">
+            <option value="heat">Heat</option>
+            <option value="cold">Cold</option>
+            <option value="electricity">Electricity</option>
+            <option value="toxin">Toxin</option>
+          </select></label>
+      </div>
+      <div id="exalted-augments" class="toggles"></div>
+    </details>
     <details>
       <summary>Conditions &amp; stacks</summary>
       <div class="toggles">
