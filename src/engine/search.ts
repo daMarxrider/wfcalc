@@ -11,7 +11,7 @@
  * and a mod marked `partial` makes the result a lower bound.
  */
 import type { Build, BuildMod } from './build.ts';
-import { ARCANE_SLOTS, COMPRESSION_NOT_AIMING, needsAiming, resolveBuild } from './build.ts';
+import { arcaneSlotsOf, COMPRESSION_NOT_AIMING, needsAiming, resolveBuild } from './build.ts';
 import { arcaneEffectsAt } from './arcanes.ts';
 import { hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
@@ -328,7 +328,8 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     `${incarnonSelection.join('+')}#${names.join('|')}`;
 
   const evaluateOrder = (names: string[], quick = false): number => {
-    if (!names.length) return quick ? -1 : 0;
+    // The empty build is scored too: an amp takes no mods, and its result is the build itself.
+    if (!names.length && quick) return -1;
     const key = keyOf(names);
     const cached = scoreCache.get(key);
     if (cached) return cached.score;
@@ -703,7 +704,7 @@ export function search(snapshot: Snapshot, request: SearchRequest): SearchResult
   // An explicit arcane is a decision, not a suggestion: respect it.
   if (request.base?.arcanes?.length) return searchOnce(snapshot, { ...request, chooseArcane: false });
 
-  const allowed = ARCANE_SLOTS[weapon.category] ?? [];
+  const allowed = arcaneSlotsOf(weapon);
   const relevant = new Set([
     'baseDamage', 'multishot', 'critChance', 'critDamage', 'statusChance', 'fireRate',
     'element', 'directDamage', 'factionDamage', 'headshotMultiplier', 'reloadSpeed',

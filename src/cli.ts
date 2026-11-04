@@ -25,7 +25,9 @@ import { readFileSync } from 'node:fs';
 import { loadSnapshot, findEnemy, findMod, findWeapon, modsForWeapon } from './data.ts';
 import { RESIDUAL_ELEMENTS } from './engine/arcanes.ts';
 import { resolveBuild, type Build, type BuildMod, type HitZone, type StackMode } from './engine/build.ts';
-import { search } from './engine/search.ts';
+import { search, type SearchRequest } from './engine/search.ts';
+import { modularParts } from './engine/modular.ts';
+import { partSearch } from './engine/part-search.ts';
 import { bruteForce } from './engine/bruteforce.ts';
 import { capacityOf } from './engine/capacity.ts';
 import { attenuationProfile, type AttenuationProfile } from './engine/attenuation.ts';
@@ -38,7 +40,7 @@ import { hitEnemy } from './engine/damage.ts';
 import { BUFFS, availableBuffs } from './engine/buffs.ts';
 import { RIVEN_ATTRIBUTES, type RivenSpec } from './engine/riven.ts';
 import { SHARD_BONUSES, type ShardColor, type ShardSpec } from './engine/shards.ts';
-import type { Snapshot } from './types.ts';
+import type { ModularKind, Snapshot } from './types.ts';
 
 interface Args {
   command: string;
@@ -631,6 +633,30 @@ class CliError extends Error {
   }
 }
 
+/** The search flags (everything but the weapon); `parts` takes the same. */
+function searchOptionsFromArgs(snapshot: Snapshot, args: Args): Omit<SearchRequest, 'weapon'> {
+  const base = buildFromArgs(snapshot, args, []);
+  const commaList = (name: string): string[] =>
+    flagAll(args, name).flatMap((entry) => entry.split(',')).map((entry) => entry.trim()).filter(Boolean);
+  return {
+    objective: (flag(args, 'objective') as 'ttk' | 'dps' | 'kpm' | undefined) ?? 'ttk',
+    enemy: flag(args, 'enemy') ?? 'Bombard',
+    level: flag(args, 'level') ? Number(flag(args, 'level')) : 150,
+    capacity: flag(args, 'capacity') ? Number(flag(args, 'capacity')) : 60,
+    maxForma: flag(args, 'forma') ? Number(flag(args, 'forma')) : null,
+    exclude: commaList('exclude'),
+    mustInclude: commaList('must'),
+    limit: flag(args, 'top') ? Number(flag(args, 'top')) : 3,
+    budget: flag(args, 'budget') ? Number(flag(args, 'budget')) : undefined,
+    chooseIncarnon: commaList('incarnon').includes('auto'),
+    chooseArcane: commaList('arcane').some((name) => name.toLowerCase() === 'auto'),
+    simulate: !args.flags.has('no-sim'),
+    ...targetScale(args),
+    attenuation: attenuationFromArgs(args),
+    base: commaList('incarnon').includes('auto') ? { ...base, incarnon: undefined } : base,
+  };
+}
+
 function requireWeapon(snapshot: Snapshot, query: string) {
   const { item, suggestions } = findWeapon(snapshot, query);
   if (!item) throw new CliError(`weapon not found: ${query}`, 'weapon_not_found', suggestions);
@@ -802,27 +828,7 @@ async function main(): Promise<void> {
     }
     case 'search': {
       const item = requireWeapon(snapshot, args.positional[0] ?? '');
-      const base = buildFromArgs(snapshot, args, []);
-      const commaList = (name: string): string[] =>
-        flagAll(args, name).flatMap((entry) => entry.split(',')).map((entry) => entry.trim()).filter(Boolean);
-      const request = {
-        weapon: item.name,
-        objective: (flag(args, 'objective') as 'ttk' | 'dps' | 'kpm' | undefined) ?? 'ttk',
-        enemy: flag(args, 'enemy') ?? 'Bombard',
-        level: flag(args, 'level') ? Number(flag(args, 'level')) : 150,
-        capacity: flag(args, 'capacity') ? Number(flag(args, 'capacity')) : 60,
-        maxForma: flag(args, 'forma') ? Number(flag(args, 'forma')) : null,
-        exclude: commaList('exclude'),
-        mustInclude: commaList('must'),
-        limit: flag(args, 'top') ? Number(flag(args, 'top')) : 3,
-        budget: flag(args, 'budget') ? Number(flag(args, 'budget')) : undefined,
-        chooseIncarnon: commaList('incarnon').includes('auto'),
-        chooseArcane: commaList('arcane').some((name) => name.toLowerCase() === 'auto'),
-        simulate: !args.flags.has('no-sim'),
-        ...targetScale(args),
-        attenuation: attenuationFromArgs(args),
-        base: commaList('incarnon').includes('auto') ? { ...base, incarnon: undefined } : base,
-      };
+      const request = { weapon: item.name, ...searchOptionsFromArgs(snapshot, args) };
       const result = search(snapshot, request);
       if (wantsJson(args)) {
         emitJson(result);
@@ -863,6 +869,32 @@ async function main(): Promise<void> {
       });
       for (const assumption of result.assumptions) console.log(`· ${assumption}`);
       for (const note of result.notes) console.log(`· ${note}`);
+      break;
+    }
+    case 'parts': {
+      const kind = (args.positional[0] ?? '') as ModularKind;
+      const lists = snapshot.modular ? modularParts(snapshot.modular)[kind] : undefined;
+      if (!lists) throw new CliError('usage: wfcalc parts zaw|kitgun-primary|kitgun-secondary|amp [--parts "A,B|C|D"] [search options]', 'invalid_argument');
+      // --parts limits each position to the parts the player owns: "Balla,Ooltha||Jai" (empty = any).
+      const owned = flag(args, 'parts')?.split('|').map((list) => list.split(',').map((name) => name.trim()).filter(Boolean));
+      if (!owned && !args.flags.has('optimize') && !wantsJson(args)) {
+        lists.forEach((list) => console.log(list.join(', ')));
+        console.log('\nadd --optimize (or --parts "A,B|C|D") to find the best combination');
+        break;
+      }
+      // Search options are read as if for one combination of the kind (arcane slots, Incarnon...).
+      const options = searchOptionsFromArgs(snapshot, { ...args, positional: [lists.map((list) => list[0]).join(' / ')] });
+      const result = partSearch(snapshot, { ...options, kind, parts: owned, top: flag(args, 'top') ? Number(flag(args, 'top')) : undefined });
+      if (wantsJson(args)) {
+        emitJson(result);
+        break;
+      }
+      console.log(`${kind}: ${result.combinations} combinations scored, best ${result.results.length} searched (${result.elapsedMs}ms)\n`);
+      result.results.forEach(({ weapon, build }, index) => {
+        const ttk = build.timeToKill === null ? 'cannot kill' : `${num(build.timeToKill, 2)}s`;
+        console.log(`${index + 1}. ${weapon} · ${ttk} · ${num(build.totalDps)} dps${build.arcanes.length ? ` · arcane ${build.arcanes.map((arcane) => arcane.name).join(' + ')}` : ''}`);
+        if (build.mods.length) console.log(`   ${build.mods.map((mod) => `${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}`).join(', ')}`);
+      });
       break;
     }
     case 'bruteforce': {
@@ -1188,6 +1220,9 @@ async function main(): Promise<void> {
   wfcalc calc <weapon> [options]        damage report
   wfcalc search <weapon> [options]      find the best build for a target
   wfcalc bruteforce <weapon> [options]  try every mod combination for a target
+  wfcalc parts <kind> [--optimize]      best zaw/kitgun/amp parts (kind: zaw, kitgun-primary,
+                                        kitgun-secondary, amp); --parts "A,B|C|" owned parts only;
+                                        modular weapons are named "Strike / Grip / Link"
   wfcalc abilities [query]              abilities that deal damage
   wfcalc ability <name> [options]       damage per cast of one ability
   wfcalc compare <weapon> --vs a,b      compare setups

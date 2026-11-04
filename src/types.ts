@@ -195,6 +195,24 @@ export interface WeaponData {
   hasRivenSlot: boolean;
   /** Shotgun sidearm (wiki tag SECONDARYSHOTGUN): its pellets count as one hit for on-hit effects. */
   shotgunSidearm?: boolean;
+  /** Assembled from modular parts (src/engine/modular.ts), never stored in the snapshot file. */
+  modular?: { kind: ModularKind; parts: string[] };
+}
+
+export type ModularKind = 'zaw' | 'kitgun-primary' | 'kitgun-secondary' | 'amp';
+
+/** A wiki Lua table as parsed (field names as the wiki writes them: Damage, CritChance, ...). */
+export type WikiTable = Record<string, any>;
+
+/**
+ * Modular weapon parts, kept in the wiki's own layout (tools/fetch-modular.ts):
+ * Module:Modular/data for zaws and kitguns, Module:Weapons/data/modular entries for amp parts.
+ */
+export interface ModularSource {
+  Zaw: { Strike: Record<string, WikiTable>; Grip: Record<string, WikiTable>; Link: Record<string, WikiTable> };
+  KitgunPrimary: { Chamber: Record<string, WikiTable>; Grip: Record<string, WikiTable>; Loader: Record<string, WikiTable> };
+  KitgunSecondary: { Chamber: Record<string, WikiTable>; Grip: Record<string, WikiTable>; Loader: Record<string, WikiTable> };
+  Amp: Record<string, WikiTable>;
 }
 
 /**
@@ -483,6 +501,8 @@ export interface Snapshot {
   forcedProcs?: Record<string, Record<string, DamageType[]>>;
   /** Sniper rifles: zoom levels with their scoped buff, and the Shot Combo minimum (wiki table). */
   snipers?: Record<string, SniperData>;
+  /** Modular weapon parts (zaws, kitguns, amps). Optional: older snapshots lack it. */
+  modular?: ModularSource;
   enemies: Record<string, EnemyData>;
   /** damage type -> health class -> percentage points */
   modifiers: ModifierTable;

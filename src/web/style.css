@@ -677,6 +677,13 @@ input:hover, select:hover { border-color: var(--border-strong); }
 .brute-only { display: none; }
 .find-brute .brute-only { display: flex; }
 .find-brute .greedy-only { display: none; }
+.parts-only { display: none; }
+.find-parts .parts-only { display: flex; }
+.find-parts .greedy-only, .find-parts .not-parts { display: none; }
+.parts-owned { flex-direction: column; gap: 8px; margin: 0 0 12px; }
+.parts-owned .status-picks { gap: 4px 14px; }
+.modular-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.modular-row .field { flex: 1 1 150px; min-width: 0; }
 
 /* Progress shimmer while a long search runs. */
 .working { position: relative; overflow: hidden; border-radius: 10px; padding: 14px; border: 1px solid var(--border); background: rgba(255,255,255,.03); }

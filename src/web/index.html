@@ -53,6 +53,21 @@
         <input id="element-input" type="range" min="25" max="60" step="1" value="60" />
       </label>
     </div>
+    <div class="weapon-row modular-row">
+      <label class="field">
+        <span>Modular</span>
+        <select id="modular-kind">
+          <option value="">—</option>
+          <option value="zaw">Zaw</option>
+          <option value="kitgun-primary">Primary kitgun</option>
+          <option value="kitgun-secondary">Secondary kitgun</option>
+          <option value="amp">Amp</option>
+        </select>
+      </label>
+      <label class="field grow" hidden><span class="modular-label"></span><select class="modular-part"></select></label>
+      <label class="field grow" hidden><span class="modular-label"></span><select class="modular-part"></select></label>
+      <label class="field grow" hidden><span class="modular-label"></span><select class="modular-part"></select></label>
+    </div>
     <datalist id="weapon-list"></datalist>
     <div id="weapon-meta" class="meta"></div>
     <p id="weapon-desc" class="weapon-desc"></p>
@@ -112,7 +127,7 @@
         <div id="capacity" class="capacity"></div>
       </div>
       <div class="board-tools">
-        <label class="toggles"><label><input type="checkbox" id="reactor" /> Orokin Reactor</label></label>
+        <label class="toggles"><label><input type="checkbox" id="catalyst" /> Orokin Catalyst</label></label>
         <span class="hint">drag to reorder · drop outside to remove</span>
       </div>
       <div id="slots" class="slots"></div>
@@ -122,7 +137,7 @@
           <input id="arcane-input" list="arcane-list" placeholder="Primary Merciless" autocomplete="off" />
         </label>
         <label class="field" id="arcane2-field" hidden>
-          <span>Secondary arcane (Archgun Arcane Adapter)</span>
+          <span id="arcane2-label">Secondary arcane (Archgun Arcane Adapter)</span>
           <input id="arcane2-input" list="arcane-list" placeholder="Secondary Merciless" autocomplete="off" />
         </label>
       </div>
@@ -272,15 +287,25 @@
       <div class="segmented" role="radiogroup" aria-label="Search method">
         <label><input type="radio" name="find-method" value="search" checked /><span>Quick search</span></label>
         <label><input type="radio" name="find-method" value="bruteforce" /><span>Brute force</span></label>
+        <label><input type="radio" name="find-method" value="parts" /><span>Modular parts</span></label>
       </div>
+      <p class="hint parts-only">Best zaw, kitgun or amp parts: every combination scored with the mods its first part
+        wants, the best five searched in full (mods and arcane). Untick the parts you don't own.</p>
       <p class="hint greedy-only">Greedy fill plus local search: fast, usually right.</p>
       <p class="hint brute-only">Every feasible mod combination, scored on every core. Only mods are searched:
         your loadout below (arcanes, buffs, strength, riven, conditions) and Incarnon from the Build tab are used as given.</p>
     </div>
-    <p class="hint">Eight slots, capacity and Forma included. Leave weapon empty to use the Build tab's.</p>
+    <p class="hint not-parts">Eight slots, capacity and Forma included. Leave weapon empty to use the Build tab's.</p>
     <div class="compare-grid">
-      <label class="field"><span>Weapon</span>
+      <label class="field not-parts"><span>Weapon</span>
         <input id="find-weapon" list="weapon-list" placeholder="same as Build" autocomplete="off" /></label>
+      <label class="field parts-only"><span>Modular weapon</span>
+        <select id="parts-kind">
+          <option value="zaw">Zaw</option>
+          <option value="kitgun-primary">Primary kitgun</option>
+          <option value="kitgun-secondary">Secondary kitgun</option>
+          <option value="amp">Amp</option>
+        </select></label>
       <label class="field"><span>Objective</span>
         <select id="find-objective">
           <option value="ttk">fastest kill</option>
@@ -324,6 +349,10 @@
             <label class="switch"><input type="checkbox" value="viral" /> Viral</label>
         </div></div>
     </div>
+    <div id="parts-owned" class="parts-owned parts-only"></div>
+    <div class="toggles parts-only">
+      <label><input type="checkbox" id="parts-arcane" checked /> also pick the best arcane</label>
+    </div>
     <div id="find-sp-box" class="steel-path">
       <label class="switch"><input type="checkbox" id="find-sp" /> Steel Path</label>
       <div class="sub">
@@ -346,7 +375,7 @@
       <div class="compare-grid">
         <label class="field"><span id="find-arcane-label">Weapon arcane</span>
           <input id="find-arcane" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
-        <label class="field" id="find-arcane2-field" hidden><span>Secondary arcane (arch-gun)</span>
+        <label class="field" id="find-arcane2-field" hidden><span id="find-arcane2-label">Secondary arcane (arch-gun)</span>
           <input id="find-arcane2" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
         <label class="field"><span>Ability strength <b id="find-strength-value">100%</b></span>
           <input id="find-strength" type="range" min="40" max="500" step="5" value="100" /></label>
