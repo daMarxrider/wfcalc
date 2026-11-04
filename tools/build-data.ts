@@ -129,11 +129,49 @@ function exilusModNames(): Set<string> {
   }
 }
 
+/**
+ * Weapon mods WFCD has but the wiki module lacks (Primed Blunderbuss, Primed Charged Chamber,
+ * Soaring Truth as of 2026-11-04), turned into wiki-shaped entries so the loop below treats them
+ * like any other. They inherit the incompatibilities of their base mod (same path without the
+ * Beginner/Intermediate/Expert folder), and those mods get the reverse link.
+ */
+function addWfcdOnlyMods(mods: Record<string, Loose>, wfcd: Map<string, Loose>): void {
+  const known = new Set(Object.keys(mods).map((name) => name.toLowerCase()));
+  const family = (path: string) => path.replace(/\/(?:Beginner|Intermediate|Expert)\//, '/').replace(/(?:Beginner|Intermediate|Expert)$/, '');
+  for (const source of wfcd.values()) {
+    if (!/^(?:Primary|Secondary|Shotgun|Melee|Arch-Gun|Arch-Melee) Mod$/.test(String(source.type))) continue;
+    if (/\/PvPMods\//.test(source.uniqueName) || known.has(String(source.name).toLowerCase())) continue;
+    const incompatible = new Set<string>();
+    for (const [name, entry] of Object.entries<Loose>(mods)) {
+      if (typeof entry.InternalName !== 'string' || family(entry.InternalName) !== family(source.uniqueName)) continue;
+      incompatible.add(name);
+      for (const other of luaArray(entry.Incompatible)) if (typeof other === 'string') incompatible.add(other);
+    }
+    for (const name of incompatible) {
+      if (mods[name]) mods[name].Incompatible = [...luaArray(mods[name].Incompatible), source.name];
+    }
+    const last = source.levelStats?.at(-1)?.stats ?? [];
+    mods[source.name] = {
+      Name: source.name,
+      InternalName: source.uniqueName,
+      Type: source.compatName,
+      Polarity: source.polarity,
+      Rarity: source.rarity,
+      BaseDrain: source.baseDrain,
+      MaxRank: source.fusionLimit,
+      Description: last.join('\r\n'),
+      Incompatible: [...incompatible],
+    };
+    console.log(`mods: ${source.name} taken from WFCD (not in the wiki module)`);
+  }
+}
+
 function buildMods(unmatchedReport: string[]): Record<string, ModData> {
   const module = readLua('module-mods.lua');
   const setOf = new Map<string, string>();
   const wfcd = indexWfcdMods();
   const out: Record<string, ModData> = {};
+  addWfcdOnlyMods((module.Mods ??= {}), wfcd);
 
   // Set membership comes from each mod's own `Set` field; module.Sets holds the set cards.
   for (const [modName, entry] of Object.entries<Loose>(module.Mods ?? {})) {

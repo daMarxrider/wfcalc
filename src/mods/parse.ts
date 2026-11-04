@@ -344,7 +344,8 @@ const OUT_OF_SCOPE_KEYWORDS: RegExp[] = [
   // Stats on a different weapon or on the player, not on this weapon's damage.
   /secondary weapon/i,
   /damage taken|marked zone|pull all enemies/i,
-  /tennokai|^\+1 'truth'|curse:/i,
+  // Syndicate augment stats: +1 'Truth' (Gilded Truth), +1 'Purity' (Soaring Truth).
+  /tennokai|^\+[\d.]+ '[a-z]+'$|curse:/i,
   // Range and utility melee stats. Shattering Impact's armour reduction is modelled by the
   // --shattering-impact flag, not as a damage effect of the mod itself.
   /^[+-]?\d+\s*range\b/i,
