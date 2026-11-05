@@ -1427,6 +1427,21 @@ test('simulation: the 10th Cold stack freezes the target at +1.0 crit multiplier
   assert.ok(ratio > 2.7 && ratio <= 3, `crit gain ${ratio}`);
 });
 
+test('bosses take at most 4 Cold stacks and never freeze (wiki: Cold Damage)', () => {
+  const boss: EnemyData = { ...dummy, id: 'Boss', name: 'Boss', boss: true };
+  const fight = (enemy: EnemyData, critChance: number, mode: 'simulate' | 'steadyStatus') => {
+    const snap = snapshot([weapon({ cold: 100, statusChance: 1, fireRate: 10, magazineSize: 1000, critChance, critMultiplier: 2 })], [], [enemy]);
+    return hitEnemy(snap, build(snap, []), scaleEnemy(snap, enemy, 1), { [mode]: true });
+  };
+  close(fight(boss, 1, 'simulate').simulation!.atEnd.cold, 4);
+  for (const mode of ['simulate', 'steadyStatus'] as const) {
+    // 4 stacks: +0.25 on a 2x crit, so a full-crit build is 2.25x, not the ~2.9x the freeze gives.
+    const ratio = fight(boss, 0, mode).timeToKill! / fight(boss, 1, mode).timeToKill!;
+    assert.ok(Math.abs(ratio - 2.25) < 0.02, `${mode}: crit gain ${ratio}`);
+    assert.ok(fight(dummy, 0, mode).timeToKill! / fight(dummy, 1, mode).timeToKill! > 2.7, `${mode}: a normal enemy freezes`);
+  }
+});
+
 test('the ranking estimate freezes on the 10th Cold stack too (wiki: Cold Damage)', () => {
   // Same weapon as above: frozen 3 s of every 3.7 s cycle, +0.35 on average between freezes.
   const fight = (critChance: number) => {

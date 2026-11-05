@@ -84,6 +84,8 @@ export interface EnemyData {
   pools: HealthPool[];
   /** True when Toxin damage bypasses this enemy's shields. */
   toxinBypassesShields: boolean;
+  /** A boss (wiki categories Boss, Boss Enemies): at most 4 Cold stacks, never frozen. */
+  boss?: boolean;
 }
 
 /** Weapon stat block: unmodded values used as the engine's input. */

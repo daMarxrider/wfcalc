@@ -659,8 +659,27 @@ function healthClassFor(name: string, faction: string | null): string {
   return HEALTH_CLASS[faction ?? ''] ?? 'Object';
 }
 
+/** Wiki boss pages whose enemies the data names differently (phases, pack members). */
+const BOSS_ALIASES: Record<string, string[]> = {
+  'Lieutenant Lech Kril': ['Lt Lech Kril'],
+  'J3-Golem': ['J3 Jordas Golem'],
+  'Hyena Pack': ['The Hyena Pack', 'Hyena Ln2', 'Hyena Ng', 'Hyena Pb', 'Hyena Th'],
+  Raptors: ['The Raptor', 'Raptor Mt', 'Raptor Ns', 'Raptor Rv', 'Raptor Rx'],
+  'Councilor Vay Hek': ['Vay Hek Terra Frame'],
+};
+
+/** Enemy names that are bosses: the wiki's boss categories (subpages and "(Boss)" suffixes off) plus aliases. */
+function bossNames(): Set<string> {
+  const titles = ['wiki-bosses.json', 'wiki-boss-enemies.json'].flatMap((file) => readJson(file) as string[]);
+  return new Set(titles.filter((title) => !title.includes('/')).flatMap((title) => {
+    const name = title.replace(/ \((Boss|Enemy)\)$/, '');
+    return [name, ...(BOSS_ALIASES[name] ?? [])];
+  }));
+}
+
 function buildEnemies(healthTypes: Record<string, HealthPool['category']>): Record<string, EnemyData> {
   const out: Record<string, EnemyData> = {};
+  const bosses = bossNames();
   for (const enemy of readJson('wfcd-Enemy.json')) {
     const name = String(enemy.name ?? '').trim();
     if (!name || out[name]) continue;
@@ -690,9 +709,10 @@ function buildEnemies(healthTypes: Record<string, HealthPool['category']>): Reco
       pools,
       // Treasurer and Hounds are documented exceptions to Toxin's shield bypass.
       toxinBypassesShields: !/^(Treasurer|Hound)$/i.test(name),
+      ...(bosses.has(name) ? { boss: true } : {}),
     };
   }
-  console.log(`enemies: ${Object.keys(out).length}`);
+  console.log(`enemies: ${Object.keys(out).length} (${Object.values(out).filter((enemy) => enemy.boss).length} bosses)`);
   return out;
 }
 
