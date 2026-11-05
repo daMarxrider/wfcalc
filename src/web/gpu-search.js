@@ -377,7 +377,7 @@ function scoreState(params, A, B, order, plain, killSpacing) {
 
   // 1 / seconds to kill with the target's state `at` seconds in, the trigger at `firing` x the
   // sustained pull rate (damage.ts hitOnce in steady mode: withSteadyCrit, steadyStatusDebuffs).
-  const killRate = (at, firing, beam) => {
+  const layerDps = (at, firing, beam) => {
     const stacks = (rate, life, cap) => (steady ? Math.min(cap, rate * within(at, life)) : 0);
     const rateAt = (t, chance, pCrit) => multishot * pulls * (chance * (damage[t] / total) + forcedOf(t, pCrit));
     const pCrit0 = Math.min(1, crit0);
@@ -472,36 +472,24 @@ function scoreState(params, A, B, order, plain, killSpacing) {
     const healthDps = health * fired + dotDps;
     const shieldDps = shield * fired + dotShield;
     const overguardDps = overguard * guardCrit * multishot * faction * pulls * firing * beam;
-    let seconds = 0;
-    if (params[P.overguard] > 0) {
-      if (!(overguardDps > 0)) return 0;
-      seconds += params[P.overguard] / overguardDps;
-    }
-    let remaining = params[P.health];
-    if (params[P.shield] > 0 && shieldDps > 0) {
-      const shieldSeconds = params[P.shield] / shieldDps;
-      seconds += shieldSeconds;
-      remaining = Math.max(0, remaining - shieldSeconds * bypass * fired);
-    } else if (params[P.shield] > 0) {
-      // The shields never break: only shield-bypassing damage reaches health (damage.ts hitOnce).
-      if (!(bypass * fired > 0)) return 0;
-      seconds += remaining / (bypass * fired);
-      remaining = 0;
-    }
-    if (remaining > 0) {
-      if (!(healthDps > 0)) return 0;
-      seconds += remaining / healthDps;
-    }
-    return seconds > 0 ? 1 / seconds : 0;
+    return [overguardDps, shieldDps, healthDps, bypass * fired];
   };
 
   // Kill progress summed over time steps, as damage.ts fightLengthHit does.
-  const full = killRate(Infinity, 1, beamShare(Infinity));
-  if (!steady || !(full > 0)) return full;
+  let pools = [params[P.overguard], params[P.shield], params[P.health]];
+  const pooled = pools[0] + pools[1] + pools[2];
+  const full = layerDps(Infinity, 1, beamShare(Infinity));
+  const killTime = spendLayers([...pools], Infinity, full);
+  if (!(killTime > 0)) return 0;
+  if (!steady) return 1 / killTime;
   // Kills per minute (damage.ts killRate): pulls per second over the pulls the kill took, so a
   // kill inside the first magazine does not get the reloads' credit 1 / seconds would give it.
   const finish = (seconds) => (params[P.kpm] > 0 ? pulls / firedBy(seconds) : 1 / seconds);
-  const progress = (a, b) => (b - a) * killRate((a + b) / 2, (firedBy(b) - firedBy(a)) / ((b - a) * pulls), beamShare(a, b));
+  let after = pools;
+  const progress = (a, b) => {
+    after = [...pools];
+    return spendLayers(after, b - a, layerDps((a + b) / 2, (firedBy(b) - firedBy(a)) / ((b - a) * pulls), beamShare(a, b)));
+  };
   // A refreshing Heat chain keeps growing: with Heat, step to the kill (damage.ts fightLengthHit).
   const heatChain = status * damage[T.heat] > 0 || S[CH['forced:impact'] + T.heat] + S[CH['forcedCrit:impact'] + T.heat] > 0
     || arcaneExtra(params, (t) => multishot * pulls * status * (damage[t] / total), status, multishot, pulls, duration)[T.heat] > 0;
@@ -514,22 +502,47 @@ function scoreState(params, A, B, order, plain, killSpacing) {
     return cycles * cycle + (p - cycles * magazine) / fireRate;
   };
   let t = 0;
-  let done = 0;
-  const first = Math.min(1 / full / 4, settled / 8);
+  const first = Math.min(killTime / 4, settled / 8);
   let step = first;
   for (let i = 0; i < 48 && t < settled; i++) {
     let next = Math.min(settled, t + Math.min(step, Math.max(first, t)), breaks.find((x) => x > t + 1e-9) ?? Infinity);
-    let area = progress(t, next);
-    for (let k = 0; k < 4 && done + area > 1 + 1e-3; k++) {
-      next = t + ((next - t) * (1 - done)) / area;
-      area = progress(t, next);
+    let kill = progress(t, next);
+    for (let k = 0; k < 4 && kill !== null && kill < (next - t) * (1 - 1e-3); k++) {
+      next = t + kill;
+      kill = progress(t, next);
     }
-    if (done + area >= 1 - 1e-3) return finish(next);
-    done += area;
+    if (kill !== null) return finish(t + kill);
+    pools = after;
+    if (pools[0] + pools[1] + pools[2] <= 1e-3 * pooled) return finish(next);
     t = next;
     step *= 1.6;
   }
-  return finish(secondsToFire(firedBy(t) + ((1 - done) / full) * pulls));
+  return finish(secondsToFire(firedBy(t) + (spendLayers(pools, Infinity, full) ?? Infinity) * pulls));
+}
+
+/**
+ * Spends `seconds` at the rates [overguard, shield, health, bypass] on the pools [overguard,
+ * shield, health] in order (damage.ts spendLayers): the kill's seconds into it, or null with the
+ * pools reduced in place.
+ */
+function spendLayers(pools, seconds, rates) {
+  let used = 0;
+  for (let layer = 0; layer < 3; layer++) {
+    if (!(pools[layer] > 0)) continue;
+    const need = rates[layer] > 0 ? pools[layer] / rates[layer] : Infinity;
+    const left = Math.min(need, seconds - used);
+    if (layer === 1 && rates[3] > 0) {
+      if (pools[2] / rates[3] <= left) return used + pools[2] / rates[3];
+      pools[2] -= left * rates[3];
+    }
+    if (!(rates[layer] > 0 && need <= seconds - used)) {
+      if (rates[layer] > 0) pools[layer] -= left * rates[layer];
+      return null;
+    }
+    pools[layer] = 0;
+    used += need;
+  }
+  return used;
 }
 
 /** n choose k as a float (exact below 2^53). */
@@ -581,7 +594,7 @@ export function cpuSearch(model, limit = model.keep) {
 
 /**
  * The damage model in WGSL, shared by both searches; layout constants baked in. `unroll` writes
- * killRate's two loops out per type: 1.7x faster on hardware GPUs in Chromium and Firefox, but
+ * layerDps's two loops out per type: 1.7x faster on hardware GPUs in Chromium and Firefox, but
  * SwiftShader's compiler needs over 5 GB for it, so software adapters get the loops.
  */
 function scoringWgsl(unroll) {
@@ -816,8 +829,13 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   kRestart = max(kBeamStart, 1.0 - (1.0 - kBeamStart) * max(0.0, pause - ${BEAM_DECAY_DELAY.toFixed(2)}) / ${BEAM_DECAY_TIME.toFixed(2)});
 
   // Kill progress summed over time steps, as damage.ts fightLengthHit does.
-  let full = killRate(0.0, 1.0, true, beamShare(0.0, 0.0, true));
-  if (!kSteady || !(full > 0.0)) { return full; }
+  let start = vec3<f32>(params[${P.overguard}u], params[${P.shield}u], params[${P.health}u]);
+  let pooled = start.x + start.y + start.z;
+  let full = layerDps(0.0, 1.0, true, beamShare(0.0, 0.0, true));
+  kPools = start;
+  let killTime = spendLayers(1e30, full);
+  if (!(killTime > 0.0)) { return 0.0; }
+  if (!kSteady) { return 1.0 / killTime; }
   var settled = 8.0 * kDuration + 1.5;
   // A refreshing Heat chain keeps growing: with Heat, step to the kill (JS heatChain).
   // Encumber can proc Heat; Debilitate does on Gas, Blast or Radiation procs.
@@ -825,23 +843,25 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   if (kStatus * dmg[${T.heat}u] > 0.0 || S[${CH['forced:impact']}u + ${T.heat}u] + S[${CH['forcedCrit:impact']}u + ${T.heat}u] > 0.0
     || (params[${P.encumber}u] > 0.0 && kStatus > 0.0) || debilitateHeat) { settled = 1e30; }
   var t = 0.0;
-  var done = 0.0;
-  let first = min(1.0 / full / 4.0, settled / 8.0);
+  var pools = start;
+  let first = min(killTime / 4.0, settled / 8.0);
   var step = first;
   // The JS loop with its inner shrink loop, flattened: progress has one call site, since the
-  // compiler copies it (and killRate inside) per call site.
+  // compiler copies it (and layerDps inside) per call site. Each turn spends the step on a copy.
   var next = min(min(settled, t + min(step, max(first, t))), nextBreak(t));
   var steps = 0u;
   var shrinks = 0u;
   for (var turn = 0u; turn < 240u; turn++) {
-    let area = progress(t, next);
-    if (done + area > 1.001 && shrinks < 4u) {
-      next = t + (next - t) * (1.0 - done) / area;
+    kPools = pools;
+    let kill = progress(t, next);
+    if (kill >= 0.0 && kill < (next - t) * 0.999 && shrinks < 4u) {
+      next = t + kill;
       shrinks++;
       continue;
     }
-    if (done + area >= 0.999) { return finish(next); }
-    done += area;
+    if (kill >= 0.0) { return finish(t + kill); }
+    pools = kPools;
+    if (pools.x + pools.y + pools.z <= 1e-3 * pooled) { return finish(next); }
     t = next;
     step *= 1.6;
     steps++;
@@ -849,7 +869,10 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
     if (steps >= 48u || t >= settled) { break; }
     next = min(min(settled, t + min(step, max(first, t))), nextBreak(t));
   }
-  return finish(secondsToFire(firedBy(t) + (1.0 - done) / full * kPulls));
+  kPools = pools;
+  let rest = spendLayers(1e30, full);
+  if (rest < 0.0) { return 0.0; }
+  return finish(secondsToFire(firedBy(t) + rest * kPulls));
 }
 
 // Steps end where the state jumps: Heat's strip steps, the DoT delays, Blast's window (JS breaks).
@@ -920,6 +943,8 @@ var<private> kSeed: f32;
 var<private> kMagazine: f32;
 var<private> kBeamStart: f32;
 var<private> kRestart: f32;
+// The target's Overguard, shields and health still standing (spendLayers).
+var<private> kPools: vec3<f32>;
 
 // Pulls fired in the first s seconds: a magazine at the fire rate, then the reload (damage.ts pullsBy).
 fn firedBy(s: f32) -> f32 {
@@ -971,12 +996,12 @@ fn rateAt(t: u32, chance: f32, pCrit: f32) -> f32 {
   return kMultishot * kPulls * (chance * (dmg[t] / kTotal) + S[${CH['forcedCrit:impact']}u + t] * pCrit + S[${CH['forced:impact']}u + t]);
 }
 fn progress(a: f32, b: f32) -> f32 {
-  return (b - a) * killRate((a + b) / 2.0, (firedBy(b) - firedBy(a)) / ((b - a) * kPulls), false, beamShare(a, b, false));
+  return spendLayers(b - a, layerDps((a + b) / 2.0, (firedBy(b) - firedBy(a)) / ((b - a) * kPulls), false, beamShare(a, b, false)));
 }
 
-// 1 / seconds to kill with the target's state at seconds in (inf: settled), the trigger at firing x
-// the sustained pull rate (the JS killRate in scoreOrder).
-fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
+// Damage per second on each layer (overguard, shield, health, bypass) with the target's state at
+// seconds in (inf: settled), the trigger at firing x the sustained pull rate (the JS layerDps).
+fn layerDps(at: f32, firing: f32, inf: bool, beam: f32) -> vec4<f32> {
   let d = kDuration;
   let pCrit0 = min(1.0, kCrit0);
   // Encumber and Debilitate procs before the build-up (JS extra0), then with it (JS extra): one
@@ -995,12 +1020,12 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
     chance = kStatus * (1.0 + min(1.0, 0.1 * tau));
     pCrit = min(1.0, kCrit0 + 0.05 * puncture);
   }
-  // A boss takes at most 4 Cold stacks and never freezes (JS killRate).
+  // A boss takes at most 4 Cold stacks and never freezes (JS layerDps).
   let boss = params[${P.boss}u] > 0.0;
   let cold = stacksAt(coldRate, 6.0 * d, select(1e30, 4.0, boss), at, inf);
   let crit = kCrit0 + 0.05 * puncture;
   let critDamage = max(1.0, kCritMods + coldCrit(cold, coldRate, d, !boss));
-  // On Overguard only Cold lands: at most 4 stacks, no freeze, no Puncture (JS killRate).
+  // On Overguard only Cold lands: at most 4 stacks, no freeze, no Puncture (JS layerDps).
   let guardCritDamage = max(1.0, kCritMods + coldCrit(stacksAt(coldRate, 6.0 * d, 4.0, at, inf), coldRate, d, false));
   var guardPerTier = guardCritDamage - 1.0;
   if (kHead && params[${P.critHeadshot}u] > 0.0) { guardPerTier = 2.0 * guardCritDamage - 1.0; }
@@ -1011,7 +1036,7 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
   var critOnCrit = 1.0 + perTier;
   if (pCrit > 0.0) { critOnCrit = (averageCrit - (1.0 - pCrit)) / pCrit; }
   let viral = viralMul(max(params[${P.viralFloor}u], stacksAt(rateAt(${T.viral}u, chance, pCrit) + extraProc[${T.viral}u], 6.0 * d, 10.0, at, inf)));
-  // Magnetic amplifies damage to shields and Overguard (JS killRate).
+  // Magnetic amplifies damage to shields and Overguard (JS layerDps).
   let magnetic = viralMul(stacksAt(rateAt(${T.magnetic}u, chance, pCrit) + extraProc[${T.magnetic}u], 6.0 * d, 10.0, at, inf));
   let corrosive = max(params[${P.corrosiveFloor}u], stacksAt(rateAt(${T.corrosive}u, chance, pCrit) + extraProc[${T.corrosive}u], 8.0 * d, params[${P.corrosiveCap}u], at, inf));
   var ramp = 0.5;
@@ -1075,7 +1100,7 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
     if (ticks == 0.0) { ticks = max(1.0, floor(6.0 * d + 1e-6)); }
     let procs = natural + forcedPlain + forcedCrit;
     if (t == ${T.heat}u && kSteady && !inf) {
-      // A refreshing Heat chain ticks every stack it has once 1 s old (JS killRate).
+      // A refreshing Heat chain ticks every stack it has once 1 s old (JS layerDps).
       let windowed = procs * within(at, span, false);
       var heatStacks = 0.0;
       if (at >= dotDelay[e]) { heatStacks = windowed + (1.0 - exp(-windowed)) * (procs * within(at, at, false) - windowed); }
@@ -1098,28 +1123,30 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
   let healthDps = health * fired + dotDps;
   let shieldDps = shield * fired + dotShield;
   let overguardDps = overguard * guardCrit * kMultishot * kFaction * kPulls * firing * beam;
-  var seconds = 0.0;
-  if (params[${P.overguard}u] > 0.0) {
-    if (!(overguardDps > 0.0)) { return 0.0; }
-    seconds += params[${P.overguard}u] / overguardDps;
+  return vec4<f32>(overguardDps, shieldDps, healthDps, bypass * fired);
+}
+
+// Spends seconds at the rates (overguard, shield, health, bypass) on kPools in order (JS
+// spendLayers): the kill's seconds into it, or -1 with kPools reduced.
+fn spendLayers(seconds: f32, r: vec4<f32>) -> f32 {
+  var used = 0.0;
+  for (var layer = 0u; layer < 3u; layer++) {
+    if (!(kPools[layer] > 0.0)) { continue; }
+    var need = 1e30;
+    if (r[layer] > 0.0) { need = kPools[layer] / r[layer]; }
+    let left = min(need, seconds - used);
+    if (layer == 1u && r.w > 0.0) {
+      if (kPools.z / r.w <= left) { return used + kPools.z / r.w; }
+      kPools.z -= left * r.w;
+    }
+    if (!(r[layer] > 0.0 && need <= seconds - used)) {
+      if (r[layer] > 0.0) { kPools[layer] -= left * r[layer]; }
+      return -1.0;
+    }
+    kPools[layer] = 0.0;
+    used += need;
   }
-  var remaining = params[${P.health}u];
-  if (params[${P.shield}u] > 0.0 && shieldDps > 0.0) {
-    let shieldSeconds = params[${P.shield}u] / shieldDps;
-    seconds += shieldSeconds;
-    remaining = max(0.0, remaining - shieldSeconds * bypass * fired);
-  } else if (params[${P.shield}u] > 0.0) {
-    // The shields never break: only shield-bypassing damage reaches health (JS killRate).
-    if (!(bypass * fired > 0.0)) { return 0.0; }
-    seconds += remaining / (bypass * fired);
-    remaining = 0.0;
-  }
-  if (remaining > 0.0) {
-    if (!(healthDps > 0.0)) { return 0.0; }
-    seconds += remaining / healthDps;
-  }
-  if (seconds > 0.0) { return 1.0 / seconds; }
-  return 0.0;
+  return used;
 }
 
 // The best score over every order of the distinct elements in mask (at most 4! = 24).
