@@ -12,6 +12,7 @@ import { effectiveArmor } from './dot.ts';
 import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
 import { rivenAsMod, type RivenSpec } from './riven.ts';
+import { beamStart } from './simulate.ts';
 import { BASE_ELEMENTS, DAMAGE_TYPES, type Snapshot } from '../types.ts';
 import { AMMO_FIELDS, AMMO_SLOTS, CH, CHANNELS, P, STRIDE, binomial } from '../web/gpu-search.js';
 
@@ -171,6 +172,8 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   });
   params[P.killBuffs] = ammoSlots.some((buff) => buff.trigger === 'weakPointKill') ? 1 : 0;
   params[P.cryogenic] = zero.cryogenicStacks ?? 0;
+  // A held beam's starting share of full damage (simulate.ts), 0 for anything else.
+  params[P.beamStart] = beamStart(zero) ?? 0;
   params[P.madurai] = zero.bonusTotals.maduraiPhysical ?? 0;
   params[P.comboFactor] = Math.max(0, zero.comboMultiplier - 1);
   // The player's strips are fixed; Corrosive and Heat build up per combination, in the shader.
