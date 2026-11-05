@@ -311,7 +311,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   if (options.steadyStatus && options.at === undefined) return fightLengthHit(snapshot, build, scaled, options);
   // Overguard takes only Cold (at most 4 stacks), so its layer gets a crit of its own.
   const overguardBuild = options.steadyStatus && scaled.overguard > 0 ? withSteadyCrit(build, options.at ?? Infinity, true) : null;
-  if (options.steadyStatus) build = withSteadyCrit(build, options.at ?? Infinity);
+  if (options.steadyStatus) build = withSteadyCrit(build, options.at ?? Infinity, false, scaled.enemy.boss === true);
   const warnings: string[] = [];
   const armor = scaled.pools.find((pool) => pool.category === 'armor');
   const shields = scaled.pools.filter((pool) => pool.category === 'shield');
@@ -676,9 +676,9 @@ function stacksAt(build: ResolvedBuild, procs: number, life: number, cap: number
  * stack, to the crit multiplier (+0.5 at 9, 6 s; Cryogenic adds stacks per Puncture proc); Tau
  * +10% status chance per stack (10, 8 s). Ten Cold procs in a window freeze the target: +1.0 for
  * 3 s, then 3 stacks back and 7 more procs to the next freeze. On Overguard only Cold lands, at
- * most 4 stacks and no freeze (simulate.ts).
+ * most 4 stacks and no freeze (simulate.ts); a boss takes all statuses but Cold to 4, no freeze.
  */
-function withSteadyCrit(build: ResolvedBuild, seconds: number, overguard = false): ResolvedBuild {
+function withSteadyCrit(build: ResolvedBuild, seconds: number, overguard = false, boss = false): ResolvedBuild {
   const pulls = sustainedPulls(build);
   const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
   const rates = procRates(build, pulls, hitProfile(build, null).critChance);
@@ -688,13 +688,13 @@ function withSteadyCrit(build: ResolvedBuild, seconds: number, overguard = false
   const puncture = overguard ? 0 : stacksAt(build, rate('puncture'), 10 * duration, 5, seconds);
   // Cryogenic's Cold per Puncture proc is in `extra` already (arcaneProcRates).
   const coldRate = rate('cold');
-  const cold = stacksAt(build, coldRate, 6 * duration, overguard ? COLD_OVERGUARD_CAP : Infinity, seconds);
+  const cold = stacksAt(build, coldRate, 6 * duration, overguard || boss ? COLD_OVERGUARD_CAP : Infinity, seconds);
   const tau = overguard ? 0 : stacksAt(build, rate('tau'), 8 * duration, 10, seconds);
   if (puncture <= 0 && cold <= 0 && tau <= 0) return build;
   return {
     ...build,
     critChance: build.critChance + 0.05 * puncture,
-    critMultiplier: build.critMultiplier + coldCritBonus(cold, coldRate, duration, !overguard),
+    critMultiplier: build.critMultiplier + coldCritBonus(cold, coldRate, duration, !overguard && !boss),
     statusChance: build.statusChance * (1 + Math.min(1, 0.1 * tau)),
   };
 }
@@ -711,7 +711,7 @@ function coldCritBonus(procs: number, rate: number, duration: number, canFreeze:
   return frozen + (1 - frozen) * 0.35;
 }
 
-/** Cold stacks an Overguarded target takes (simulate.ts COLD_OVERGUARD_CAP). */
+/** Cold stacks an Overguarded target or a boss takes (simulate.ts COLD_OVERGUARD_CAP). */
 const COLD_OVERGUARD_CAP = 4;
 
 /** Heat's armour strip rises by these every 0.5 s of the chain, to 50% (simulate.ts). */

@@ -94,6 +94,7 @@ test('GPU pre-filter reloads shell by shell like the exact ranking (Strun with P
 const mirrored: Array<[string, Record<string, unknown>]> = [
   ['Cold freeze', { weapon: 'Glaxion Vandal', enemy: 'Heavy Gunner', requireStatus: ['cold'] }],
   ['Cold on Overguard', { weapon: 'Glaxion Vandal', enemy: 'Heavy Gunner', overguard: 50_000, requireStatus: ['cold'] }],
+  ['Cold on a boss', { weapon: 'Glaxion Vandal', enemy: 'Phorid', requireStatus: ['cold'] }],
   ['beam ramp in a short fight', { weapon: 'Glaxion', enemy: 'Charger', requireStatus: ['cold'] }],
   ['Heat ramp steps (Soma Prime)', { weapon: 'Soma Prime', enemy: 'Bombard' }],
   ['Secondary Cryogenic', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { arcanes: ['Secondary Cryogenic'] } }],

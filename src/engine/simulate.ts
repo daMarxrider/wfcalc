@@ -85,7 +85,7 @@ const COLD_FREEZE_STACKS = 10;
 const COLD_FREEZE_SECONDS = 3;
 const COLD_FROZEN_BONUS = 1;
 const COLD_AFTER_FREEZE = 3;
-/** Bosses and Overguarded enemies take at most 4 Cold stacks. */
+/** Bosses and Overguarded enemies take at most 4 Cold stacks (wiki: Damage/Cold Damage), so never freeze. */
 const COLD_OVERGUARD_CAP = 4;
 /** Magnetic on shield/Overguard break: 3% of the pool's maximum per stack, as Electricity over 6 s. */
 const MAGNETIC_BREAK_SHARE = 0.03;
@@ -296,6 +296,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   const iPuncture = stackIndex.get('puncture')!;
   const iTau = stackIndex.get('tau')!;
   const iElectricity = tickIndex.get('electricity')!;
+  const boss = scaled.enemy.boss === true;
   // Cold's freeze: until when the target is frozen (null: not frozen).
   let frozenUntil: number | null = null;
   // Electricity damage per tick from a Magnetic break proc, put on the next step's ticks.
@@ -421,13 +422,13 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   while (t < maxSeconds) {
     // ---- target state at the start of this step
     const immune = overguard > 0;
-    const stacks = (i: number): number => Math.min(i === iCold && immune ? COLD_OVERGUARD_CAP : stackCaps[i], stackWindows[i].total);
+    const stacks = (i: number): number => Math.min(i === iCold && (immune || boss) ? COLD_OVERGUARD_CAP : stackCaps[i], stackWindows[i].total);
     // The 10th Cold stack freezes the target; the stacks are spent and 3 come back afterwards.
     if (frozenUntil !== null && t >= frozenUntil) {
       frozenUntil = null;
       stackWindows[iCold].put(step, COLD_AFTER_FREEZE);
     }
-    if (frozenUntil === null && !immune && stackWindows[iCold].total >= COLD_FREEZE_STACKS) {
+    if (frozenUntil === null && !immune && !boss && stackWindows[iCold].total >= COLD_FREEZE_STACKS) {
       frozenUntil = t + COLD_FREEZE_SECONDS * durationScale;
       stackWindows[iCold].clear();
     }
