@@ -677,6 +677,50 @@ function bossNames(): Set<string> {
   }));
 }
 
+/** Wiki enemy modules (Module:Enemies/data/<faction>) and the faction key and health class their enemies get. */
+const WIKI_ENEMY_MODULES: Array<[file: string, faction: string, healthClass: string]> = [
+  ['module-enemies-scaldra.lua', 'scaldra', 'Scaldra'],
+  ['module-enemies-techrot.lua', 'techrot', 'Techrot'],
+  ['module-enemies-themurmur.lua', 'murmur', 'The Murmur'],
+  ['module-enemies-anarchs.lua', 'anarchs', 'Anarchs'],
+  ['module-enemies-corpus.lua', 'corpus', 'Corpus'],
+];
+/** From the Corpus module only these: the other wiki-only Corpus rows are mission copies of WFCD enemies. */
+const WIKI_CORPUS_ENEMIES = new Set(['Treasurer']);
+
+/**
+ * Enemies from the wiki's enemy modules that WFCD does not export, keyed by the module's row name
+ * (unique where two rows share a display name, "Techrot Babau (Temporal Archimedea Survival)").
+ * Pools are generic (Flesh, Shield, Armor): since Damage 3.0 only the health class matters.
+ */
+function wikiEnemies(known: Set<string>): EnemyData[] {
+  const out: EnemyData[] = [];
+  for (const [file, faction, healthClass] of WIKI_ENEMY_MODULES) {
+    if (!existsSync(join(RAW, file))) continue;
+    const rows = parseLuaModule(readFileSync(join(RAW, file), 'utf8')) as Record<string, any>;
+    for (const [key, row] of Object.entries(rows)) {
+      const stats = row?.Stats ?? {};
+      if (known.has(key.trim()) || known.has(String(row?.General?.Name ?? '')) || !(Number(stats.Health) > 0)) continue;
+      if (faction === 'corpus' && !WIKI_CORPUS_ENEMIES.has(key.trim())) continue;
+      // The same unit in two factions (H-09 Apex: Scaldra and Techrot) keeps the second as "H-09 Apex (Techrot)".
+      const name = out.some((enemy) => enemy.name === key.trim()) ? `${key.trim()} (${healthClass})` : key.trim();
+      const amount = (value: unknown) => Math.max(0, Number(value ?? 0) || 0);
+      const pools: HealthPool[] = [
+        ...(amount(stats.Shield) > 0 ? [{ type: 'Shield', category: 'shield' as const, amount: amount(stats.Shield) }] : []),
+        ...(amount(stats.Armor) > 0 ? [{ type: 'Armor', category: 'armor' as const, amount: amount(stats.Armor) }] : []),
+        { type: 'Flesh', category: 'health', amount: amount(stats.Health) },
+      ];
+      out.push({
+        id: name, name, faction, healthClass, kind: String(row?.General?.Faction ?? '') || null,
+        baseLevel: Math.max(1, Number(stats.BaseLevel) || 1),
+        health: amount(stats.Health), shield: amount(stats.Shield), armor: amount(stats.Armor), pools,
+        toxinBypassesShields: !/^(Treasurer|Hound)$/i.test(name),
+      });
+    }
+  }
+  return out;
+}
+
 function buildEnemies(healthTypes: Record<string, HealthPool['category']>): Record<string, EnemyData> {
   const out: Record<string, EnemyData> = {};
   const bosses = bossNames();
@@ -712,6 +756,12 @@ function buildEnemies(healthTypes: Record<string, HealthPool['category']>): Reco
       ...(bosses.has(name) ? { boss: true } : {}),
     };
   }
+  const fromWiki = wikiEnemies(new Set(Object.keys(out)));
+  for (const enemy of fromWiki) {
+    const boss = bosses.has(enemy.name.replace(/ \((Scaldra|Techrot|The Murmur|Anarchs|Corpus)\)$/, ''));
+    out[enemy.name] = { ...enemy, ...(boss ? { boss: true } : {}) };
+  }
+  console.log(`enemies from the wiki modules: ${fromWiki.length}`);
   console.log(`enemies: ${Object.keys(out).length} (${Object.values(out).filter((enemy) => enemy.boss).length} bosses)`);
   return out;
 }

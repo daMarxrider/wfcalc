@@ -10,7 +10,7 @@ const NEGATIVE = 1.2 * 0.75 * 1.1;
 const LABELS: Record<string, string[]> = {
   'Ammo Maximum': ['Ammo Maximum'],
   'Faction Damage': ['Damage vs. Corpus', 'Damage vs. Grineer', 'Damage vs. Infested', 'Damage vs. Murmur', 'Damage vs. Sentient'],
-  'Faction Damage (spliced)': ['Damage vs. Orokin'],
+  'Faction Damage (spliced)': ['Damage vs. Orokin', 'Damage vs. Scaldra', 'Damage vs. Techrot'],
   'Elemental Damage': ['Cold Damage', 'Electricity Damage', 'Heat Damage', 'Toxin Damage'],
   'Combined Elemental Damage': ['Blast Damage', 'Corrosive Damage', 'Gas Damage', 'Magnetic Damage', 'Radiation Damage', 'Viral Damage'],
   'Physical Damage': ['Impact Damage', 'Puncture Damage', 'Slash Damage'],
