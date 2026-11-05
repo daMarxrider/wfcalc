@@ -78,3 +78,14 @@ test('exact passes started together each get their own builds', async () => {
   assert.deepEqual(names(together), names(await soma()));
   assert.deepEqual(names(alsoTogether), names(await hek()));
 });
+
+test('GPU pre-filter reloads shell by shell like the exact ranking (Strun with Primed Ammo Stock)', () => {
+  const request = { weapon: 'Strun', enemy: 'Bombard', level: 150, pool: 30, limit: 1, workers: 1, simulate: false, objective: 'kpm' as const };
+  const model = gpuModel(snapshot, request, 150);
+  const mods = ['Primed Ammo Stock', 'Primed Tactical Pump', 'Primed Point Blank', "Hell's Chamber", 'Blaze', 'Toxic Barrage', 'Incendiary Coat', 'Shell Shock'];
+  const combo = mods.map((name) => model.candidates.indexOf(name)).sort((a, b) => a - b);
+  assert.ok(!combo.includes(-1), 'all mods are candidates');
+  const exact = scoreCombinations(snapshot, gpuPlan(snapshot, request), [combo.map((i) => model.candidates[i])], 1).top[0];
+  const ratio = (60 * proxyScore(model, combo)) / exact.score;
+  assert.ok(ratio > 0.99 && ratio < 1.01, `proxy/exact kills per minute ${ratio}`);
+});

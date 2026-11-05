@@ -32,5 +32,12 @@
       "oracle": 0.8,
       "evidence": "Semi-Shotgun Cannonade's text is 'Fire Rate cannot be modified', so Critical Deceleration's -20% must not apply. The oracle applies the penalty for shotguns but blocks it for rifles (Latron Prime build 464476), contradicting itself on its own rule. Given two oracles errors already proven in game (Ocucor, Phantasma Prime) and Acceltra's per-shot artefact, our reading of the mod text is the better evidence."
     }
+  },
+  "Felarx": {
+    "reloadTime": {
+      "ours": 3.7,
+      "oracle": 6.5,
+      "evidence": "Felarx reloads shell by shell. The wiki page gives 0.8s to start, 0.5s to end and 0.4s per shell, so 3.7s for its 6 shells, and the Public Export, WFCD and the wiki weapon module all list 3.7s. Overframe's 6.5s matches none of them."
+    }
   }
 }

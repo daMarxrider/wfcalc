@@ -12,7 +12,7 @@
  * Only the fields the export defines for the primary attack are touched: the damage
  * distribution, crit chance and multiplier, status chance, fire rate, multishot, magazine,
  * reload and Mastery Rank. data/weapon-overrides.json wins over the export: the verified
- * corrections of known export quirks (Felarx's per-shell reload, Fulmin Prime's magazine).
+ * corrections of known export quirks (Fulmin Prime's magazine).
  * The export's `omegaAttenuation` (1.2 everywhere) is not read: disposition is retired, and
  * riven.ts uses the flat 1.2 itself.
  * Non-positive values (a charge weapon's `fireRate: 0`) are never applied.
