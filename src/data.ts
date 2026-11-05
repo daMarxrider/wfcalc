@@ -36,6 +36,13 @@ interface LookupOptions {
   limit?: number;
 }
 
+/** The exact or normalised name only, no partial match: for builds, where a typo must not pick another item. */
+export function byExactName<T extends { name: string }>(items: Record<string, T>, name: string): T | undefined {
+  if (items[name]) return items[name];
+  const wanted = normalizeName(name);
+  return wanted ? Object.values(items).find((item) => normalizeName(item.name) === wanted) : undefined;
+}
+
 /** Generic fuzzy lookup over a name-keyed record. */
 export function findByName<T extends { name: string }>(
   items: Record<string, T>,
@@ -44,11 +51,8 @@ export function findByName<T extends { name: string }>(
 ): { item: T | null; suggestions: string[] } {
   const wanted = normalizeName(query);
   if (!wanted) return { item: null, suggestions: [] }; // empty query matches nothing
-  if (items[query]) return { item: items[query], suggestions: [] };
-
-  for (const item of Object.values(items)) {
-    if (normalizeName(item.name) === wanted) return { item, suggestions: [] };
-  }
+  const exact = byExactName(items, query);
+  if (exact) return { item: exact, suggestions: [] };
   // Prefix / substring matches, shortest name first (so "lex" finds "Lex" before "Lex Prime").
   const partial = Object.values(items)
     .filter((item) => normalizeName(item.name).includes(wanted))
