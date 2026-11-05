@@ -13,7 +13,7 @@
  *
  * Run: node tools/build-data.ts
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseLuaModule } from './parse-lua.ts';
 import { parseRivenStats } from './lib/riven-stats.ts';
@@ -38,6 +38,7 @@ import {
 const ROOT = new URL('..', import.meta.url).pathname;
 const RAW = join(ROOT, 'data/raw');
 const OUT = join(ROOT, 'data/snapshot.json');
+const PREVIOUS = join(ROOT, 'data/snapshot.prev.json');
 
 type Loose = Record<string, any>;
 
@@ -945,6 +946,9 @@ function main(): void {
   };
 
   mkdirSync(join(ROOT, 'data'), { recursive: true });
+  // tools/guard-snapshot.ts compares against this and restores it; a leftover one is from a run
+  // that died before the guard, so it still holds the last good snapshot
+  if (existsSync(OUT) && !existsSync(PREVIOUS)) copyFileSync(OUT, PREVIOUS);
   writeFileSync(OUT, JSON.stringify(snapshot));
   writeFileSync(join(ROOT, 'docs/unmatched-mods.txt'), unmatched.join('\n').replace(/\t/g, ' | ') + '\n');
 
