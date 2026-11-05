@@ -59,7 +59,7 @@ export const P = (() => {
   field('timedSeconds'); field('timedFireRate'); field('kpm');
   field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
   field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
-  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate');
+  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate'); field('boss');
   layout.size = at;
   return layout;
 })();
@@ -379,10 +379,12 @@ function scoreState(params, A, B, order, plain, killSpacing) {
     const puncture = stacks(rateAt(T.puncture, status, pCrit0) + extra0[T.puncture], 10 * duration, 5);
     // Secondary Cryogenic: Cold stacks per Puncture proc.
     const coldRate = rateAt(T.cold, status, pCrit0) + extra0[T.cold] + params[P.cryogenic] * (rateAt(T.puncture, status, pCrit0) + extra0[T.puncture]);
-    const cold = stacks(coldRate, 6 * duration, Infinity);
+    // A boss takes at most 4 Cold stacks and never freezes (damage.ts withSteadyCrit).
+    const boss = params[P.boss] > 0;
+    const cold = stacks(coldRate, 6 * duration, boss ? 4 : Infinity);
     const tau = stacks(rateAt(T.tau, status, pCrit0), 8 * duration, 10);
     const crit = crit0 + 0.05 * puncture;
-    const critDamage = Math.max(1, critMods + coldBonus(cold, coldRate, duration, true));
+    const critDamage = Math.max(1, critMods + coldBonus(cold, coldRate, duration, !boss));
     const chance = status * (1 + Math.min(1, 0.1 * tau));
     const perTier = head && params[P.critHeadshot] > 0 ? 2 * critDamage - 1 : critDamage - 1;
     const averageCrit = 1 + (crit + Math.min(1, crit) * tier) * perTier;
@@ -967,9 +969,11 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
     chance = kStatus * (1.0 + min(1.0, 0.1 * tau));
     pCrit = min(1.0, kCrit0 + 0.05 * puncture);
   }
-  let cold = stacksAt(coldRate, 6.0 * d, 1e30, at, inf);
+  // A boss takes at most 4 Cold stacks and never freezes (JS killRate).
+  let boss = params[${P.boss}u] > 0.0;
+  let cold = stacksAt(coldRate, 6.0 * d, select(1e30, 4.0, boss), at, inf);
   let crit = kCrit0 + 0.05 * puncture;
-  let critDamage = max(1.0, kCritMods + coldCrit(cold, coldRate, d, true));
+  let critDamage = max(1.0, kCritMods + coldCrit(cold, coldRate, d, !boss));
   // On Overguard only Cold lands: at most 4 stacks, no freeze, no Puncture (JS killRate).
   let guardCritDamage = max(1.0, kCritMods + coldCrit(stacksAt(coldRate, 6.0 * d, 4.0, at, inf), coldRate, d, false));
   var guardPerTier = guardCritDamage - 1.0;

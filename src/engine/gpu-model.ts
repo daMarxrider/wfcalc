@@ -173,6 +173,7 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   params[P.killBuffs] = ammoSlots.some((buff) => buff.trigger === 'weakPointKill') ? 1 : 0;
   params[P.cryogenic] = zero.cryogenicStacks ?? 0;
   params[P.encumber] = zero.encumberChance ?? 0;
+  params[P.boss] = enemy.boss ? 1 : 0;
   params[P.debilitate] = zero.debilitateChance ?? 0;
   // A held beam's starting share of full damage (simulate.ts), 0 for anything else.
   params[P.beamStart] = beamStart(zero) ?? 0;

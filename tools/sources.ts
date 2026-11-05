@@ -44,4 +44,7 @@ export const WIKI_PAGE_SOURCES: Array<[page: string, file: string]> = [
 /** Wiki categories: the wiki is the only source that says which mods are Exilus-only. */
 export const WIKI_CATEGORY_SOURCES: Array<[category: string, file: string]> = [
   ['Exilus Weapon Mods', 'wiki-exilus-mods.json'],
+  // Bosses take at most 4 Cold stacks and never freeze (wiki: Damage/Cold Damage).
+  ['Boss', 'wiki-bosses.json'],
+  ['Boss Enemies', 'wiki-boss-enemies.json'],
 ];
