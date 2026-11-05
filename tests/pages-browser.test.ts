@@ -16,7 +16,7 @@ import { handleApi } from '../src/api.ts';
 
 // Ubuntu 24.04 runners block the user namespaces Chrome's sandbox needs.
 const CI_FLAGS = process.env.CI ? ['--no-sandbox'] : [];
-const browser = [process.env.WFCALC_BROWSER, 'brave', 'chromium', 'google-chrome-stable', 'google-chrome']
+const browser = [process.env.WFCALC_BROWSER, 'brave', 'google-chrome-stable', 'google-chrome', 'chromium']
   .filter((name): name is string => Boolean(name))
   .find((name) => spawnSync('which', [name]).status === 0);
 
@@ -29,7 +29,7 @@ async function evaluate(port: number, url: string, expression: string): Promise<
     try { targets = ((await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as any[]).filter((t: any) => t.type === 'page'); }
     catch { await new Promise((r) => setTimeout(r, 100)); }
   }
-  if (!targets.length) throw new Error('the browser exposed no page (did it start?)');
+  if (!targets.length) throw new Error(`${browser} exposed no page (did it start?)`);
   const socket = new WebSocket(targets[0].webSocketDebuggerUrl);
   await new Promise((resolve) => socket.addEventListener('open', resolve));
   let id = 0;
