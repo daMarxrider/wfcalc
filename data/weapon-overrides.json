@@ -8,10 +8,6 @@
     "note": "Export magazineSize is 8; Overframe reports 80, i.e. the export is a factor 10 short.",
     "magazineSize": 80
   },
-  "Felarx": {
-    "note": "Felarx reloads shell by shell: the export gives the per-shell time (3.7s), Overframe the full empty reload (6.5s). Sustained DPS needs the latter.",
-    "reloadTime": 6.5
-  },
   "Grimoire": {
     "note": "Export has no magazineSize and a 2s reloadTime; Overframe reports 10 rounds and a negligible reload.",
     "magazineSize": 10,
