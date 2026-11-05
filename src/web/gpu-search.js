@@ -9,8 +9,8 @@
  *
  * Every mod is a vector of additive channels, valued by the engine itself at 1 and 2 status types
  * (A + B x status types), so ranks, conditions, stacks and bow doubling are the engine's.
- * Left out of the model (the exact pass still has them): quantization, attenuation caps, Primed
- * Debilitate, Encumber, proc damage, conversions, spool-up, the shot-by-shot simulation.
+ * Left out of the model (the exact pass still has them): quantization, attenuation caps, proc
+ * damage, conversions, spool-up, the shot-by-shot simulation.
  */
 
 export const DAMAGE_TYPES = ['impact', 'puncture', 'slash', 'heat', 'cold', 'electricity', 'toxin', 'blast',
@@ -59,7 +59,7 @@ export const P = (() => {
   field('timedSeconds'); field('timedFireRate'); field('kpm');
   field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
   field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
-  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart');
+  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate');
   layout.size = at;
   return layout;
 })();
@@ -86,6 +86,45 @@ const BEAM_DECAY_TIME = 2;
 const BEAM_CYCLES = 64;
 /** Heat's armour strip rises by these every 0.5 s of the chain (damage.ts HEAT_RAMP_STEPS). */
 const HEAT_RAMP = [0.15, 0.15, 0.1, 0.1];
+
+/** Chance a Poisson count with this mean is 10 or more (dot.ts atLeastTen). */
+function atLeastTen(mean) {
+  if (!(mean > 0)) return 0;
+  let term = Math.exp(-mean);
+  let below = term;
+  for (let i = 1; i < 10; i++) { term *= mean / i; below += term; }
+  return Math.max(0, 1 - below);
+}
+
+/** Combined statuses Primed Debilitate splits: [combined, part, part, seconds a stack lasts] (dot.ts COMBINED_PARTS). */
+const DEBILITATE = [[T.viral, T.cold, T.toxin, 6], [T.corrosive, T.electricity, T.toxin, 8], [T.magnetic, T.cold, T.electricity, 6],
+  [T.gas, T.heat, T.toxin, 6], [T.blast, T.heat, T.cold, 1.5], [T.radiation, T.heat, T.electricity, 12]];
+/** Statuses Secondary Encumber picks from: every type up to Viral (dot.ts ENCUMBER_TYPES). */
+const ENCUMBER_COUNT = T.viral + 1;
+
+/**
+ * Procs per second Encumber and Primed Debilitate add on top of `rateOf` (dot.ts arcaneProcRates):
+ * Encumber at most one random status per pull, Debilitate a base status on combined procs that
+ * land on 10+ stacks.
+ */
+function arcaneExtra(params, rateOf, chance, multishot, pulls, duration) {
+  const extra = new Array(16).fill(0);
+  const encumber = Math.min(1, params[P.encumber]);
+  if (encumber > 0 && chance > 0) {
+    const each = (pulls * (1 - Math.pow(1 - encumber * Math.min(1, chance), Math.max(1, multishot)))) / ENCUMBER_COUNT;
+    for (let t = 0; t < ENCUMBER_COUNT; t++) extra[t] = each;
+  }
+  const debilitate = Math.min(1, params[P.debilitate]);
+  if (debilitate > 0) {
+    for (const [combined, a, b, seconds] of DEBILITATE) {
+      const rate = rateOf(combined) + extra[combined];
+      const added = (rate * debilitate * atLeastTen(rate * seconds * duration)) / 2;
+      extra[a] += added;
+      extra[b] += added;
+    }
+  }
+  return extra;
+}
 
 /** Cold's crit multiplier bonus, freeze cycle included (damage.ts coldCritBonus). */
 function coldBonus(procs, rate, duration, canFreeze) {
@@ -335,9 +374,11 @@ function scoreState(params, A, B, order, plain, killSpacing) {
     const stacks = (rate, life, cap) => (steady ? Math.min(cap, rate * within(at, life)) : 0);
     const rateAt = (t, chance, pCrit) => multishot * pulls * (chance * (damage[t] / total) + forcedOf(t, pCrit));
     const pCrit0 = Math.min(1, crit0);
-    const puncture = stacks(rateAt(T.puncture, status, pCrit0), 10 * duration, 5);
+    // Encumber and Debilitate procs, at the crit and status before the build-up (damage.ts withSteadyCrit).
+    const extra0 = arcaneExtra(params, (t) => rateAt(t, status, pCrit0), status, multishot, pulls, duration);
+    const puncture = stacks(rateAt(T.puncture, status, pCrit0) + extra0[T.puncture], 10 * duration, 5);
     // Secondary Cryogenic: Cold stacks per Puncture proc.
-    const coldRate = rateAt(T.cold, status, pCrit0) + params[P.cryogenic] * rateAt(T.puncture, status, pCrit0);
+    const coldRate = rateAt(T.cold, status, pCrit0) + extra0[T.cold] + params[P.cryogenic] * (rateAt(T.puncture, status, pCrit0) + extra0[T.puncture]);
     const cold = stacks(coldRate, 6 * duration, Infinity);
     const tau = stacks(rateAt(T.tau, status, pCrit0), 8 * duration, 10);
     const crit = crit0 + 0.05 * puncture;
@@ -351,7 +392,9 @@ function scoreState(params, A, B, order, plain, killSpacing) {
     const guardCrit = 1 + (crit0 + Math.min(1, crit0) * tier) * guardPerTier;
     const pCrit = Math.min(1, crit);
     const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;
-    const rate = (t) => rateAt(t, chance, pCrit);
+    // With the build-up's crit and status (damage.ts steadyStatusDebuffs, computeDot).
+    const extra = arcaneExtra(params, (t) => rateAt(t, chance, pCrit), chance, multishot, pulls, duration);
+    const rate = (t) => rateAt(t, chance, pCrit) + extra[t];
     const viral = viralMultiplier(Math.max(params[P.viralFloor], stacks(rate(T.viral), 6 * duration, 10)));
     const corrosive = Math.max(params[P.corrosiveFloor], stacks(rate(T.corrosive), 8 * duration, params[P.corrosiveCap]));
     const ramp = at === Infinity ? 0.5 : HEAT_RAMP.reduce((sum, rise, i) => sum + (at >= 0.5 * (i + 1) * duration ? rise : 0), 0);
@@ -383,8 +426,8 @@ function scoreState(params, A, B, order, plain, killSpacing) {
       const share = damage[t] / total;
       const forcedCrit = multishot * pulls * S[CH['forcedCrit:impact'] + t] * pCrit;
       const forcedPlain = multishot * pulls * S[CH['forced:impact'] + t];
-      if (!(share > 0) && forcedCrit + forcedPlain <= 0) continue;
-      const natural = chance * share * multishot * pulls;
+      if (!(share > 0) && forcedCrit + forcedPlain + extra[t] <= 0) continue;
+      const natural = chance * share * multishot * pulls + extra[t];
       const weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
       const elemental = t >= T.heat && t <= T.toxin ? S[4 + t] : 0;
       const typeBonus = t === T.toxin ? 1 + params[P.toxinStatusBonus] : 1;
@@ -443,7 +486,8 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   const finish = (seconds) => (params[P.kpm] > 0 ? pulls / firedBy(seconds) : 1 / seconds);
   const progress = (a, b) => (b - a) * killRate((a + b) / 2, (firedBy(b) - firedBy(a)) / ((b - a) * pulls), beamShare(a, b));
   // A refreshing Heat chain keeps growing: with Heat, step to the kill (damage.ts fightLengthHit).
-  const heatChain = status * damage[T.heat] > 0 || S[CH['forced:impact'] + T.heat] + S[CH['forcedCrit:impact'] + T.heat] > 0;
+  const heatChain = status * damage[T.heat] > 0 || S[CH['forced:impact'] + T.heat] + S[CH['forcedCrit:impact'] + T.heat] > 0
+    || arcaneExtra(params, (t) => multishot * pulls * status * (damage[t] / total), status, multishot, pulls, duration)[T.heat] > 0;
   const settled = heatChain ? Infinity : 8 * duration + 1.5;
   // Steps end where the state jumps (damage.ts fightLengthHit).
   const breaks = [0.5 * duration, duration, 1.5 * duration, 2 * duration, 1, 1.5, 1.75].sort((x, y) => x - y);
@@ -748,7 +792,10 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   if (!kSteady || !(full > 0.0)) { return full; }
   var settled = 8.0 * kDuration + 1.5;
   // A refreshing Heat chain keeps growing: with Heat, step to the kill (JS heatChain).
-  if (kStatus * dmg[${T.heat}u] > 0.0 || S[${CH['forced:impact']}u + ${T.heat}u] + S[${CH['forcedCrit:impact']}u + ${T.heat}u] > 0.0) { settled = 1e30; }
+  // Encumber can proc Heat; Debilitate does on Gas, Blast or Radiation procs.
+  let debilitateHeat = params[${P.debilitate}u] > 0.0 && kStatus * (dmg[${T.gas}u] + dmg[${T.blast}u] + dmg[${T.radiation}u]) > 0.0;
+  if (kStatus * dmg[${T.heat}u] > 0.0 || S[${CH['forced:impact']}u + ${T.heat}u] + S[${CH['forcedCrit:impact']}u + ${T.heat}u] > 0.0
+    || (params[${P.encumber}u] > 0.0 && kStatus > 0.0) || debilitateHeat) { settled = 1e30; }
   var t = 0.0;
   var done = 0.0;
   let first = min(1.0 / full / 4.0, settled / 8.0);
@@ -861,6 +908,37 @@ fn stacksAt(rate: f32, life: f32, cap: f32, at: f32, inf: bool) -> f32 {
   if (!kSteady) { return 0.0; }
   return min(cap, rate * within(at, life, inf));
 }
+var<private> extraProc: array<f32, 16>;
+fn atLeastTen(mean: f32) -> f32 {
+  if (!(mean > 0.0)) { return 0.0; }
+  var term = exp(-mean);
+  var below = term;
+  for (var i = 1u; i < 10u; i++) { term *= mean / f32(i); below += term; }
+  return max(0.0, 1.0 - below);
+}
+var<private> DEB_TYPES: array<u32, ${DEBILITATE.length * 3}> = array<u32, ${DEBILITATE.length * 3}>(${DEBILITATE.flatMap(([c, a, b]) => [c, a, b]).map((v) => `${v}u`).join(', ')});
+var<private> DEB_SECONDS: array<f32, ${DEBILITATE.length}> = array<f32, ${DEBILITATE.length}>(${DEBILITATE.map(([, , , sec]) => sec.toFixed(1)).join(', ')});
+// Encumber and Primed Debilitate procs per second into extraProc (JS arcaneExtra).
+fn arcaneExtra(chance: f32, pCrit: f32) {
+  for (var t = 0u; t < 16u; t++) { extraProc[t] = 0.0; }
+  let encumber = min(1.0, params[${P.encumber}u]);
+  if (encumber > 0.0 && chance > 0.0) {
+    let miss = 1.0 - encumber * min(1.0, chance);
+    var perPull = 1.0;
+    if (miss > 0.0) { perPull = 1.0 - pow(miss, max(1.0, kMultishot)); }
+    for (var t = 0u; t < ${ENCUMBER_COUNT}u; t++) { extraProc[t] = kPulls * perPull / ${ENCUMBER_COUNT}.0; }
+  }
+  let debilitate = min(1.0, params[${P.debilitate}u]);
+  if (debilitate > 0.0) {
+    for (var j = 0u; j < ${DEBILITATE.length}u; j++) {
+      let combined = DEB_TYPES[3u * j];
+      let rate = rateAt(combined, chance, pCrit) + extraProc[combined];
+      let added = rate * debilitate * atLeastTen(rate * DEB_SECONDS[j] * kDuration) / 2.0;
+      extraProc[DEB_TYPES[3u * j + 1u]] += added;
+      extraProc[DEB_TYPES[3u * j + 2u]] += added;
+    }
+  }
+}
 fn rateAt(t: u32, chance: f32, pCrit: f32) -> f32 {
   return kMultishot * kPulls * (chance * (dmg[t] / kTotal) + S[${CH['forcedCrit:impact']}u + t] * pCrit + S[${CH['forced:impact']}u + t]);
 }
@@ -873,10 +951,23 @@ fn progress(a: f32, b: f32) -> f32 {
 fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
   let d = kDuration;
   let pCrit0 = min(1.0, kCrit0);
-  let puncture = stacksAt(rateAt(${T.puncture}u, kStatus, pCrit0), 10.0 * d, 5.0, at, inf);
-  let coldRate = rateAt(${T.cold}u, kStatus, pCrit0) + params[${P.cryogenic}u] * rateAt(${T.puncture}u, kStatus, pCrit0);
+  // Encumber and Debilitate procs before the build-up (JS extra0), then with it (JS extra): one
+  // call site in a loop, since the compiler copies a function per call site.
+  var puncture = 0.0;
+  var coldRate = 0.0;
+  var tau = 0.0;
+  var chance = kStatus;
+  var pCrit = pCrit0;
+  for (var round2 = 0u; round2 < 2u; round2++) {
+    arcaneExtra(chance, pCrit);
+    if (round2 == 1u) { break; }
+    puncture = stacksAt(rateAt(${T.puncture}u, kStatus, pCrit0) + extraProc[${T.puncture}u], 10.0 * d, 5.0, at, inf);
+    coldRate = rateAt(${T.cold}u, kStatus, pCrit0) + extraProc[${T.cold}u] + params[${P.cryogenic}u] * (rateAt(${T.puncture}u, kStatus, pCrit0) + extraProc[${T.puncture}u]);
+    tau = stacksAt(rateAt(${T.tau}u, kStatus, pCrit0), 8.0 * d, 10.0, at, inf);
+    chance = kStatus * (1.0 + min(1.0, 0.1 * tau));
+    pCrit = min(1.0, kCrit0 + 0.05 * puncture);
+  }
   let cold = stacksAt(coldRate, 6.0 * d, 1e30, at, inf);
-  let tau = stacksAt(rateAt(${T.tau}u, kStatus, pCrit0), 8.0 * d, 10.0, at, inf);
   let crit = kCrit0 + 0.05 * puncture;
   let critDamage = max(1.0, kCritMods + coldCrit(cold, coldRate, d, true));
   // On Overguard only Cold lands: at most 4 stacks, no freeze, no Puncture (JS killRate).
@@ -884,20 +975,18 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
   var guardPerTier = guardCritDamage - 1.0;
   if (kHead && params[${P.critHeadshot}u] > 0.0) { guardPerTier = 2.0 * guardCritDamage - 1.0; }
   let guardCrit = 1.0 + (kCrit0 + min(1.0, kCrit0) * kTier) * guardPerTier;
-  let chance = kStatus * (1.0 + min(1.0, 0.1 * tau));
   var perTier = critDamage - 1.0;
   if (kHead && params[${P.critHeadshot}u] > 0.0) { perTier = 2.0 * critDamage - 1.0; }
   let averageCrit = 1.0 + (crit + min(1.0, crit) * kTier) * perTier;
-  let pCrit = min(1.0, crit);
   var critOnCrit = 1.0 + perTier;
   if (pCrit > 0.0) { critOnCrit = (averageCrit - (1.0 - pCrit)) / pCrit; }
-  let viral = viralMul(max(params[${P.viralFloor}u], stacksAt(rateAt(${T.viral}u, chance, pCrit), 6.0 * d, 10.0, at, inf)));
-  let corrosive = max(params[${P.corrosiveFloor}u], stacksAt(rateAt(${T.corrosive}u, chance, pCrit), 8.0 * d, params[${P.corrosiveCap}u], at, inf));
+  let viral = viralMul(max(params[${P.viralFloor}u], stacksAt(rateAt(${T.viral}u, chance, pCrit) + extraProc[${T.viral}u], 6.0 * d, 10.0, at, inf)));
+  let corrosive = max(params[${P.corrosiveFloor}u], stacksAt(rateAt(${T.corrosive}u, chance, pCrit) + extraProc[${T.corrosive}u], 8.0 * d, params[${P.corrosiveCap}u], at, inf));
   var ramp = 0.5;
   if (!inf) {
     ramp = select(0.0, 0.15, at >= 0.5 * d) + select(0.0, 0.15, at >= 1.0 * d) + select(0.0, 0.1, at >= 1.5 * d) + select(0.0, 0.1, at >= 2.0 * d);
   }
-  let heat = ramp * (1.0 - exp(-stacksAt(rateAt(${T.heat}u, chance, pCrit), 6.0 * d, 1e30, at, inf)));
+  let heat = ramp * (1.0 - exp(-stacksAt(rateAt(${T.heat}u, chance, pCrit) + extraProc[${T.heat}u], 6.0 * d, 1e30, at, inf)));
   let armored = params[${P.armored}u] > 0.0;
   var dr = 0.0;
   if (armored) { dr = armorDr(params[${P.armor}u] * corrMul(corrosive) * (1.0 - heat)); }
@@ -931,8 +1020,8 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
     let share = dmg[t] / kTotal;
     let forcedCrit = kMultishot * kPulls * S[${CH['forcedCrit:impact']}u + t] * pCrit;
     let forcedPlain = kMultishot * kPulls * S[${CH['forced:impact']}u + t];
-    if (!(!(share > 0.0) && forcedCrit + forcedPlain <= 0.0)) {
-    let natural = chance * share * kMultishot * kPulls;
+    if (!(!(share > 0.0) && forcedCrit + forcedPlain + extraProc[t] <= 0.0)) {
+    let natural = chance * share * kMultishot * kPulls + extraProc[t];
     let weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
     var elemental = 0.0;
     if (t >= ${T.heat}u && t <= ${T.toxin}u) { elemental = S[4u + t]; }
