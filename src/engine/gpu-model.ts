@@ -13,7 +13,7 @@ import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
 import { rivenAsMod, type RivenSpec } from './riven.ts';
 import { BASE_ELEMENTS, DAMAGE_TYPES, type Snapshot } from '../types.ts';
-import { CH, CHANNELS, P, STRIDE, binomial } from '../web/gpu-search.js';
+import { AMMO_FIELDS, AMMO_SLOTS, CH, CHANNELS, P, STRIDE, binomial } from '../web/gpu-search.js';
 
 export interface GpuModel {
   candidates: string[];
@@ -147,13 +147,31 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   params[P.reloadTime] = zero.shellReload ? zero.shellReload.delay : stats.reloadTime ?? 0;
   params[P.reloadPerShell] = zero.shellReload?.perShell ?? 0;
   params[P.shellMagazine] = stats.magazineSize ?? 1;
-  // Ammo Efficiency from the fixed part of the build (arcanes, Incarnon, riven, buffs) stretches the magazine.
-  params[P.magazineSize] = (stats.magazineSize ?? 1) / Math.max(1e-6, zero.ammo.cost);
   // A timed trait buff (Athodai's Overdrive) is in the fixed part: the shader blends it by uptime.
   const plain = zero.timedBuff?.off;
   params[P.timedSeconds] = plain ? zero.timedBuff!.seconds : 0;
   params[P.timedFireRate] = plain ? (zero.bonusTotals.fireRate ?? 0) - (plain.bonusTotals.fireRate ?? 0) : 0;
-  params[P.plainMagazine] = (stats.magazineSize ?? 1) / Math.max(1e-6, (plain ?? zero).ammo.cost);
+  // Ammo (ammo.ts): the fixed part's Ammo Efficiency, its multiplicative sources (Overdrive's
+  // Infinite Ammo is one, gone in the plain state) and its timed buffs.
+  const scale = (multipliers: number[]) => multipliers.reduce((cost, value) => cost * (1 - Math.min(1, value)), 1);
+  params[P.ammoEfficiency] = zero.ammo.efficiency;
+  params[P.ammoScale] = scale(zero.ammo.multipliers);
+  params[P.plainAmmoScale] = scale((plain ?? zero).ammo.multipliers);
+  const buffs = zero.ammo.buffs;
+  // shortcut: the first AMMO_SLOTS timed buffs only (no build has more today); a bigger table if one does.
+  const ammoSlots = buffs.slice(0, AMMO_SLOTS);
+  ammoSlots.forEach((buff, i) => {
+    const at = P.ammoBuffs + i * AMMO_FIELDS;
+    params[at] = buff.chance;
+    params[at + 1] = buff.seconds;
+    params[at + 2] = buff.refresh ? 1 : 0;
+    params[at + 3] = buff.efficiency;
+    params[at + 4] = buff.every ?? 1;
+    params[at + 5] = buff.trigger === 'weakPointKill' ? 1 : 0;
+  });
+  params[P.killBuffs] = ammoSlots.some((buff) => buff.trigger === 'weakPointKill') ? 1 : 0;
+  params[P.cryogenic] = zero.cryogenicStacks ?? 0;
+  params[P.madurai] = zero.bonusTotals.maduraiPhysical ?? 0;
   params[P.comboFactor] = Math.max(0, zero.comboMultiplier - 1);
   // The player's strips are fixed; Corrosive and Heat build up per combination, in the shader.
   params[P.armor] = effectiveArmor(scaled.armor, { ...zero.debuffs, armorBase: armorPool?.amount, corrosiveStacks: 0, heatStrip: 0 });
