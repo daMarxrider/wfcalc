@@ -757,10 +757,12 @@ function buildEnemies(healthTypes: Record<string, HealthPool['category']>): Reco
     };
   }
   const fromWiki = wikiEnemies(new Set(Object.keys(out)));
+  // Treasurer (wiki): shields with 99% damage reduction that Toxin and True damage neither hurt nor bypass.
   for (const enemy of fromWiki) {
     const boss = bosses.has(enemy.name.replace(/ \((Scaldra|Techrot|The Murmur|Anarchs|Corpus)\)$/, ''));
     out[enemy.name] = { ...enemy, ...(boss ? { boss: true } : {}) };
   }
+  if (out.Treasurer) Object.assign(out.Treasurer, { shieldDamageReduction: 0.99, shieldIgnores: ['toxin', 'true'] });
   console.log(`enemies from the wiki modules: ${fromWiki.length}`);
   console.log(`enemies: ${Object.keys(out).length} (${Object.values(out).filter((enemy) => enemy.boss).length} bosses)`);
   return out;
