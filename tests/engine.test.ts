@@ -1427,6 +1427,38 @@ test('simulation: the 10th Cold stack freezes the target at +1.0 crit multiplier
   assert.ok(ratio > 2.7 && ratio <= 3, `crit gain ${ratio}`);
 });
 
+test('Treasurer-style shields: 99% damage reduction, Toxin and True do nothing to them (wiki: Treasurer)', () => {
+  const vault: EnemyData = {
+    ...dummy, id: 'Vault', name: 'Vault', health: 100, shield: 1000, toxinBypassesShields: false,
+    pools: [{ type: 'Shield', category: 'shield', amount: 1000 }, { type: 'Flesh', category: 'health', amount: 100 }],
+    shieldDamageReduction: 0.99, shieldIgnores: ['toxin', 'true'],
+  };
+  const plain: EnemyData = { ...vault, id: 'Plain', name: 'Plain', shieldDamageReduction: 0, shieldIgnores: [] };
+  const fight = (enemy: EnemyData, stats: Record<string, number>, mode: 'simulate' | 'steadyStatus') => {
+    const snap = snapshot([weapon({ statusChance: 0, fireRate: 10, magazineSize: 1000, ...stats })], [], [enemy]);
+    return hitEnemy(snap, build(snap, []), scaleEnemy(snap, enemy, 1), { [mode]: true }).timeToKill;
+  };
+  for (const mode of ['simulate', 'steadyStatus'] as const) {
+    const toxin = fight(vault, { toxin: 50 }, mode);
+    assert.ok(toxin === null || toxin > 3600, `${mode}: Toxin never breaks the shields (${toxin})`);
+    assert.ok(fight(plain, { toxin: 50 }, mode)! < 10, `${mode}: ordinary shields take Toxin`);
+  }
+  // Shields 1000 at 1% of 500 dps, then 100 health at 500 dps: 200.2 s, not 2.2 s.
+  close(fight(vault, { impact: 50 }, 'simulate')!, 200.2, 0.5);
+});
+
+test('the ranking estimate amplifies shield damage with Magnetic stacks, like the simulation', () => {
+  const shielded: EnemyData = {
+    ...dummy, id: 'Shielded', name: 'Shielded', health: 1000, shield: 200_000, toxinBypassesShields: false,
+    pools: [{ type: 'Shield', category: 'shield', amount: 200_000 }, { type: 'Flesh', category: 'health', amount: 1000 }],
+  };
+  const snap = snapshot([weapon({ magnetic: 100, statusChance: 1, fireRate: 10, magazineSize: 1000 })], [], [shielded]);
+  const fight = (mode: 'simulate' | 'steadyStatus') => hitEnemy(snap, build(snap, []), scaleEnemy(snap, shielded, 1), { [mode]: true }).timeToKill!;
+  // 10 Magnetic stacks: +325% to shields, so ~4.25x faster than the 200 s without them.
+  assert.ok(fight('steadyStatus') < 60, `estimate ${fight('steadyStatus')}`);
+  assert.ok(Math.abs(fight('steadyStatus') / fight('simulate') - 1) < 0.05, `estimate ${fight('steadyStatus')}, simulation ${fight('simulate')}`);
+});
+
 test('bosses take at most 4 Cold stacks and never freeze (wiki: Cold Damage)', () => {
   const boss: EnemyData = { ...dummy, id: 'Boss', name: 'Boss', boss: true };
   const fight = (enemy: EnemyData, critChance: number, mode: 'simulate' | 'steadyStatus') => {

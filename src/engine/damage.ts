@@ -13,7 +13,7 @@ import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import { resolveBuild, type Build, type ResolvedBuild } from './build.ts';
 import { arcaneBuildUp } from './arcanes.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { arcaneProcRates, atLeastTen, computeDot, procRates, pullsBy, sustainedPulls, effectiveArmor, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
+import { arcaneProcRates, atLeastTen, computeDot, procRates, pullsBy, shieldTakes, sustainedPulls, effectiveArmor, TICK_DAMAGE_TYPE, viralMultiplier, type DotContext, type DotEntry } from './dot.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import { hitProfile, type HitProfile } from './hit.ts';
 import { AMMO_EFFICIENCY_CAP, ammoBuffUptime, expectedAmmoCost } from './ammo.ts';
@@ -339,6 +339,8 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   const debuffs: DotContext = { ...build.debuffs, armorBase: armor?.amount };
   if (options.steadyStatus) Object.assign(debuffs, steadyStatusDebuffs(build, options.at));
   const viral = viralMultiplier(debuffs.viralStacks ?? 0);
+  // Magnetic amplifies damage to shields and Overguard the way Viral does health (simulate.ts).
+  const magnetic = viralMultiplier(debuffs.magneticStacks ?? 0);
   const armorAfterStatus = effectiveArmor(scaled.armor, debuffs);
 
   const breakdown: TypeBreakdown[] = [];
@@ -362,12 +364,12 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
     const toHealth = Math.max(landed * (1 + healthMod) * (1 - dr) * viral, armorFloor);
 
     // Overguard is a health class of its own: Void +50%, neutral to everything else, no
-    // armour, and not bypassed by Toxin. Magnetic's status amplification is not modelled.
-    perProjectileOverguard += landed * (1 + healthModifier(snapshot, type, 'Overguard')) * (build.overguardDamageMultiplier ?? 1);
+    // armour, and not bypassed by Toxin; Magnetic stacks amplify it.
+    perProjectileOverguard += landed * (1 + healthModifier(snapshot, type, 'Overguard')) * (build.overguardDamageMultiplier ?? 1) * magnetic;
 
     const shieldMod = healthModifier(snapshot, type, healthClass);
     const bypassesShield = type === 'toxin' && scaled.enemy.toxinBypassesShields;
-    const toShield = shieldType && !bypassesShield ? landed * (1 + shieldMod) : 0;
+    const toShield = shieldType && !bypassesShield ? landed * (1 + shieldMod) * shieldTakes(scaled.enemy, type) * magnetic : 0;
 
     breakdown.push({
       type,
@@ -402,7 +404,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
       const amount = build.procDamage * chance * shots * factionMultiplier;
       const modifier = 1 + healthModifier(snapshot, type, healthClass);
       procHealth += amount * modifier * (1 - dr) * viral;
-      if (shieldType && !(type === 'toxin' && scaled.enemy.toxinBypassesShields)) procShield += amount * modifier;
+      if (shieldType && !(type === 'toxin' && scaled.enemy.toxinBypassesShields)) procShield += amount * modifier * shieldTakes(scaled.enemy, type) * magnetic;
     }
   }
   const damagePerShotShield = perProjectileShield * critMultiplier * shots * factionMultiplier + procShield;
@@ -437,7 +439,8 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   const dotDps = beam * dot.reduce((sum, entry) => sum + entry.dps, 0);
   // Ticks hit shields too, Slash included (U27.2); bypassing Toxin goes to health instead (not counted there).
   const dotShieldDps = shieldType
-    ? beam * dot.reduce((sum, entry) => sum + (entry.type === 'toxin' && scaled.enemy.toxinBypassesShields ? 0 : entry.shieldDps), 0)
+    ? beam * magnetic * dot.reduce((sum, entry) => sum + (entry.type === 'toxin' && scaled.enemy.toxinBypassesShields ? 0
+      : entry.shieldDps * shieldTakes(scaled.enemy, TICK_DAMAGE_TYPE[entry.type] ?? entry.type)), 0)
     : 0;
   const pullsPerSecond = sustainedPulls(build);
 
@@ -516,7 +519,10 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
       const bypassDps = bypassProjectile * critMultiplier * build.multishot * firePulls;
       remainingHealth = Math.max(0, remainingHealth - shieldSeconds * bypassDps);
     } else if (Number.isFinite(seconds) && remainingShield > 0) {
-      remainingShield = 0; // only shield-bypassing damage: shields never break, health still drops
+      // The shields never break: only shield-bypassing damage (Toxin) reaches health, if any.
+      const bypassDps = bypassProjectile * critMultiplier * build.multishot * firePulls;
+      seconds += bypassDps > 0 ? remainingHealth / bypassDps : Infinity;
+      remainingHealth = 0;
     }
     if (Number.isFinite(seconds) && remainingHealth > 0) {
       seconds += healthDps > 0 ? remainingHealth / healthDps : Infinity;
@@ -732,7 +738,7 @@ export function statusProcs(build: ResolvedBuild): Array<{ type: DamageType; pro
  * With a time into the fight, the state by then: stacks rise at the proc rate from 0, and Heat's
  * strip climbs 15/30/40/50% every 0.5 s (simulate.ts).
  */
-export function steadyStatusDebuffs(build: ResolvedBuild, seconds = Infinity): Pick<DotContext, 'viralStacks' | 'corrosiveStacks' | 'heatStrip'> {
+export function steadyStatusDebuffs(build: ResolvedBuild, seconds = Infinity): Pick<DotContext, 'viralStacks' | 'magneticStacks' | 'corrosiveStacks' | 'heatStrip'> {
   const pulls = sustainedPulls(build);
   const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
   const rates = procRates(build, pulls, hitProfile(build, null).critChance);
@@ -741,11 +747,13 @@ export function steadyStatusDebuffs(build: ResolvedBuild, seconds = Infinity): P
   const extra = arcaneProcRates(build, pulls, rate);
   const stacks = (procs: number, life: number, cap: number): number => stacksAt(build, procs, life, cap, seconds);
   const viral = stacks(rate('viral') + (extra.viral ?? 0), 6 * duration, 10);
+  const magnetic = stacks(rate('magnetic') + (extra.magnetic ?? 0), 6 * duration, 10);
   const corrosive = stacks(rate('corrosive') + (extra.corrosive ?? 0), 8 * duration, 10 + (build.corrosiveCapBonus ?? 0));
   const ramp = HEAT_RAMP_STEPS.reduce((sum, rise, i) => sum + rise * rampAt(seconds, 0.5 * (i + 1) * duration, 0), 0);
   const heat = ramp * (1 - Math.exp(-stacks(rate('heat') + (extra.heat ?? 0), 6 * duration, Infinity)));
   return {
     viralStacks: Math.max(viral, build.debuffs?.viralStacks ?? 0),
+    magneticStacks: magnetic,
     corrosiveStacks: Math.max(corrosive, build.debuffs?.corrosiveStacks ?? 0),
     heatStrip: heat,
   };

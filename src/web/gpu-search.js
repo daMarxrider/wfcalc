@@ -60,7 +60,7 @@ export const P = (() => {
   field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
   field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
   field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate'); field('boss');
-  field('quantize'); field('spoolSum');
+  field('quantize'); field('spoolSum'); field('shieldTakes', 16);
   layout.size = at;
   return layout;
 })();
@@ -405,6 +405,8 @@ function scoreState(params, A, B, order, plain, killSpacing) {
     const extra = arcaneExtra(params, (t) => rateAt(t, chance, pCrit), chance, multishot, pulls, duration);
     const rate = (t) => rateAt(t, chance, pCrit) + extra[t];
     const viral = viralMultiplier(Math.max(params[P.viralFloor], stacks(rate(T.viral), 6 * duration, 10)));
+    // Magnetic amplifies damage to shields and Overguard like Viral does health (damage.ts hitOnce).
+    const magnetic = viralMultiplier(stacks(rate(T.magnetic), 6 * duration, 10));
     const corrosive = Math.max(params[P.corrosiveFloor], stacks(rate(T.corrosive), 8 * duration, params[P.corrosiveCap]));
     const ramp = at === Infinity ? 0.5 : HEAT_RAMP.reduce((sum, rise, i) => sum + (at >= 0.5 * (i + 1) * duration ? rise : 0), 0);
     const heat = ramp * (1 - Math.exp(-stacks(rate(T.heat), 6 * duration, Infinity)));
@@ -421,9 +423,9 @@ function scoreState(params, A, B, order, plain, killSpacing) {
       const toHealth = Math.max(landed * (1 + params[P.healthMod + t]) * (1 - dr) * viral, armored ? 1 : 0);
       health += toHealth;
       const bypasses = t === T.toxin && params[P.toxinBypass] > 0;
-      if (params[P.shield] > 0 && !bypasses) shield += landed * (1 + params[P.healthMod + t]);
+      if (params[P.shield] > 0 && !bypasses) shield += landed * (1 + params[P.healthMod + t]) * params[P.shieldTakes + t] * magnetic;
       if (bypasses) bypass += toHealth;
-      overguard += landed * (1 + params[P.overguardMod + t]) * params[P.overguardMultiplier];
+      overguard += landed * (1 + params[P.overguardMod + t]) * params[P.overguardMultiplier] * magnetic;
     }
     const perShot = averageCrit * multishot * faction;
 
@@ -461,7 +463,8 @@ function scoreState(params, A, B, order, plain, killSpacing) {
       const plusOne = merged ? (1 - Math.exp(-active)) * scale : 0;
       const attacker = (weighted * raw * ticks * kept + plusOne) * toShield * landed;
       dotDps += attacker * toHealth * beam;
-      if (params[P.shield] > 0 && !(t === T.toxin && params[P.toxinBypass] > 0)) dotShield += attacker * beam;
+      // Slash ticks are True damage (dot.ts TICK_DAMAGE_TYPE).
+      if (params[P.shield] > 0 && !(t === T.toxin && params[P.toxinBypass] > 0)) dotShield += attacker * beam * magnetic * params[P.shieldTakes + (t === T.slash ? T.true : t)];
     }
 
     // Sequential kill: Overguard, then shields (Toxin chewing health meanwhile), then health.
@@ -479,6 +482,11 @@ function scoreState(params, A, B, order, plain, killSpacing) {
       const shieldSeconds = params[P.shield] / shieldDps;
       seconds += shieldSeconds;
       remaining = Math.max(0, remaining - shieldSeconds * bypass * fired);
+    } else if (params[P.shield] > 0) {
+      // The shields never break: only shield-bypassing damage reaches health (damage.ts hitOnce).
+      if (!(bypass * fired > 0)) return 0;
+      seconds += remaining / (bypass * fired);
+      remaining = 0;
     }
     if (remaining > 0) {
       if (!(healthDps > 0)) return 0;
@@ -1003,6 +1011,8 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
   var critOnCrit = 1.0 + perTier;
   if (pCrit > 0.0) { critOnCrit = (averageCrit - (1.0 - pCrit)) / pCrit; }
   let viral = viralMul(max(params[${P.viralFloor}u], stacksAt(rateAt(${T.viral}u, chance, pCrit) + extraProc[${T.viral}u], 6.0 * d, 10.0, at, inf)));
+  // Magnetic amplifies damage to shields and Overguard (JS killRate).
+  let magnetic = viralMul(stacksAt(rateAt(${T.magnetic}u, chance, pCrit) + extraProc[${T.magnetic}u], 6.0 * d, 10.0, at, inf));
   let corrosive = max(params[${P.corrosiveFloor}u], stacksAt(rateAt(${T.corrosive}u, chance, pCrit) + extraProc[${T.corrosive}u], 8.0 * d, params[${P.corrosiveCap}u], at, inf));
   var ramp = 0.5;
   if (!inf) {
@@ -1024,9 +1034,9 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
     let toHealth = max(landed * (1.0 + params[${P.healthMod}u + t]) * (1.0 - dr) * viral, minimum);
     health += toHealth;
     let bypasses = t == ${T.toxin}u && params[${P.toxinBypass}u] > 0.0;
-    if (params[${P.shield}u] > 0.0 && !bypasses) { shield += landed * (1.0 + params[${P.healthMod}u + t]); }
+    if (params[${P.shield}u] > 0.0 && !bypasses) { shield += landed * (1.0 + params[${P.healthMod}u + t]) * params[${P.shieldTakes}u + t] * magnetic; }
     if (bypasses) { bypass += toHealth; }
-    overguard += landed * (1.0 + params[${P.overguardMod}u + t]) * params[${P.overguardMultiplier}u];
+    overguard += landed * (1.0 + params[${P.overguardMod}u + t]) * params[${P.overguardMultiplier}u] * magnetic;
   }`)}
   let perShot = averageCrit * kMultishot * kFaction;
 
@@ -1079,7 +1089,9 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
     if (merged) { mergedOne = (1.0 - exp(-stacked)) * scale; }
     let landed = (weighted * rawTick * ticks * kept + mergedOne) * kZoneMul * (1.0 + hm) * landedShare;
     dotDps += landed * (1.0 - tdr) * viral * beam;
-    if (params[${P.shield}u] > 0.0 && !(t == ${T.toxin}u && params[${P.toxinBypass}u] > 0.0)) { dotShield += landed * beam; }
+    var tickType = t;
+    if (t == ${T.slash}u) { tickType = ${T.true}u; }
+    if (params[${P.shield}u] > 0.0 && !(t == ${T.toxin}u && params[${P.toxinBypass}u] > 0.0)) { dotShield += landed * beam * magnetic * params[${P.shieldTakes}u + tickType]; }
   }`)}
 
   let fired = perShot * kPulls * firing * beam;
@@ -1096,6 +1108,11 @@ fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
     let shieldSeconds = params[${P.shield}u] / shieldDps;
     seconds += shieldSeconds;
     remaining = max(0.0, remaining - shieldSeconds * bypass * fired);
+  } else if (params[${P.shield}u] > 0.0) {
+    // The shields never break: only shield-bypassing damage reaches health (JS killRate).
+    if (!(bypass * fired > 0.0)) { return 0.0; }
+    seconds += remaining / (bypass * fired);
+    remaining = 0.0;
   }
   if (remaining > 0.0) {
     if (!(healthDps > 0.0)) { return 0.0; }
