@@ -19,6 +19,8 @@ import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type
 import type { ModData, Snapshot, WeaponData } from '../types.ts';
 import { LOWER_IS_BETTER } from '../types.ts';
 import { modsForWeapon } from '../data.ts';
+import { rivenAsMod } from './riven.ts';
+import { InputError } from '../errors.ts';
 
 /** Effect axes that can change damage, and so are worth searching over. */
 export const DAMAGE_TARGETS = new Set([
@@ -301,6 +303,10 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   const base = assumedCombo ? { ...(request.base ?? {}), comboHits: 220 } : (request.base ?? {});
 
   const fitsWeapon = searchableMods(snapshot, weapon, excluded);
+  // A riven takes one of the eight slots and its card drain, as in brute force.
+  const rivenMod = base.riven ? rivenAsMod(base.riven) : null;
+  const slots = SEARCH_SLOTS - (rivenMod ? 1 : 0);
+  if (mustInclude.length > slots) throw new InputError(`too many fixed mods: ${mustInclude.length} (+${rivenMod ? 1 : 0} riven) for ${SEARCH_SLOTS} slots`, 'too_many_mods');
 
   const pool = new Map(fitsWeapon.map((mod) => [mod.name, mod]));
   for (const name of mustInclude) {
@@ -376,7 +382,8 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     const mods = names
       .map((name) => ({ mod: pool.get(name) ?? snapshot.mods[name], rank: (pool.get(name) ?? snapshot.mods[name])?.maxRank ?? 0 }))
       .filter((entry): entry is { mod: ModData; rank: number } => Boolean(entry.mod));
-    const result = fitMods(mods, weapon, capacity);
+    const fitted = fitMods(rivenMod ? [...mods, { mod: rivenMod, rank: 0 }] : mods, weapon, capacity);
+    const result = { ...fitted, entries: fitted.entries.filter((entry) => !rivenMod || entry.name !== rivenMod.name) };
     // Two mods of the same family cannot be equipped together: Pressure Point and Primed
     // Pressure Point are the classic pair, and the data carries the incompatibility list.
     const chosen = new Set(names);
@@ -391,7 +398,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     let score = evaluateOrder(names);
     const inUse = new Set(names);
 
-    while (names.length < SEARCH_SLOTS && evaluated < budget) {
+    while (names.length < slots && evaluated < budget) {
       let bestName: string | null = null;
       let bestScore = score;
       for (const { mod } of candidates) {
@@ -413,7 +420,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
       improved = false;
       let bestScore = score;
       let bestNames = names;
-      for (let slot = 0; slot < SEARCH_SLOTS; slot++) {
+      for (let slot = 0; slot < slots; slot++) {
         // A mod the player already has equipped is not the search's to remove.
         if (mustInclude.includes(names[slot] ?? '')) continue;
         for (const { mod } of candidates) {
@@ -586,7 +593,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
   // results that are genuinely different, so the player sees a real choice rather than clones.
   const builds: SearchBuild[] = [buildFrom(current)];
   const leaders = [...candidates]
-    .map(({ mod }) => ({ name: mod.name, score: evaluateOrder([...current.slice(0, SEARCH_SLOTS - 1), mod.name], true) }))
+    .map(({ mod }) => ({ name: mod.name, score: evaluateOrder([...current.slice(0, slots - 1), mod.name], true) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 4);
 
@@ -601,7 +608,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
       let bestName: string | null = null;
       let bestScore = variantScore;
       for (const { mod } of candidates) {
-        if (variant.length >= SEARCH_SLOTS) break;
+        if (variant.length >= slots) break;
         if (seen.has(mod.name) || mod.name === banned.name) continue;
         const trial = [...variant, mod.name];
         if (!fits(trial).ok) continue;

@@ -188,3 +188,18 @@ test('kills per minute is its own objective: Tigris Prime trades a slower first 
   assert.ok(most.killsPerMinute > fastest.killsPerMinute, `${most.killsPerMinute} <= ${fastest.killsPerMinute}`);
   assert.ok(most.timeToKill! >= fastest.timeToKill!);
 });
+
+test('quick search keeps the riven slot and pays its drain (#5)', () => {
+  const request = { weapon: 'Soma Prime', objective: 'dps' as const, enemy: 'Bombard', level: 150, maxForma: 0, capacity: 60 };
+  const plain = search(snapshot, request);
+  const withRiven = search(snapshot, { ...request, base: { riven: { stats: ['critChance', 'multishot'], drain: 18 } } });
+  assert.ok(plain.builds[0].mods.length === 8);
+  for (const build of withRiven.builds) {
+    assert.ok(build.mods.length <= 7, `${build.mods.length} mods next to the riven`);
+    assert.ok(!build.mods.some((mod) => mod.name === 'Riven'));
+    const modsDrain = build.mods.reduce((sum, mod) => sum + mod.drain, 0);
+    assert.ok(build.capacityUsed >= modsDrain + 9, `riven drain missing: ${build.capacityUsed} vs mods ${modsDrain}`);
+    assert.ok(build.capacityUsed <= 60);
+  }
+  assert.throws(() => search(snapshot, { ...request, mustInclude: ['Serration', 'Split Chamber', 'Point Strike', 'Vital Sense', 'Hellfire', 'Cryo Rounds', 'Stormbringer', 'Infected Clip'], base: { riven: { stats: ['critChance'] } } }), /too many fixed mods/);
+});
