@@ -62,6 +62,18 @@ test('spool-up: Soma Prime loses (1/0.25 - 1 + 1/0.55 - 1 + 1/0.85 - 1) / 15 s p
   assert.equal(resolve('Braton Prime').spoolSeconds, 0);
 });
 
+test('shell-by-shell reload (wiki): Strun 0.75s + 0.5s per shell, so magazine mods lengthen it', () => {
+  for (const name of ['Corinth', 'Felarx', 'Zarr', 'Kuva Zarr', 'Strun', 'Mk1-Strun', 'Strun Prime', 'Strun Wraith']) {
+    const build = resolve(name);
+    assert.ok(build.shellReload, `${name} reloads by shell`);
+    close(build.reloadTime, snapshot.weapons[name].stats.reloadTime!);
+  }
+  close(resolve('Strun', { mods: [{ name: 'Ammo Stock' }] }).reloadTime, 0.75 + 0.5 * 10);
+  close(resolve('Strun', { mods: [{ name: 'Tactical Pump' }] }).reloadTime, 3.75 / 1.6);
+  close(resolve('Hek', { mods: [{ name: 'Ammo Stock' }] }).reloadTime, snapshot.weapons.Hek.stats.reloadTime!);
+  assert.equal(resolve('Strun', { incarnon: ['form'] }).shellReload, null);
+});
+
 test('melee combo exceptions: Venka Prime reaches 13x at 240 hits, Dex Nikana steps every 11 up to 11x', () => {
   assert.equal(resolve('Venka Prime', { comboHits: 240 }).comboMultiplier, 13);
   assert.equal(resolve('Fang Prime', { comboHits: 240 }).comboMultiplier, 12);

@@ -35,7 +35,7 @@ import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
 import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, isDualPistols, type ResidualElement } from './arcanes.ts';
 import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
-import { COMBO, NEXT_SHOT, spoolSeconds, weaponTraitEffects } from './traits.ts';
+import { COMBO, NEXT_SHOT, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
 import { hitProfile } from './hit.ts';
 import { InputError } from '../errors.ts';
@@ -194,6 +194,8 @@ export interface ResolvedBuild {
   headshotFactor: number;
   /** Seconds a magazine loses to spool-up (traits.ts), 0 for weapons without one. */
   spoolSeconds: number;
+  /** Unmodded split of a shell-by-shell reload (traits.ts), null for magazine reloads. */
+  shellReload: { delay: number; perShell: number } | null;
   /** Chosen Incarnon evolutions, for display. */
   incarnonLines: string[];
   /** Melee combo multiplier in effect (1 when no combo). */
@@ -1117,9 +1119,11 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const fireRateLocked = (collected.byTarget.get('fireRateLock') ?? 0) > 0;
   // Multiplicative fire rate traits (Dual Toxocyst's Frenzy) apply on top of the additive bucket.
   const fireRate = fireRateLocked ? stats.fireRate ?? 1 : (stats.fireRate ?? 1) * (1 + bonus('fireRate')) * (collected.byTarget.get('fireRateMult') ?? 1);
-  const reloadTime = (stats.reloadTime ?? 0) / (1 + bonus('reloadSpeed'));
   // Magazine is an integer in game: 6 x 2.1 shows as 13, not 12.6.
   const magazineSize = Math.max(1, Math.round((stats.magazineSize ?? 1) * (1 + bonus('magazine'))));
+  // The Incarnon forms fire from their own charges, not the shell tube.
+  const shells = incarnonFormActive ? null : shellReload(weapon.name, stats.reloadTime ?? 0, stats.magazineSize ?? 1);
+  const reloadTime = (shells ? shells.delay + shells.perShell * magazineSize : stats.reloadTime ?? 0) / (1 + bonus('reloadSpeed'));
   // Primary Plated Round (wiki): a full reload adds 15 x sqrt(5 x magazine) % base damage for the
   // buff's duration; averaged over the shots, only those fired before it runs out get it.
   const platedDuration = weapon.type === 'Bow' ? 0 : bonus('platedRound');
@@ -1390,6 +1394,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       ...(exalted?.lines ?? []),
     ],
     spoolSeconds: spool,
+    shellReload: shells,
     incarnonLines,
     comboMultiplier,
     punchThrough: bonus('punchThrough'),

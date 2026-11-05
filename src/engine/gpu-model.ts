@@ -143,7 +143,10 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   params[P.statusChance] = stats.statusChance ?? 0;
   params[P.multishot] = stats.multishot ?? 1;
   params[P.fireRate] = stats.fireRate ?? 1;
-  params[P.reloadTime] = stats.reloadTime ?? 0;
+  // Shell-by-shell reloads (traits.ts): the delay here, the per-shell part scales with the capacity.
+  params[P.reloadTime] = zero.shellReload ? zero.shellReload.delay : stats.reloadTime ?? 0;
+  params[P.reloadPerShell] = zero.shellReload?.perShell ?? 0;
+  params[P.shellMagazine] = stats.magazineSize ?? 1;
   // Ammo Efficiency from the fixed part of the build (arcanes, Incarnon, riven, buffs) stretches the magazine.
   params[P.magazineSize] = (stats.magazineSize ?? 1) / Math.max(1e-6, zero.ammo.cost);
   // A timed trait buff (Athodai's Overdrive) is in the fixed part: the shader blends it by uptime.

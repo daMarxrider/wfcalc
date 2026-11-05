@@ -158,6 +158,21 @@ export function spoolSeconds(weaponName: string, magazine: number, fireRate: num
   return extra;
 }
 
+/**
+ * Weapons that reload one shell at a time (wiki Reload, ReloadStyle "ByRound"): seconds of start
+ * and end delay, from each weapon page. The listed reload is a full one from empty, so each shell
+ * takes (reload - delay) / magazine, and a bigger magazine reloads longer.
+ */
+const SHELL_RELOAD: Record<string, number> = {
+  Corinth: 1.2, Felarx: 1.3, Zarr: 0.75, 'Kuva Zarr': 1.05,
+  Strun: 0.75, 'Mk1-Strun': 0.75, 'Strun Prime': 0.6, 'Strun Wraith': 0.5,
+};
+export function shellReload(weaponName: string, reload: number, magazine: number): { delay: number; perShell: number } | null {
+  const delay = SHELL_RELOAD[weaponName];
+  if (delay === undefined || !(magazine > 0)) return null;
+  return { delay, perShell: Math.max(0, reload - delay) / magazine };
+}
+
 /** Melee combo rules that differ (wiki): hits per step and the highest multiplier. */
 export const COMBO: Record<string, { hitsPerStep: number; max: number }> = {
   'Venka Prime': { hitsPerStep: 20, max: 13 },
