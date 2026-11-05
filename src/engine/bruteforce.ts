@@ -33,7 +33,7 @@ import type { AttenuationProfile } from './attenuation.ts';
 import { DAMAGE_TARGETS, drawbackTwins, fitMods, isDrawback, search, searchableMods } from './search.ts';
 import { InputError } from '../errors.ts';
 import { rivenAsMod } from './riven.ts';
-import { loadSnapshot, modsForWeapon } from '../data.ts';
+import { byExactName, loadSnapshot, modsForWeapon } from '../data.ts';
 import { BASE_ELEMENTS, DAMAGE_TYPES, ELEMENT_COMBINATIONS, type BaseElement, type DamageType, type ModData, type Snapshot, type WeaponData } from '../types.ts';
 
 /** The eight standard mod slots. */
@@ -204,10 +204,7 @@ function combinationBound(candidates: number, slots: number): number {
 }
 
 function findMod(snapshot: Snapshot, name: string): ModData {
-  const exact = snapshot.mods[name];
-  if (exact) return exact;
-  const wanted = name.trim().toLowerCase();
-  const found = Object.values(snapshot.mods).find((mod) => mod.name.toLowerCase() === wanted);
+  const found = byExactName(snapshot.mods, name);
   if (!found) throw new InputError(`unknown mod: ${name}`, 'unknown_mod');
   return found;
 }

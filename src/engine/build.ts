@@ -29,7 +29,7 @@ import {
   type WeaponMode,
   type WeaponStats,
 } from '../types.ts';
-import { augmentFits, normalizeName } from '../data.ts';
+import { augmentFits, byExactName, normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
@@ -557,8 +557,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   for (const entry of build.mods ?? []) {
     const wanted = String(typeof entry === 'string' ? entry : entry.name ?? '').trim();
     if (!wanted) continue;
-    const mod = snapshot.mods[wanted]
-      ?? snapshot.mods[Object.keys(snapshot.mods).find((key) => normalizeName(key) === normalizeName(wanted)) ?? ''];
+    const mod = byExactName(snapshot.mods, wanted);
     const key = mod?.name ?? normalizeName(wanted);
     const label = mod?.name ?? wanted;
     if (named.has(key)) {
@@ -700,8 +699,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const combo = COMBO[weapon.name] ?? { hitsPerStep: 20, max: 12 };
   const comboMultiplier = comboHits < combo.hitsPerStep ? 1 : Math.min(combo.max, 2 + Math.floor((comboHits - combo.hitsPerStep) / combo.hitsPerStep));
 
-  const resolveMod = (wanted: string) =>
-    snapshot.mods[wanted] ?? snapshot.mods[Object.keys(snapshot.mods).find((k) => normalizeName(k) === normalizeName(wanted)) ?? ''];
+  const resolveMod = (wanted: string) => byExactName(snapshot.mods, wanted);
 
   for (const entry of build.mods) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
@@ -747,8 +745,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   for (const entry of build.arcanes ?? []) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
     const rank = typeof entry === 'string' ? undefined : entry.rank;
-    const arcane = snapshot.arcanes[wanted]
-      ?? snapshot.arcanes[Object.keys(snapshot.arcanes).find((k) => normalizeName(k) === normalizeName(wanted)) ?? ''];
+    const arcane = byExactName(snapshot.arcanes, wanted);
     if (!arcane) {
       collected.warnings.push(`arcane not found: ${wanted}`);
       continue;
@@ -866,8 +863,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   for (const entry of build.warframeArcanes ?? []) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
     const rank = typeof entry === 'string' ? undefined : entry.rank;
-    const arcane = snapshot.arcanes[wanted]
-      ?? snapshot.arcanes[Object.keys(snapshot.arcanes).find((key) => normalizeName(key) === normalizeName(wanted)) ?? ''];
+    const arcane = byExactName(snapshot.arcanes, wanted);
     if (!arcane) {
       collected.warnings.push(`warframe arcane not found: ${wanted}`);
       continue;
