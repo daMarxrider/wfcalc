@@ -99,7 +99,10 @@ function buildDamageTypes(): { modifiers: Record<string, Record<string, number>>
 function indexWfcdMods(): Map<string, Loose> {
   const index = new Map<string, Loose>();
   for (const mod of readJson('wfcd-Mods.json')) {
-    if (typeof mod.uniqueName === 'string') index.set(mod.uniqueName, mod);
+    if (typeof mod.uniqueName !== 'string') continue;
+    // Plexus mods carry extra lines past the last rank (wiki stat tables stop at fusionLimit).
+    if (Array.isArray(mod.levelStats) && typeof mod.fusionLimit === 'number') mod.levelStats = mod.levelStats.slice(0, mod.fusionLimit + 1);
+    index.set(mod.uniqueName, mod);
   }
   return index;
 }
