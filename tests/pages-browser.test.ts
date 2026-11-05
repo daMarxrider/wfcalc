@@ -14,10 +14,8 @@ import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { handleApi } from '../src/api.ts';
 
-// shortcut: on GitHub's hosted runners headless Chrome hangs until the 300 s timeout (cause not yet
-// found, no GPU there either); run these locally, or debug the runner if CI should cover them.
-const skip = process.env.CI ? 'skipped on CI: headless Chrome hangs on the hosted runners' : false;
-const browser = [process.env.WFCALC_BROWSER, 'brave', 'chromium', 'google-chrome-stable', 'google-chrome']
+// Chrome before Chromium: on GitHub's Ubuntu runners `chromium` never opened its debug port (likely the snap).
+const browser = [process.env.WFCALC_BROWSER, 'brave', 'google-chrome-stable', 'google-chrome', 'chromium']
   .filter((name): name is string => Boolean(name))
   .find((name) => spawnSync('which', [name]).status === 0);
 
@@ -30,6 +28,7 @@ async function evaluate(port: number, url: string, expression: string): Promise<
     try { targets = ((await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as any[]).filter((t: any) => t.type === 'page'); }
     catch { await new Promise((r) => setTimeout(r, 100)); }
   }
+  if (!targets.length) throw new Error(`${browser} exposed no page (did it start?)`);
   const socket = new WebSocket(targets[0].webSocketDebuggerUrl);
   await new Promise((resolve) => socket.addEventListener('open', resolve));
   let id = 0;
@@ -67,7 +66,7 @@ const BRUTE = { weapon: 'Soma Prime', enemy: 'Bombard', level: 150, pool: 14, si
 const RIVEN = { weapon: 'Soma Prime', form: 'normal', mods: [{ name: 'Serration' }, { name: 'Split Chamber' }, { name: 'Point Strike' }], enemy: 'Bombard', level: 150, stats: [], limit: 1 };
 const names = (build: { mods: Array<{ name: string }> }) => build.mods.map((mod) => mod.name).sort();
 
-test('GitHub Pages build answers every API kind from the Web Worker like the Node API', { skip: skip || (!browser && 'no Chromium-family browser installed'), timeout: 300_000 }, async () => {
+test('GitHub Pages build answers every API kind from the Web Worker like the Node API', { skip: (!browser && 'no Chromium-family browser installed'), timeout: 300_000 }, async () => {
   const out = mkdtempSync(join(tmpdir(), 'wfcalc-pages-'));
   const profile = mkdtempSync(join(tmpdir(), 'wfcalc-pages-profile-'));
   const built = spawnSync(process.execPath, ['tools/build-pages.ts', '--out', out], { encoding: 'utf8' });
@@ -152,7 +151,8 @@ test('GitHub Pages build answers every API kind from the Web Worker like the Nod
     assert.ok(Math.abs(page.riven.picks[0].score - riven.picks[0].score) < 1e-9 * riven.picks[0].score, 'riven pick matches');
     assert.match(page.art, /^https:\/\/raw\.githubusercontent\.com\//);
   } finally {
-    const closed = new Promise((resolve) => chrome.once('exit', resolve));
+    // A browser that already died never sends 'exit' again: waiting for it hung CI for 300 s.
+    const closed = chrome.exitCode === null && chrome.signalCode === null ? new Promise((resolve) => chrome.once('exit', resolve)) : null;
     chrome.kill();
     site.close();
     await closed;
