@@ -24,7 +24,7 @@
  * proc is an independent instance, so the steady-state DoT is
  * `procsPerSecond × tickDamage × ticks`.
  */
-import { type DamageType, type Snapshot } from '../types.ts';
+import { type DamageType, type EnemyData, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
 import { hitProfile } from './hit.ts';
@@ -62,6 +62,11 @@ export const GAS_CAP = 10;
 export const MERGED_TICKS = new Set(['heat', 'gas']);
 
 /** Bleed is True damage: it ignores armour and health-type modifiers. */
+/** Share of a hit of `type` an enemy's shields take: 0 for types they ignore, less their own damage reduction. */
+export function shieldTakes(enemy: Pick<EnemyData, 'shieldDamageReduction' | 'shieldIgnores'>, type: DamageType): number {
+  return enemy.shieldIgnores?.includes(type) ? 0 : 1 - (enemy.shieldDamageReduction ?? 0);
+}
+
 export const TICK_DAMAGE_TYPE: Record<string, DamageType> = {
   slash: 'true',
   heat: 'heat',
@@ -94,6 +99,8 @@ export const healthModifier = (snapshot: Snapshot, type: DamageType, healthType:
 export interface DotContext {
   /** Viral stacks on the target: +100% damage to health at 1 stack, +25% each more. */
   viralStacks?: number;
+  /** Magnetic stacks: the same amplification on damage to shields and Overguard (simulate.ts). */
+  magneticStacks?: number;
   /** Corrosive stacks: 26% armour reduction, then 6% more each, capped at 80%. */
   corrosiveStacks?: number;
   /** Heat's armour strip, 0..0.5; multiplicative with Corrosive and the other strips (wiki: Heat). */

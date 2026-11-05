@@ -50,7 +50,7 @@
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
-import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, dotTicks, effectiveArmor, ENCUMBER_TYPES, GAS_CAP, healthModifier, MERGED_TICKS, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
+import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, dotTicks, effectiveArmor, ENCUMBER_TYPES, GAS_CAP, healthModifier, MERGED_TICKS, shieldTakes, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
 import { critAverages, hitProfile } from './hit.ts';
 import type { BuildUpSource } from './arcanes.ts';
 import { isPeacemaker, peacemakerDamageShare, peacemakerRateShare } from './exalted.ts';
@@ -230,6 +230,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   let landed: number[] = [];
   let healthMod: number[] = [];
   let overguardMod: number[] = [];
+  let shieldShare: number[] = [];
   let bypass: boolean[] = [];
   let shares: number[] = [];
   let statusDamage = 1;
@@ -254,6 +255,8 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   let tickSeeds: number[] = [];
   // Enemy-side multipliers of each ticking type: [health with armour, shield, is True damage].
   const tickHealthMod = TICKING.map((type) => (TICK_DAMAGE_TYPE[type] === 'true' ? 1 : modOf(TICK_DAMAGE_TYPE[type] ?? type)));
+  // Shields that ignore some types or have damage reduction of their own (Treasurer).
+  const tickShieldShare = TICKING.map((type) => shieldTakes(scaled.enemy, TICK_DAMAGE_TYPE[type] ?? type));
   const tickTrue = TICKING.map((type) => TICK_DAMAGE_TYPE[type] === 'true');
   const toxinTick = tickIndex.get('toxin')!;
   const gasTick = tickIndex.get('gas')!;
@@ -320,6 +323,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
     healthMod = types.map((type) => modOf(type));
     overguardMod = types.map((type) => modOf(type, 'Overguard') * (build.overguardDamageMultiplier ?? 1));
     bypass = types.map((type) => type === 'toxin' && toxinBypass);
+    shieldShare = types.map((type) => shieldTakes(scaled.enemy, type));
     shares = types.map((type) => (perProjectile[type] ?? 0) / total);
     statusDamage = 1 + (build.statusDamageBonus ?? 0);
     tickSeeds = TICKING.map((type) => tickSeed(type, TICK_COEFFICIENT[type] ?? 0.5));
@@ -480,7 +484,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
       if (bypass[i]) toxinHealth += healthHit;
       else {
         toHealth += healthHit;
-        if (hasShieldPool) toShield += landed[i] * healthMod[i] * magneticMultiplier;
+        if (hasShieldPool) toShield += landed[i] * healthMod[i] * magneticMultiplier * shieldShare[i];
       }
       toOverguard += landed[i] * overguardMod[i] * magneticMultiplier;
     }
@@ -501,7 +505,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
       if (!build.procDamage || procs <= 0 || immune) return;
       const amount = build.procDamage * procs * faction * modOf(type);
       procHealth += amount * armorFactor * viralMultiplier;
-      if (hasShieldPool && !(type === 'toxin' && toxinBypass)) procShield += amount * magneticMultiplier;
+      if (hasShieldPool && !(type === 'toxin' && toxinBypass)) procShield += amount * magneticMultiplier * shieldTakes(scaled.enemy, type);
     };
     if (pulls > 0) {
       const pellets = pulls * build.multishot;
@@ -565,7 +569,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
       if (i === toxinTick && toxinBypass) toxinDot += toH;
       else {
         dotHealth += toH;
-        dotShield += rate * tickHealthMod[i] * magneticMultiplier;
+        dotShield += rate * tickHealthMod[i] * magneticMultiplier * tickShieldShare[i];
       }
     }
     // Heat: alive chains tick from a second after they began; stacks blend from the window's
@@ -576,7 +580,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
       const toH = rate * heatMod * armorFactor * viralMultiplier;
       tickDealt[TICKING.length] = toH;
       dotHealth += toH;
-      dotShield += rate * heatMod * magneticMultiplier;
+      dotShield += rate * heatMod * magneticMultiplier * shieldTakes(scaled.enemy, 'heat');
     }
     // Blast: lands a fixed delay after its proc.
     const blastDue = blastLine.due(step);
@@ -584,7 +588,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
       const toH = blastDue * blastMod * armorFactor * viralMultiplier;
       tickDealt[TICKING.length + 1] = toH;
       dotHealth += toH;
-      dotShield += blastDue * blastMod * magneticMultiplier;
+      dotShield += blastDue * blastMod * magneticMultiplier * shieldTakes(scaled.enemy, 'blast');
     }
 
     // ---- apply: Overguard, then shields, then health (Toxin skips shields)

@@ -86,6 +86,10 @@ export interface EnemyData {
   toxinBypassesShields: boolean;
   /** A boss (wiki categories Boss, Boss Enemies): at most 4 Cold stacks, never frozen. */
   boss?: boolean;
+  /** Innate damage reduction of the shields alone (Treasurer: 0.99). */
+  shieldDamageReduction?: number;
+  /** Damage types that do nothing to the shields (and do not bypass them either). */
+  shieldIgnores?: DamageType[];
 }
 
 /** Weapon stat block: unmodded values used as the engine's input. */
