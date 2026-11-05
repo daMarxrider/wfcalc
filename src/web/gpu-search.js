@@ -9,8 +9,8 @@
  *
  * Every mod is a vector of additive channels, valued by the engine itself at 1 and 2 status types
  * (A + B x status types), so ranks, conditions, stacks and bow doubling are the engine's.
- * Left out of the model (the exact pass still has them): quantization, attenuation caps, proc
- * damage, conversions, spool-up, the shot-by-shot simulation.
+ * Left out of the model (the exact pass still has them): attenuation caps, proc damage,
+ * conversions, the shot-by-shot simulation.
  */
 
 export const DAMAGE_TYPES = ['impact', 'puncture', 'slash', 'heat', 'cold', 'electricity', 'toxin', 'blast',
@@ -60,6 +60,7 @@ export const P = (() => {
   field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
   field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
   field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate'); field('boss');
+  field('quantize'); field('spoolSum');
   layout.size = at;
   return layout;
 })();
@@ -171,6 +172,10 @@ function composition(params, S, db, order) {
     if (i + 1 >= hierarchy.length) { damage[3 + first] += amount[first]; continue; }
     damage[COMBINE[first][hierarchy[i + 1]]] += amount[first] + amount[hierarchy[i + 1]];
   }
+  // Quantization (build.ts): each type rounds to 1/32 of the modded base damage. It moves small
+  // types' status shares, which against heavy armour (Slash ticks) is worth ~2% of the kill time.
+  const quantum = (baseTotal * db) / 32;
+  if (params[P.quantize] > 0 && quantum > 0) for (let t = 0; t < 16; t++) damage[t] = Math.floor(damage[t] / quantum + 0.5) * quantum;
   return damage;
 }
 
@@ -320,7 +325,9 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   const shells = Math.max(1, Math.round(params[P.shellMagazine] * (1 + S[CH.magazine])));
   const reload = (params[P.reloadTime] + params[P.reloadPerShell] * shells) / (1 + S[CH.reloadSpeed]);
   // Ammo Efficiency stretches the magazine: shots per reload.
-  const magazine = shells / Math.max(1e-6, ammoCostOf(params, plain, shells, fireRate, reload, multishot, killSpacing));
+  // Spool-up (traits.ts) restarts with every magazine: a pause of its own, like the reload.
+  const pause = reload + params[P.spoolSum] / Math.max(0.01, fireRate);
+  const magazine = shells / Math.max(1e-6, ammoCostOf(params, plain, shells, fireRate, pause, multishot, killSpacing));
   const status = params[P.statusChance] * (1 + S[CH.statusChance]) + S[CH.statusChanceFlat];
   const tier = pieces(P.vigilante, S[CH.vigilante]);
   const head = params[P.head] > 0;
@@ -331,7 +338,7 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   const faction = 1 + S[CH.faction];
 
   const fireTime = magazine / Math.max(0.01, fireRate);
-  const cycle = fireTime + reload;
+  const cycle = fireTime + pause;
   const pulls = magazine / cycle;
   const duration = 1 + Math.max(-0.9, S[CH.statusDuration]);
   const forcedOf = (t, pCrit) => S[CH['forcedCrit:impact'] + t] * pCrit + S[CH['forced:impact'] + t];
@@ -348,7 +355,7 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   const within = (at, life) => (at === Infinity ? life : (firedBy(at) - firedBy(at - life)) / pulls);
   // Beam ramp averaged over the fire between `from` and `to` (damage.ts beamShare).
   const start = params[P.beamStart];
-  const restart = Math.max(start, 1 - ((1 - start) * Math.max(0, reload - BEAM_DECAY_DELAY)) / BEAM_DECAY_TIME);
+  const restart = Math.max(start, 1 - ((1 - start) * Math.max(0, pause - BEAM_DECAY_DELAY)) / BEAM_DECAY_TIME);
   const area = (level, x) => {
     const rising = Math.min(x, ((1 - level) * BEAM_RAMP_TIME) / (1 - start));
     return rising * level + ((1 - start) * rising * rising) / (2 * BEAM_RAMP_TIME) + (x - rising);
@@ -635,6 +642,11 @@ fn compose(db: f32, orderIn: array<u32, 4>, len: u32) {
     dmg[u32(COMBINE[first * 4u + second])] += a + b;
     i += 2u;
   }
+  // Quantization (JS composition).
+  let quantum = baseTotal * db / 32.0;
+  if (params[${P.quantize}u] > 0.0 && quantum > 0.0) {
+    for (var t = 0u; t < 16u; t++) { dmg[t] = floor(dmg[t] / quantum + 0.5) * quantum; }
+  }
 }
 
 // A timed trait buff (Athodai's Overdrive): on and plain kill speeds blended by uptime (JS scoreOrder).
@@ -727,22 +739,26 @@ fn ammoCost(plain: bool, shells: f32, fireRate: f32, reload: f32, multishot: f32
 
 fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> f32 {
   for (var c = 0u; c < NC; c++) { S[c] = A[c] + B[c]; }
-  compose(1.0, order, len);
-  let status0 = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
-  var own = 0.0;
-  for (var t = 0u; t < 16u; t++) {
-    let forced = A[${CH['forcedCrit:impact']}u + t] + A[${CH['forced:impact']}u + t] > 0.0;
-    if ((status0 > 0.0 && t != ${T.true}u && dmg[t] > 0.0) || forced) { own += 1.0; }
+  // Round 0: the damage shape at one status type, to count the build's types; round 1: the real
+  // damage. One compose call site, since the compiler copies a function per call site.
+  var db = 1.0;
+  for (var round2 = 0u; round2 < 2u; round2++) {
+    compose(db, order, len);
+    if (round2 == 1u) { break; }
+    let status0 = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
+    var own = 0.0;
+    for (var t = 0u; t < 16u; t++) {
+      let forced = A[${CH['forcedCrit:impact']}u + t] + A[${CH['forced:impact']}u + t] > 0.0;
+      if ((status0 > 0.0 && t != ${T.true}u && dmg[t] > 0.0) || forced) { own += 1.0; }
+    }
+    var types = max(1.0, own + params[${P.extraStatusTypes}u]);
+    if (params[${P.fixedStatusTypes}u] >= 0.0) { types = params[${P.fixedStatusTypes}u]; }
+    for (var c = 0u; c < NC; c++) { S[c] = A[c] + B[c] * (types - 1.0); }
+    db = 1.0 + S[${CH.baseDamage}u];
   }
-  var types = max(1.0, own + params[${P.extraStatusTypes}u]);
-  if (params[${P.fixedStatusTypes}u] >= 0.0) { types = params[${P.fixedStatusTypes}u]; }
-  for (var c = 0u; c < NC; c++) { S[c] = A[c] + B[c] * (types - 1.0); }
-
-  let db = 1.0 + S[${CH.baseDamage}u];
   let overloadShare = S[${CH.overloadAdd}u] / db;
   let finalFactor = (1.0 - overloadShare) * (1.0 + S[${CH.damageMultiplier}u]) + overloadShare;
   let direct = (1.0 + S[${CH.directDamage}u]) * finalFactor;
-  compose(db, order, len);
   var baseTotal = 0.0;
   var total = 0.0;
   for (var t = 0u; t < 16u; t++) { baseTotal += params[${P.stats}u + t]; dmg[t] *= direct; total += dmg[t]; }
@@ -765,7 +781,9 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   if (S[${CH.fireRateLock}u] > 0.0) { kFireRate = params[${P.fireRate}u]; }
   let shells = max(1.0, round(params[${P.shellMagazine}u] * (1.0 + S[${CH.magazine}u])));
   let reload = (params[${P.reloadTime}u] + params[${P.reloadPerShell}u] * shells) / (1.0 + S[${CH.reloadSpeed}u]);
-  let magazine = shells / max(1e-6, ammoCost(plain, shells, kFireRate, reload, kMultishot, killSpacing));
+  // Spool-up restarts with every magazine (JS pause).
+  let pause = reload + params[${P.spoolSum}u] / max(0.01, kFireRate);
+  let magazine = shells / max(1e-6, ammoCost(plain, shells, kFireRate, pause, kMultishot, killSpacing));
   kStatus = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
   kTier = pieces(${P.vigilante}u, S[${CH.vigilante}u]);
   kHead = params[${P.head}u] > 0.0;
@@ -780,14 +798,14 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   kFaction = 1.0 + S[${CH.faction}u];
   kTotal = total;
   kFireTime = magazine / max(0.01, kFireRate);
-  kCycle = kFireTime + reload;
+  kCycle = kFireTime + pause;
   kPulls = magazine / kCycle;
   kDuration = 1.0 + max(-0.9, S[${CH.statusDuration}u]);
   kSteady = params[${P.steady}u] > 0.0;
   kSeed = (baseTotal + S[${CH.baseDamageFlat}u]) * db * finalFactor;
   kMagazine = magazine;
   kBeamStart = params[${P.beamStart}u];
-  kRestart = max(kBeamStart, 1.0 - (1.0 - kBeamStart) * max(0.0, reload - ${BEAM_DECAY_DELAY.toFixed(2)}) / ${BEAM_DECAY_TIME.toFixed(2)});
+  kRestart = max(kBeamStart, 1.0 - (1.0 - kBeamStart) * max(0.0, pause - ${BEAM_DECAY_DELAY.toFixed(2)}) / ${BEAM_DECAY_TIME.toFixed(2)});
 
   // Kill progress summed over time steps, as damage.ts fightLengthHit does.
   let full = killRate(0.0, 1.0, true, beamShare(0.0, 0.0, true));
