@@ -68,6 +68,15 @@ export const findMod = (snap: Snapshot, query: string) => findByName(snap.mods, 
 export const findEnemy = (snap: Snapshot, query: string) => findByName(snap.enemies, query);
 export const findWarframe = (snap: Snapshot, query: string) => findByName(snap.warframes, query);
 
+// Variant words seen on augment-compatible weapons (wiki augment pages); Dual Skana is its own weapon, not a variant.
+const VARIANT = /^(?:(?:kuva|tenet|coda|prisma|rakta|vaykor|sancti|synoid|secura|carmine|mara|dex) )?(.+?)(?: (?:prime|vandal|wraith))?$/;
+/** Weapon augments carry the weapon's name as their class; variants take them too (Ballistica -> Rakta Ballistica, Ballistica Prime). */
+export function augmentFits(weapon: WeaponData, modClass: string): boolean {
+  const name = weapon.name.toLowerCase();
+  const key = modClass.toLowerCase();
+  return name === key || name.match(VARIANT)?.[1] === key;
+}
+
 /** Mods that fit a weapon, cheapest filter to build pickers from. */
 export function modsForWeapon(snap: Snapshot, weapon: WeaponData): ModData[] {
   const classes = new Set(weapon.modClasses.map((c) => c.toLowerCase()));
@@ -90,7 +99,7 @@ export function modsForWeapon(snap: Snapshot, weapon: WeaponData): ModData[] {
     !/^Flawed /.test(mod.name) &&
     mod.classes.some((c) => {
       const key = c.toLowerCase();
-      return classes.has(key) || wildcards.has(key) || extra.includes(key);
+      return classes.has(key) || wildcards.has(key) || extra.includes(key) || augmentFits(weapon, c);
     }),
   );
 }
