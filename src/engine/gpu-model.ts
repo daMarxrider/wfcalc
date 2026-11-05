@@ -6,13 +6,14 @@
  * bonuses (Galvanized Aptitude, Condition Overload) scale with each combination's own types.
  */
 import type { Build, BuildMod } from './build.ts';
-import { resolveBuild } from './build.ts';
+import { quantizeCritBase, resolveBuild } from './build.ts';
 import { exilusCost, gpuPlan, modElement, twinRequirements, type BruteForcePlan, type BruteForceRequest } from './bruteforce.ts';
 import { effectiveArmor } from './dot.ts';
 import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
 import { rivenAsMod, type RivenSpec } from './riven.ts';
 import { beamStart } from './simulate.ts';
+import { spoolSeconds } from './traits.ts';
 import { BASE_ELEMENTS, DAMAGE_TYPES, type Snapshot } from '../types.ts';
 import { AMMO_FIELDS, AMMO_SLOTS, CH, CHANNELS, P, STRIDE, binomial } from '../web/gpu-search.js';
 
@@ -140,7 +141,13 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
     params[P.overguardMod + t] = modifier(type, 'Overguard');
   });
   params[P.critChance] = stats.critChance ?? 0;
-  params[P.critMultiplier] = stats.critMultiplier ?? 1;
+  // The exact pass quantizes damage and the base crit multiplier unless told not to (build.ts).
+  const quantize = plan.base.quantize !== false;
+  params[P.critMultiplier] = quantize ? quantizeCritBase(stats.critMultiplier ?? 1) : stats.critMultiplier ?? 1;
+  params[P.quantize] = quantize ? 1 : 0;
+  // Spool-up seconds x fire rate, so each combination divides by its own rate (traits.ts spoolSeconds).
+  // shortcut: summed over the fixed build's magazine; only a magazine shorter than the ramp (a few shots) differs.
+  params[P.spoolSum] = spoolSeconds(weapon.name, Math.max(1, stats.magazineSize ?? 1), 1);
   params[P.statusChance] = stats.statusChance ?? 0;
   params[P.multishot] = stats.multishot ?? 1;
   params[P.fireRate] = stats.fireRate ?? 1;
