@@ -95,11 +95,11 @@ const MAGNETIC_BREAK_SHARE = 0.03;
  * after 0.6 s on target; 0.8 s after the beam stops, it decays back over 2 s. A few beams start
  * higher.
  */
-const BEAM_RAMP_TIME = 0.6;
-const BEAM_DECAY_DELAY = 0.8;
-const BEAM_DECAY_TIME = 2;
+export const BEAM_RAMP_TIME = 0.6;
+export const BEAM_DECAY_DELAY = 0.8;
+export const BEAM_DECAY_TIME = 2;
 const BEAM_START: Record<string, number> = { Phage: 0.7, Embolist: 0.3, Convectrix: 0.6, 'Convectrix Alt-Fire': 0.8 };
-function beamStart(build: ResolvedBuild): number | null {
+export function beamStart(build: Pick<ResolvedBuild, 'weapon' | 'mode'>): number | null {
   if (build.weapon.trigger !== 'Held') return null;
   const base = build.weapon.name.replace(/ (Prime|Prisma|Wraith|Vandal)$/, '');
   if (build.mode && /alt/i.test(build.mode.name) && BEAM_START[`${base} Alt-Fire`] !== undefined) return BEAM_START[`${base} Alt-Fire`];

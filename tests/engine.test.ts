@@ -1437,6 +1437,19 @@ test('the ranking estimate freezes on the 10th Cold stack too (wiki: Cold Damage
   assert.ok(ratio > 2.8 && ratio <= 3, `crit gain ${ratio}`);
 });
 
+test('the ranking estimate follows the simulation through a beam ramp, reloads and a freeze', () => {
+  // A held beam: 20% damage at first, full after 0.6 s of fire, decayed again after each 2 s reload.
+  // Long fights (many reloads) and a short one (the first ramp matters most). The simulation stops at 7200 s.
+  const beam = { ...weapon({ cold: 100, statusChance: 1, fireRate: 12, magazineSize: 60, reloadTime: 2, critChance: 0.3, critMultiplier: 2 }), trigger: 'Held' };
+  const snap = snapshot([beam], [], [dummy, bombard]);
+  for (const [enemy, level] of [[dummy, 1], [dummy, 10], [bombard, 40]] as const) {
+    const scaled = scaleEnemy(snap, enemy, level);
+    const estimate = hitEnemy(snap, build(snap, []), scaled, { steadyStatus: true }).timeToKill!;
+    const simulated = hitEnemy(snap, build(snap, []), scaled, { simulate: true }).timeToKill!;
+    assert.ok(Math.abs(estimate / simulated - 1) < 0.01, `${enemy.name} ${level}: estimate ${estimate}, simulation ${simulated}`);
+  }
+});
+
 test('simulation: the automatic time step is fine enough that a finer one changes nothing', () => {
   // A fast-firing weapon on a long fight: the case coarse steps (estimate / 200) got wrong by ~1%.
   const snap = snapshot([weapon({ slash: 300, impact: 100, statusChance: 0.4, fireRate: 15, magazineSize: 100, reloadTime: 2 })], [], [dummy]);

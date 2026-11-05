@@ -93,6 +93,9 @@ test('GPU pre-filter reloads shell by shell like the exact ranking (Strun with P
 // Mechanics the proxy mirrors from the exact ranking: its 20 best builds score within 1% of it.
 const mirrored: Array<[string, Record<string, unknown>]> = [
   ['Cold freeze', { weapon: 'Glaxion Vandal', enemy: 'Heavy Gunner', requireStatus: ['cold'] }],
+  ['Cold on Overguard', { weapon: 'Glaxion Vandal', enemy: 'Heavy Gunner', overguard: 50_000, requireStatus: ['cold'] }],
+  ['beam ramp in a short fight', { weapon: 'Glaxion', enemy: 'Charger', requireStatus: ['cold'] }],
+  ['Heat ramp steps (Soma Prime)', { weapon: 'Soma Prime', enemy: 'Bombard' }],
   ['Secondary Cryogenic', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { arcanes: ['Secondary Cryogenic'] } }],
   ['Madurai Phoenix Talons', { weapon: 'Hek', enemy: 'Corpus Tech', base: { buffs: ['phoenix-talons'] } }],
   ['Infinite Ammo on hit (Chamber Cascade)', { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', base: { stackMode: 'max' } }],

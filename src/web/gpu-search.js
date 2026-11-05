@@ -59,7 +59,7 @@ export const P = (() => {
   field('timedSeconds'); field('timedFireRate'); field('kpm');
   field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
   field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
-  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS);
+  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart');
   layout.size = at;
   return layout;
 })();
@@ -78,6 +78,12 @@ const COMBINE = [
 const DOT = [[T.slash, 0.35, 0, 1, 6], [T.heat, 0.5, 0, 1, 6], [T.toxin, 0.5, 0, 1, 6], [T.electricity, 0.5, 0, 0, 6], [T.gas, 0.5, 0, 0, 6], [T.blast, 0.5, 1, 1.5, 0.25]];
 /** Gas stacks on a target (dot.ts GAS_CAP). */
 const GAS_CAP = 10;
+/** Beam ramp (simulate.ts): climb to full over this many seconds of fire, decay after a pause. */
+const BEAM_RAMP_TIME = 0.6;
+const BEAM_DECAY_DELAY = 0.8;
+const BEAM_DECAY_TIME = 2;
+/** Magazines one integration step may span for the beam ramp (steps are a few seconds at most). */
+const BEAM_CYCLES = 64;
 /** Heat's armour strip rises by these every 0.5 s of the chain (damage.ts HEAT_RAMP_STEPS). */
 const HEAT_RAMP = [0.15, 0.15, 0.1, 0.1];
 
@@ -301,10 +307,31 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   };
   // Seconds of sustained fire in the `life` seconds up to `at` (damage.ts firedWithin).
   const within = (at, life) => (at === Infinity ? life : (firedBy(at) - firedBy(at - life)) / pulls);
+  // Beam ramp averaged over the fire between `from` and `to` (damage.ts beamShare).
+  const start = params[P.beamStart];
+  const restart = Math.max(start, 1 - ((1 - start) * Math.max(0, reload - BEAM_DECAY_DELAY)) / BEAM_DECAY_TIME);
+  const area = (level, x) => {
+    const rising = Math.min(x, ((1 - level) * BEAM_RAMP_TIME) / (1 - start));
+    return rising * level + ((1 - start) * rising * rising) / (2 * BEAM_RAMP_TIME) + (x - rising);
+  };
+  const beamShare = (from, to) => {
+    if (!(start > 0) || !steady) return 1;
+    if (from === Infinity) return area(restart, fireTime) / fireTime;
+    let summed = 0;
+    let fired = 0;
+    for (let c = Math.floor(from / cycle); c * cycle < to && c < Math.floor(from / cycle) + BEAM_CYCLES; c++) {
+      const lo = Math.max(from, c * cycle) - c * cycle;
+      const hi = Math.min(to, c * cycle + fireTime) - c * cycle;
+      if (hi <= lo) continue;
+      summed += area(c === 0 ? start : restart, hi) - area(c === 0 ? start : restart, lo);
+      fired += hi - lo;
+    }
+    return fired > 0 ? summed / fired : 1;
+  };
 
   // 1 / seconds to kill with the target's state `at` seconds in, the trigger at `firing` x the
   // sustained pull rate (damage.ts hitOnce in steady mode: withSteadyCrit, steadyStatusDebuffs).
-  const killRate = (at, firing) => {
+  const killRate = (at, firing, beam) => {
     const stacks = (rate, life, cap) => (steady ? Math.min(cap, rate * within(at, life)) : 0);
     const rateAt = (t, chance, pCrit) => multishot * pulls * (chance * (damage[t] / total) + forcedOf(t, pCrit));
     const pCrit0 = Math.min(1, crit0);
@@ -314,10 +341,14 @@ function scoreState(params, A, B, order, plain, killSpacing) {
     const cold = stacks(coldRate, 6 * duration, Infinity);
     const tau = stacks(rateAt(T.tau, status, pCrit0), 8 * duration, 10);
     const crit = crit0 + 0.05 * puncture;
-    const critDamage = Math.max(1, critMods + coldBonus(cold, coldRate, duration, !(params[P.overguard] > 0)));
+    const critDamage = Math.max(1, critMods + coldBonus(cold, coldRate, duration, true));
     const chance = status * (1 + Math.min(1, 0.1 * tau));
     const perTier = head && params[P.critHeadshot] > 0 ? 2 * critDamage - 1 : critDamage - 1;
     const averageCrit = 1 + (crit + Math.min(1, crit) * tier) * perTier;
+    // On Overguard only Cold lands: at most 4 stacks, no freeze, no Puncture (damage.ts withSteadyCrit).
+    const guardCritDamage = Math.max(1, critMods + coldBonus(stacks(coldRate, 6 * duration, 4), coldRate, duration, false));
+    const guardPerTier = head && params[P.critHeadshot] > 0 ? 2 * guardCritDamage - 1 : guardCritDamage - 1;
+    const guardCrit = 1 + (crit0 + Math.min(1, crit0) * tier) * guardPerTier;
     const pCrit = Math.min(1, crit);
     const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;
     const rate = (t) => rateAt(t, chance, pCrit);
@@ -365,20 +396,27 @@ function scoreState(params, A, B, order, plain, killSpacing) {
       const toShield = location * (1 + (trueDamage ? 0 : params[P.healthMod + t]));
       const toHealth = (1 - (trueDamage ? 0 : dr)) * viral;
       const span = t === T.blast ? length : length * duration;
-      const landed = steady && at !== Infinity ? within(at - delay, span) / span : 1;
-      const active = (natural + forcedPlain + forcedCrit) * 6 * duration;
+      let landed = steady && at !== Infinity ? within(at - delay, span) / span : 1;
+      const procs = natural + forcedPlain + forcedCrit;
+      if (t === T.heat && steady && at !== Infinity) {
+        // A refreshing Heat chain ticks every stack it has once 1 s old (damage.ts hitOnce).
+        const windowed = procs * within(at, span);
+        const stacks = at >= delay ? windowed + (1 - Math.exp(-windowed)) * (procs * within(at, at) - windowed) : 0;
+        landed = procs > 0 ? stacks / (procs * ticks) : 0;
+      }
+      const active = procs * 6 * duration;
       const kept = t === T.gas && active > GAS_CAP ? GAS_CAP / active : 1;
       const plusOne = merged ? (1 - Math.exp(-active)) * scale : 0;
       const attacker = (weighted * raw * ticks * kept + plusOne) * toShield * landed;
-      dotDps += attacker * toHealth;
-      if (params[P.shield] > 0 && !(t === T.toxin && params[P.toxinBypass] > 0)) dotShield += attacker;
+      dotDps += attacker * toHealth * beam;
+      if (params[P.shield] > 0 && !(t === T.toxin && params[P.toxinBypass] > 0)) dotShield += attacker * beam;
     }
 
     // Sequential kill: Overguard, then shields (Toxin chewing health meanwhile), then health.
-    const fired = perShot * pulls * firing;
+    const fired = perShot * pulls * firing * beam;
     const healthDps = health * fired + dotDps;
     const shieldDps = shield * fired + dotShield;
-    const overguardDps = overguard * fired;
+    const overguardDps = overguard * guardCrit * multishot * faction * pulls * firing * beam;
     let seconds = 0;
     if (params[P.overguard] > 0) {
       if (!(overguardDps > 0)) return 0;
@@ -398,18 +436,28 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   };
 
   // Kill progress summed over time steps, as damage.ts fightLengthHit does.
-  const full = killRate(Infinity, 1);
+  const full = killRate(Infinity, 1, beamShare(Infinity));
   if (!steady || !(full > 0)) return full;
   // Kills per minute (damage.ts killRate): pulls per second over the pulls the kill took, so a
   // kill inside the first magazine does not get the reloads' credit 1 / seconds would give it.
   const finish = (seconds) => (params[P.kpm] > 0 ? pulls / firedBy(seconds) : 1 / seconds);
-  const progress = (a, b) => (b - a) * killRate((a + b) / 2, (firedBy(b) - firedBy(a)) / ((b - a) * pulls));
-  const settled = 8 * duration + 1.5;
+  const progress = (a, b) => (b - a) * killRate((a + b) / 2, (firedBy(b) - firedBy(a)) / ((b - a) * pulls), beamShare(a, b));
+  // A refreshing Heat chain keeps growing: with Heat, step to the kill (damage.ts fightLengthHit).
+  const heatChain = status * damage[T.heat] > 0 || S[CH['forced:impact'] + T.heat] + S[CH['forcedCrit:impact'] + T.heat] > 0;
+  const settled = heatChain ? Infinity : 8 * duration + 1.5;
+  // Steps end where the state jumps (damage.ts fightLengthHit).
+  const breaks = [0.5 * duration, duration, 1.5 * duration, 2 * duration, 1, 1.5, 1.75].sort((x, y) => x - y);
+  // Seconds to fire `p` pulls with whole reloads (damage.ts secondsToFire).
+  const secondsToFire = (p) => {
+    const cycles = Math.max(0, Math.ceil(p / magazine) - 1);
+    return cycles * cycle + (p - cycles * magazine) / fireRate;
+  };
   let t = 0;
   let done = 0;
-  let step = Math.min(1 / full / 4, settled / 8);
-  for (let i = 0; i < 40 && t < settled; i++) {
-    let next = Math.min(settled, t + step);
+  const first = Math.min(1 / full / 4, settled / 8);
+  let step = first;
+  for (let i = 0; i < 48 && t < settled; i++) {
+    let next = Math.min(settled, t + Math.min(step, Math.max(first, t)), breaks.find((x) => x > t + 1e-9) ?? Infinity);
     let area = progress(t, next);
     for (let k = 0; k < 4 && done + area > 1 + 1e-3; k++) {
       next = t + ((next - t) * (1 - done)) / area;
@@ -420,7 +468,7 @@ function scoreState(params, A, B, order, plain, killSpacing) {
     t = next;
     step *= 1.6;
   }
-  return finish(t + (1 - done) / full);
+  return finish(secondsToFire(firedBy(t) + ((1 - done) / full) * pulls));
 }
 
 /** n choose k as a float (exact below 2^53). */
@@ -691,27 +739,84 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   kDuration = 1.0 + max(-0.9, S[${CH.statusDuration}u]);
   kSteady = params[${P.steady}u] > 0.0;
   kSeed = (baseTotal + S[${CH.baseDamageFlat}u]) * db * finalFactor;
+  kMagazine = magazine;
+  kBeamStart = params[${P.beamStart}u];
+  kRestart = max(kBeamStart, 1.0 - (1.0 - kBeamStart) * max(0.0, reload - ${BEAM_DECAY_DELAY.toFixed(2)}) / ${BEAM_DECAY_TIME.toFixed(2)});
 
   // Kill progress summed over time steps, as damage.ts fightLengthHit does.
-  let full = killRate(0.0, 1.0, true);
+  let full = killRate(0.0, 1.0, true, beamShare(0.0, 0.0, true));
   if (!kSteady || !(full > 0.0)) { return full; }
-  let settled = 8.0 * kDuration + 1.5;
+  var settled = 8.0 * kDuration + 1.5;
+  // A refreshing Heat chain keeps growing: with Heat, step to the kill (JS heatChain).
+  if (kStatus * dmg[${T.heat}u] > 0.0 || S[${CH['forced:impact']}u + ${T.heat}u] + S[${CH['forcedCrit:impact']}u + ${T.heat}u] > 0.0) { settled = 1e30; }
   var t = 0.0;
   var done = 0.0;
-  var step = min(1.0 / full / 4.0, settled / 8.0);
-  for (var i = 0u; i < 40u && t < settled; i++) {
-    var next = min(settled, t + step);
-    var area = progress(t, next);
-    for (var k = 0u; k < 4u && done + area > 1.001; k++) {
+  let first = min(1.0 / full / 4.0, settled / 8.0);
+  var step = first;
+  // The JS loop with its inner shrink loop, flattened: progress has one call site, since the
+  // compiler copies it (and killRate inside) per call site.
+  var next = min(min(settled, t + min(step, max(first, t))), nextBreak(t));
+  var steps = 0u;
+  var shrinks = 0u;
+  for (var turn = 0u; turn < 240u; turn++) {
+    let area = progress(t, next);
+    if (done + area > 1.001 && shrinks < 4u) {
       next = t + (next - t) * (1.0 - done) / area;
-      area = progress(t, next);
+      shrinks++;
+      continue;
     }
     if (done + area >= 0.999) { return finish(next); }
     done += area;
     t = next;
     step *= 1.6;
+    steps++;
+    shrinks = 0u;
+    if (steps >= 48u || t >= settled) { break; }
+    next = min(min(settled, t + min(step, max(first, t))), nextBreak(t));
   }
-  return finish(t + (1.0 - done) / full);
+  return finish(secondsToFire(firedBy(t) + (1.0 - done) / full * kPulls));
+}
+
+// Steps end where the state jumps: Heat's strip steps, the DoT delays, Blast's window (JS breaks).
+fn nextBreak(t: f32) -> f32 {
+  var best = 1e30;
+  best = laterBreak(best, 0.5 * kDuration, t);
+  best = laterBreak(best, kDuration, t);
+  best = laterBreak(best, 1.5 * kDuration, t);
+  best = laterBreak(best, 2.0 * kDuration, t);
+  best = laterBreak(best, 1.0, t);
+  best = laterBreak(best, 1.5, t);
+  return laterBreak(best, 1.75, t);
+}
+fn laterBreak(best: f32, x: f32, t: f32) -> f32 { return select(best, min(best, x), x > t + 1e-6); }
+// Seconds to fire p pulls with whole reloads (JS secondsToFire).
+fn secondsToFire(p: f32) -> f32 {
+  let cycles = max(0.0, ceil(p / kMagazine) - 1.0);
+  return cycles * kCycle + (p - cycles * kMagazine) / kFireRate;
+}
+// The beam ramp summed over the first x seconds of a magazine that starts at level.
+fn beamArea(level: f32, x: f32) -> f32 {
+  let rising = min(x, (1.0 - level) * ${BEAM_RAMP_TIME.toFixed(2)} / (1.0 - kBeamStart));
+  return rising * level + (1.0 - kBeamStart) * rising * rising / (2.0 * ${BEAM_RAMP_TIME.toFixed(2)}) + (x - rising);
+}
+// Beam ramp averaged over the fire between a and b (inf: a later magazine; JS beamShare).
+fn beamShare(a: f32, b: f32, inf: bool) -> f32 {
+  if (!(kBeamStart > 0.0) || !kSteady) { return 1.0; }
+  if (inf) { return beamArea(kRestart, kFireTime) / kFireTime; }
+  var summed = 0.0;
+  var fired = 0.0;
+  let first = floor(a / kCycle);
+  for (var c = first; c * kCycle < b && c < first + ${BEAM_CYCLES}.0; c += 1.0) {
+    let lo = max(a, c * kCycle) - c * kCycle;
+    let hi = min(b, c * kCycle + kFireTime) - c * kCycle;
+    if (hi <= lo) { continue; }
+    var level = kRestart;
+    if (c == 0.0) { level = kBeamStart; }
+    summed += beamArea(level, hi) - beamArea(level, lo);
+    fired += hi - lo;
+  }
+  if (fired > 0.0) { return summed / fired; }
+  return 1.0;
 }
 
 // 1 / kill time, or kills per second at the sustained pull rate (proxyScore's finish).
@@ -737,6 +842,9 @@ var<private> kFaction: f32;
 var<private> kDuration: f32;
 var<private> kSteady: bool;
 var<private> kSeed: f32;
+var<private> kMagazine: f32;
+var<private> kBeamStart: f32;
+var<private> kRestart: f32;
 
 // Pulls fired in the first s seconds: a magazine at the fire rate, then the reload (damage.ts pullsBy).
 fn firedBy(s: f32) -> f32 {
@@ -757,12 +865,12 @@ fn rateAt(t: u32, chance: f32, pCrit: f32) -> f32 {
   return kMultishot * kPulls * (chance * (dmg[t] / kTotal) + S[${CH['forcedCrit:impact']}u + t] * pCrit + S[${CH['forced:impact']}u + t]);
 }
 fn progress(a: f32, b: f32) -> f32 {
-  return (b - a) * killRate((a + b) / 2.0, (firedBy(b) - firedBy(a)) / ((b - a) * kPulls), false);
+  return (b - a) * killRate((a + b) / 2.0, (firedBy(b) - firedBy(a)) / ((b - a) * kPulls), false, beamShare(a, b, false));
 }
 
 // 1 / seconds to kill with the target's state at seconds in (inf: settled), the trigger at firing x
 // the sustained pull rate (the JS killRate in scoreOrder).
-fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
+fn killRate(at: f32, firing: f32, inf: bool, beam: f32) -> f32 {
   let d = kDuration;
   let pCrit0 = min(1.0, kCrit0);
   let puncture = stacksAt(rateAt(${T.puncture}u, kStatus, pCrit0), 10.0 * d, 5.0, at, inf);
@@ -770,7 +878,12 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
   let cold = stacksAt(coldRate, 6.0 * d, 1e30, at, inf);
   let tau = stacksAt(rateAt(${T.tau}u, kStatus, pCrit0), 8.0 * d, 10.0, at, inf);
   let crit = kCrit0 + 0.05 * puncture;
-  let critDamage = max(1.0, kCritMods + coldCrit(cold, coldRate, d, !(params[${P.overguard}u] > 0.0)));
+  let critDamage = max(1.0, kCritMods + coldCrit(cold, coldRate, d, true));
+  // On Overguard only Cold lands: at most 4 stacks, no freeze, no Puncture (JS killRate).
+  let guardCritDamage = max(1.0, kCritMods + coldCrit(stacksAt(coldRate, 6.0 * d, 4.0, at, inf), coldRate, d, false));
+  var guardPerTier = guardCritDamage - 1.0;
+  if (kHead && params[${P.critHeadshot}u] > 0.0) { guardPerTier = 2.0 * guardCritDamage - 1.0; }
+  let guardCrit = 1.0 + (kCrit0 + min(1.0, kCrit0) * kTier) * guardPerTier;
   let chance = kStatus * (1.0 + min(1.0, 0.1 * tau));
   var perTier = critDamage - 1.0;
   if (kHead && params[${P.critHeadshot}u] > 0.0) { perTier = 2.0 * critDamage - 1.0; }
@@ -839,20 +952,29 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
     if (kSteady && !inf) { landedShare = within(at - dotDelay[e], span, false) / span; }
     var ticks = dotTicks[e];
     if (ticks == 0.0) { ticks = max(1.0, floor(6.0 * d + 1e-6)); }
+    let procs = natural + forcedPlain + forcedCrit;
+    if (t == ${T.heat}u && kSteady && !inf) {
+      // A refreshing Heat chain ticks every stack it has once 1 s old (JS killRate).
+      let windowed = procs * within(at, span, false);
+      var heatStacks = 0.0;
+      if (at >= dotDelay[e]) { heatStacks = windowed + (1.0 - exp(-windowed)) * (procs * within(at, at, false) - windowed); }
+      landedShare = 0.0;
+      if (procs > 0.0) { landedShare = heatStacks / (procs * ticks); }
+    }
     let stacked = (natural + forcedPlain + forcedCrit) * 6.0 * d;
     var kept = 1.0;
     if (t == ${T.gas}u && stacked > ${GAS_CAP.toFixed(1)}) { kept = ${GAS_CAP.toFixed(1)} / stacked; }
     var mergedOne = 0.0;
     if (merged) { mergedOne = (1.0 - exp(-stacked)) * scale; }
     let landed = (weighted * rawTick * ticks * kept + mergedOne) * kZoneMul * (1.0 + hm) * landedShare;
-    dotDps += landed * (1.0 - tdr) * viral;
-    if (params[${P.shield}u] > 0.0 && !(t == ${T.toxin}u && params[${P.toxinBypass}u] > 0.0)) { dotShield += landed; }
+    dotDps += landed * (1.0 - tdr) * viral * beam;
+    if (params[${P.shield}u] > 0.0 && !(t == ${T.toxin}u && params[${P.toxinBypass}u] > 0.0)) { dotShield += landed * beam; }
   }`)}
 
-  let fired = perShot * kPulls * firing;
+  let fired = perShot * kPulls * firing * beam;
   let healthDps = health * fired + dotDps;
   let shieldDps = shield * fired + dotShield;
-  let overguardDps = overguard * fired;
+  let overguardDps = overguard * guardCrit * kMultishot * kFaction * kPulls * firing * beam;
   var seconds = 0.0;
   if (params[${P.overguard}u] > 0.0) {
     if (!(overguardDps > 0.0)) { return 0.0; }
