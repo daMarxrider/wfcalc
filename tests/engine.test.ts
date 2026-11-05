@@ -1344,6 +1344,23 @@ test('head crits double the critical multiplier; weak point crit chance only cou
   close(corpus.averageCrit, 1 + 0.9 * (2 - 1));
 });
 
+test('Cull the Weak: non-crit hits deal +240% in the arsenal, per-hit and simulated numbers (#13)', () => {
+  const cull = mod('Cull Test', 5, ['Non-Critical hits deal +240% damage']);
+  const snap = snapshot([weapon({ impact: 1, statusChance: 0, critChance: 0.2, critMultiplier: 2, fireRate: 100, magazineSize: 1, reloadTime: 1000 })], [cull], [dummy]);
+  // Body: 0.8 x (1 + 2.4) + 0.2 x 2 = 3.12. Head: crits double to x4, 0.8 x 3.4 + 0.2 x 4 = 3.52.
+  const body = build(snap, ['Cull Test'], { hit: 'body' });
+  close(hitProfile(body, 'grineer').averageCrit, 3.12);
+  close(body.averageShotDamage, 3.12);
+  const head = build(snap, ['Cull Test'], { hit: 'head' });
+  close(hitProfile(head, 'grineer').averageCrit, 3.52);
+  close(head.averageShotDamage, 3 * 3.52);
+  // A hit that crits gets none of it.
+  close(hitProfile(body, 'grineer').critOnCrit, 2);
+  // One pull in the simulation: 3.12 / 1.2 of the damage without the mod.
+  const pull = (mods: string[]) => simulateKill(snap, build(snap, mods, { hit: 'body' }), scaleEnemy(snap, dummy, 1), { factionMultiplier: 1, debuffs: {}, maxSeconds: 0.5, step: 0.01 }).damageBySource.direct;
+  close(pull(['Cull Test']) / pull([]), 3.12 / 1.2);
+});
+
 test('stack modes: none turns conditions off, max uses each cap, a non-stacking effect counts once', () => {
   const merciless = arcane('Primary Merciless', 'primary', 5, ['On Kill:', '+30% Damage for 4s. Stacks up to 12x.']);
   const bladed = mod('Bladed Rounds', 5, ['On Kill:', '+120% Critical Damage when Aiming for 9s']);
