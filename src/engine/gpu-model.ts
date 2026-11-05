@@ -8,7 +8,7 @@
 import type { Build, BuildMod } from './build.ts';
 import { quantizeCritBase, resolveBuild } from './build.ts';
 import { exilusCost, gpuPlan, modElement, twinRequirements, type BruteForcePlan, type BruteForceRequest } from './bruteforce.ts';
-import { effectiveArmor } from './dot.ts';
+import { effectiveArmor, shieldTakes } from './dot.ts';
 import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
 import { rivenAsMod, type RivenSpec } from './riven.ts';
@@ -139,6 +139,7 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
     params[P.stats + t] = stats[type] ?? 0;
     params[P.healthMod + t] = modifier(type, enemy.healthClass);
     params[P.overguardMod + t] = modifier(type, 'Overguard');
+    params[P.shieldTakes + t] = shieldTakes(enemy, type);
   });
   params[P.critChance] = stats.critChance ?? 0;
   // The exact pass quantizes damage and the base crit multiplier unless told not to (build.ts).
