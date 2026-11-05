@@ -13,7 +13,7 @@
   },
   "scripts": {
     "update": "node tools/fetch.ts && node tools/fetch-abilities.ts && node tools/fetch-damage-abilities.ts && node tools/fetch-incarnon.ts && node tools/fetch-sets.ts && npm run rebuild",
-    "rebuild": "node tools/build-data.ts && npm run patch",
+    "rebuild": "node tools/build-data.ts && npm run patch && node tools/guard-snapshot.ts",
     "patch": "node tools/build-exalted.ts && node tools/public-export.ts && node tools/fetch-compression.ts && node tools/fetch-snipers.ts && node tools/fetch-forced-procs.ts && node tools/fetch-modular.ts",
     "riven-stats": "node tools/fetch-riven-stats.ts",
     "forced-procs": "node tools/fetch-forced-procs.ts && node tools/fetch-modular.ts",
