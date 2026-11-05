@@ -377,7 +377,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
     eximus: request.eximus, overguard: request.overguard, steelPath: request.steelPath,
     attenuation: request.attenuation, base, limit: 3,
   });
-  // The greedy search does not reserve a slot for the riven, so its sets are trimmed to fit.
+  // The greedy seed already leaves the riven's slot free; the trim drops the fixed mods' share.
   const seedSets = seed.builds.map((build) => build.mods.map((mod) => mod.name).filter((name) => !fixedNames.has(name)).slice(0, freeSlots));
   // Exilus slot, when none is pinned: the Exilus mod that does most for the greedy builds (and
   // still fits) takes it, before the ranking, so set pieces in the eight slots are valued with it.
