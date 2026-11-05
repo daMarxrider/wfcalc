@@ -85,6 +85,8 @@ export interface EnemyHit {
   /** Overguard the target had, and our direct damage rate against it. */
   overguard: number;
   overguardDps: number;
+  /** Damage per second on each layer in this state (spendLayers). */
+  layerDps: LayerDps;
   /** The attenuation actually applied, if any. */
   attenuation: ResolvedAttenuation | null;
   /** Multi-target result when the shot chains (Torid); null for a single target. */
@@ -111,6 +113,48 @@ export interface EnemyHit {
   /** Highest single-type damage multiplier found (useful to sanity check element choice). */
   bestType: { type: DamageType; multiplier: number } | null;
   warnings: string[];
+}
+
+/** Damage per second on each layer: Overguard, shields, health, and the Toxin that reaches health while shields are up. */
+export interface LayerDps { overguard: number; shield: number; health: number; bypass: number }
+interface Layers { overguard: number; shield: number; health: number }
+
+/**
+ * Spends `seconds` of damage at these rates on the layers in order (Overguard, shields, health;
+ * bypassing Toxin hits health during the shield phase), carrying the excess into the next one.
+ * Returns the seconds into the step at which health hits 0, or null with `pools` reduced in place.
+ * Overguard is direct damage only; status DoT is not credited while it is up.
+ */
+function spendLayers(pools: Layers, seconds: number, rates: LayerDps): number | null {
+  let used = 0;
+  if (pools.overguard > 0) {
+    const need = rates.overguard > 0 ? pools.overguard / rates.overguard : Infinity;
+    if (!(rates.overguard > 0 && need <= seconds)) {
+      if (rates.overguard > 0) pools.overguard -= seconds * rates.overguard;
+      return null;
+    }
+    pools.overguard = 0;
+    used = need;
+  }
+  if (pools.shield > 0) {
+    const need = rates.shield > 0 ? pools.shield / rates.shield : Infinity;
+    const left = Math.min(need, seconds - used);
+    if (rates.bypass > 0 && pools.health / rates.bypass <= left) return used + pools.health / rates.bypass;
+    if (rates.bypass > 0) pools.health -= left * rates.bypass;
+    if (!(rates.shield > 0 && need <= seconds - used)) {
+      if (rates.shield > 0) pools.shield -= left * rates.shield;
+      return null;
+    }
+    pools.shield = 0;
+    used += need;
+  }
+  const need = rates.health > 0 ? pools.health / rates.health : Infinity;
+  if (!(rates.health > 0 && need <= seconds - used)) {
+    if (rates.health > 0) pools.health -= (seconds - used) * rates.health;
+    return null;
+  }
+  pools.health = 0;
+  return used + need;
 }
 
 const healthModifier = (snapshot: Snapshot, type: DamageType, healthType: string): number =>
@@ -181,9 +225,10 @@ function ammoHit(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
 /**
  * Fast estimate of the simulated fight, for `steadyStatus`. Statuses build up over the fight:
  * a short one sees few stacks and few DoT ticks (Heat starts at 1 s), and the first magazine
- * fires before any reload. The share of the target removed per second is 1 / kill time at the
- * state reached by then; summed over time steps it reaches 1 at the kill. Past the longest
- * status timer the state no longer changes, so the rest of the fight runs at the sustained rate.
+ * fires before any reload. Each time step spends its damage on the layers in order at the state
+ * reached by then (spendLayers), so a status that helps one layer only counts while that layer is
+ * up. Past the longest status timer the state no longer changes, so the rest of the fight runs at
+ * the sustained rate.
  */
 function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions): EnemyHit {
   const full = hitOnce(snapshot, build, scaled, { ...options, at: Infinity });
@@ -193,11 +238,16 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
   const finish = (seconds: number): EnemyHit => ({
     ...full, timeToKill: seconds, shotsToKill: pullsBy(build, seconds), killsPerMinute: killRate(build, pullsBy(build, seconds)), totalDps: (full.totalDps * full.timeToKill!) / seconds,
   });
+  let pools: Layers = { overguard: scaled.overguard, shield: scaled.shield, health: scaled.health };
+  const total = pools.overguard + pools.shield + pools.health;
   // Midpoint rule: the state halfway through a step, with the pulls the trigger fired in it.
-  const progress = (a: number, b: number): number => {
+  // Spends the step on a copy of the pools; the kill's seconds into the step, or null.
+  let after = pools;
+  const progress = (a: number, b: number): number | null => {
     const firing = (pullsBy(build, b) - pullsBy(build, a)) / ((b - a) * sustained);
     const hit = hitOnce(snapshot, build, scaled, { ...options, at: (a + b) / 2, firing, beam: beamShare(build, a, b) });
-    return hit.timeToKill === null || hit.timeToKill <= 0 ? 0 : (b - a) / hit.timeToKill;
+    after = { ...pools };
+    return spendLayers(after, b - a, hit.layerDps);
   };
   // Corrosive's 8 s is the longest timer; Heat ticks 1 s late and Blast lands 1.5 s late.
   const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
@@ -207,25 +257,26 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
   // midpoint lands on the wrong side of one: a slightly different kill time no longer shifts it.
   const breaks = [0.5 * duration, duration, 1.5 * duration, 2 * duration, 1, 1.5, 1.75].sort((x, y) => x - y);
   let t = 0;
-  let done = 0;
   const first = Math.min(full.timeToKill / 4, settled / 8);
   let step = first;
   for (let i = 0; i < 48 && t < settled; i++) {
     // No step longer than the fight so far: a midpoint far ahead would see a Heat chain that big.
     let next = Math.min(settled, t + Math.min(step, Math.max(first, t)), breaks.find((x) => x > t + 1e-9) ?? Infinity);
-    let area = progress(t, next);
+    let kill = progress(t, next);
     // The kill falls inside this step: shrink it onto the kill (the pulls depend on where it ends).
-    for (let k = 0; k < 4 && done + area > 1 + 1e-3; k++) {
-      next = t + ((next - t) * (1 - done)) / area;
-      area = progress(t, next);
+    for (let k = 0; k < 4 && kill !== null && kill < (next - t) * (1 - 1e-3); k++) {
+      next = t + kill;
+      kill = progress(t, next);
     }
-    if (done + area >= 1 - 1e-3) return finish(next);
-    done += area;
+    if (kill !== null) return finish(t + kill);
+    pools = after;
+    if (pools.overguard + pools.shield + pools.health <= 1e-3 * total) return finish(next);
     t = next;
     step *= 1.6;
   }
   // The rest at the settled rate: the pulls it needs, then the time to fire them with whole reloads.
-  return finish(secondsToFire(build, pullsBy(build, t) + (1 - done) * full.timeToKill * sustained));
+  const rest = spendLayers(pools, Infinity, full.layerDps) ?? Infinity;
+  return finish(secondsToFire(build, pullsBy(build, t) + rest * sustained));
 }
 
 /** Seconds to fire `pulls` trigger pulls from the start of a fight (the inverse of dot.ts pullsBy). */
@@ -493,42 +544,15 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
     ? cappedDirect(directOverguardDps, damagePerShotOverguard) * flatFactor
     : directOverguardDps;
 
-  let remainingShield = scaled.shield;
-  let remainingHealth = scaled.health;
-  let shotsToKill = 0;
-
   const shieldDps = effectiveShieldDps;
   const healthDps = effectiveHealthDps;
   const overguardDps = effectiveOverguardDps;
   const totalPool = scaled.overguard + scaled.shield + scaled.health;
 
-  if (overguardDps <= 0 && shieldDps <= 0 && healthDps <= 0) {
-    shotsToKill = Infinity;
-  } else {
-    let seconds = 0;
-    // Overguard is its own layer, first, and ignores armour. Status DoT is not applied to it
-    // (the model only credits direct damage while it is up); the warning says so.
-    if (scaled.overguard > 0) {
-      if (overguardDps > 0) seconds += scaled.overguard / overguardDps;
-      else seconds = Infinity;
-    }
-    if (Number.isFinite(seconds) && remainingShield > 0 && shieldDps > 0) {
-      const shieldSeconds = remainingShield / shieldDps;
-      seconds += shieldSeconds;
-      // Shield-bypassing damage (Toxin) already chews health during the shield phase.
-      const bypassDps = bypassProjectile * critMultiplier * build.multishot * firePulls;
-      remainingHealth = Math.max(0, remainingHealth - shieldSeconds * bypassDps);
-    } else if (Number.isFinite(seconds) && remainingShield > 0) {
-      // The shields never break: only shield-bypassing damage (Toxin) reaches health, if any.
-      const bypassDps = bypassProjectile * critMultiplier * build.multishot * firePulls;
-      seconds += bypassDps > 0 ? remainingHealth / bypassDps : Infinity;
-      remainingHealth = 0;
-    }
-    if (Number.isFinite(seconds) && remainingHealth > 0) {
-      seconds += healthDps > 0 ? remainingHealth / healthDps : Infinity;
-    }
-    shotsToKill = Number.isFinite(seconds) ? seconds * pullsPerSecond : Infinity;
-  }
+  // Shield-bypassing damage (Toxin) chews health while the shields are up.
+  const layerDps: LayerDps = { overguard: overguardDps, shield: shieldDps, health: healthDps, bypass: bypassProjectile * critMultiplier * build.multishot * firePulls };
+  const seconds = spendLayers({ overguard: scaled.overguard, shield: scaled.shield, health: scaled.health }, Infinity, layerDps);
+  let shotsToKill = seconds === null ? Infinity : seconds * pullsPerSecond;
 
   let timeToKill = Number.isFinite(shotsToKill) && pullsPerSecond > 0 ? shotsToKill / pullsPerSecond : null;
   let simulation: SimulationResult | null = null;
@@ -654,6 +678,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
     damagePerShotOverguard,
     overguard: scaled.overguard,
     overguardDps: effectiveOverguardDps,
+    layerDps,
     attenuation,
     multiTargetDps,
     multiTargetFactor,

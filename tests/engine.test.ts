@@ -1460,6 +1460,20 @@ test('the ranking estimate amplifies shield damage with Magnetic stacks, like th
   assert.ok(Math.abs(fight('steadyStatus') / fight('simulate') - 1) < 0.05, `estimate ${fight('steadyStatus')}, simulation ${fight('simulate')}`);
 });
 
+test('the ranking estimate spends each second on the layer that is up, not on a blend of all of them', () => {
+  // Magnetic builds up over a long shield phase and does nothing for the health after it: the
+  // early, weak seconds belong to the shields alone. Blending the layers came out 1.5% fast.
+  const vault: EnemyData = {
+    ...dummy, id: 'Vault', name: 'Vault', health: 2000, shield: 100, toxinBypassesShields: false,
+    pools: [{ type: 'Shield', category: 'shield', amount: 100 }, { type: 'Flesh', category: 'health', amount: 2000 }],
+    shieldDamageReduction: 0.99,
+  };
+  const snap = snapshot([weapon({ magnetic: 20, impact: 20, statusChance: 0.3, fireRate: 5, magazineSize: 1000 })], [], [vault]);
+  const fight = (mode: 'simulate' | 'steadyStatus') => hitEnemy(snap, build(snap, []), scaleEnemy(snap, vault, 1), { [mode]: true }).timeToKill!;
+  const ratio = fight('steadyStatus') / fight('simulate');
+  assert.ok(Math.abs(ratio - 1) < 0.01, `estimate ${fight('steadyStatus')}, simulation ${fight('simulate')}`);
+});
+
 test('bosses take at most 4 Cold stacks and never freeze (wiki: Cold Damage)', () => {
   const boss: EnemyData = { ...dummy, id: 'Boss', name: 'Boss', boss: true };
   const fight = (enemy: EnemyData, critChance: number, mode: 'simulate' | 'steadyStatus') => {
