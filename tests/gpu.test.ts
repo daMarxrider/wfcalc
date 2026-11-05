@@ -122,3 +122,16 @@ test('the GPU model carries the fixed build\'s timed ammo buffs', () => {
   const pistoleer = gpuModel(snapshot, { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', arcanes: ['Arcane Pistoleer'] } }, 10);
   assert.equal(pistoleer.params[P.killBuffs], 1);
 });
+
+test('GPU pre-filter matches the exact static score: quantization and spool-up', () => {
+  // Lex Prime's small Slash share moves with quantization (its ticks carry the kill through
+  // armour); Soma Prime spools up after every reload.
+  for (const [weapon, mods] of [['Lex Prime', ['Hornet Strike', 'Barrel Diffusion']], ['Soma Prime', ['Serration', 'Split Chamber']]] as const) {
+    const request = { weapon, enemy: 'Bombard', level: 150, pool: 40, limit: 1, workers: 1, simulate: false, form: 'normal' as const };
+    const model = gpuModel(snapshot, request, 5);
+    const combo = mods.map((name) => model.candidates.indexOf(name)).sort((a, b) => a - b);
+    const exact = scoreCombinations(snapshot, gpuPlan(snapshot, request), [[...mods]], 1).top[0];
+    const ratio = proxyScore(model, combo) / exact.score;
+    assert.ok(Math.abs(ratio - 1) < 1e-3, `${weapon}: proxy/exact ${ratio}`);
+  }
+});
