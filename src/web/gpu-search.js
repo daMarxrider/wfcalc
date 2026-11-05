@@ -10,7 +10,7 @@
  * Every mod is a vector of additive channels, valued by the engine itself at 1 and 2 status types
  * (A + B x status types), so ranks, conditions, stacks and bow doubling are the engine's.
  * Left out of the model (the exact pass still has them): quantization, attenuation caps, Primed
- * Debilitate, Cryogenic, ammo efficiency, proc damage, conversions, the shot-by-shot simulation.
+ * Debilitate, Encumber, proc damage, conversions, spool-up, the shot-by-shot simulation.
  */
 
 export const DAMAGE_TYPES = ['impact', 'puncture', 'slash', 'heat', 'cold', 'electricity', 'toxin', 'blast',
@@ -33,21 +33,33 @@ const NC = CHANNELS.length;
 /** Floats per candidate: A channels, B channels, half drain, base element index (-1 none). */
 export const STRIDE = 2 * NC + 2;
 
+/**
+ * Timed ammo buffs of the fixed part (ammo.ts): slots of chance, seconds, refresh, efficiency
+ * (1: Infinite Ammo), events per trigger and 1 when a kill triggers it. Mods with only ammo
+ * effects are never candidates (searchableMods), so candidates carry no ammo channels.
+ */
+export const AMMO_SLOTS = 3;
+export const AMMO_FIELDS = 6;
+/** Additive Ammo Efficiency cap (ammo.ts AMMO_EFFICIENCY_CAP). */
+const AMMO_CAP = 0.75;
+
 /** Offsets into `params`. */
 export const P = (() => {
   const layout = {};
   let at = 0;
   const field = (name, size = 1) => { layout[name] = at; at += size; };
   field('stats', 16); field('critChance'); field('critMultiplier'); field('statusChance'); field('multishot');
-  field('fireRate'); field('reloadTime'); field('magazineSize'); field('comboFactor');
+  field('fireRate'); field('reloadTime'); field('comboFactor');
   field('healthMod', 16); field('overguardMod', 16);
   field('armor'); field('armored'); field('health'); field('shield'); field('overguard'); field('toxinBypass');
   field('head'); field('weakPointBase'); field('critHeadshot'); field('weakPointOverride');
   field('viralFloor'); field('corrosiveFloor'); field('corrosiveCap'); field('toxinStatusBonus'); field('overguardMultiplier');
   field('fixedStatusTypes'); field('extraStatusTypes'); field('requireMask'); field('fixedElementMask');
   field('vigilante', 8); field('gladiator', 8); field('capacityHalf'); field('steady');
-  field('timedSeconds'); field('timedFireRate'); field('plainMagazine'); field('kpm');
-  field('reloadPerShell'); field('shellMagazine');
+  field('timedSeconds'); field('timedFireRate'); field('kpm');
+  field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
+  field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
+  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS);
   layout.size = at;
   return layout;
 })();
@@ -62,13 +74,20 @@ const COMBINE = [
 /**
  * Per DoT type: coefficient, ticks (0: one per second of the stretched duration, dot.ts dotTicks), seconds
  * before it ticks, seconds it ticks (Blast: a short window, unscaled).
- * shortcut: the merged Heat/Gas tick's single +1 is left as one +1 per stack (under 1%); mirror dot.ts if it matters.
  */
 const DOT = [[T.slash, 0.35, 0, 1, 6], [T.heat, 0.5, 0, 1, 6], [T.toxin, 0.5, 0, 1, 6], [T.electricity, 0.5, 0, 0, 6], [T.gas, 0.5, 0, 0, 6], [T.blast, 0.5, 1, 1.5, 0.25]];
 /** Gas stacks on a target (dot.ts GAS_CAP). */
 const GAS_CAP = 10;
 /** Heat's armour strip rises by these every 0.5 s of the chain (damage.ts HEAT_RAMP_STEPS). */
 const HEAT_RAMP = [0.15, 0.15, 0.1, 0.1];
+
+/** Cold's crit multiplier bonus, freeze cycle included (damage.ts coldCritBonus). */
+function coldBonus(procs, rate, duration, canFreeze) {
+  if (!(procs > 0)) return 0;
+  if (!canFreeze || procs < 10) return Math.min(0.5, 0.1 + 0.05 * (procs - 1));
+  const frozen = (3 * duration) / (3 * duration + 7 / rate);
+  return frozen + (1 - frozen) * 0.35;
+}
 
 const armorReduction = (armor) => (armor <= 0 ? 0 : armor <= 2700 ? Math.min(0.9, 0.9 * Math.sqrt(armor / 2700)) : armor / (armor + 300));
 const viralMultiplier = (stacks) => (stacks <= 0 ? 1 : 1 + Math.min(3.25, 1 + 0.25 * (stacks - 1)));
@@ -92,6 +111,12 @@ function composition(params, S, db, order) {
   const baseTotal = stats.reduce((sum, value) => sum + value, 0);
   const damage = new Array(16).fill(0);
   for (let t = 0; t < 3; t++) damage[t] = stats[t] * (1 + S[4 + t]) * db;
+  // Madurai Phoenix Talons (build.ts): a share of the whole base, split by the modded physical weights.
+  const physical = damage[0] + damage[1] + damage[2];
+  if (params[P.madurai] > 0 && physical > 0) {
+    const added = baseTotal * params[P.madurai] * db;
+    for (let t = 0; t < 3; t++) damage[t] += (added * damage[t]) / physical;
+  }
   for (let t = 7; t < 16; t++) damage[t] = stats[t] * db + baseTotal * S[4 + t] * db;
   const amount = [0, 1, 2, 3].map((e) => baseTotal * S[4 + 3 + e] * db + stats[3 + e] * db);
   const hierarchy = [...order];
@@ -145,16 +170,73 @@ export function proxyScore(model, combo) {
  * it, blended by its uptime, seconds / (seconds + kill time at the plain rate).
  */
 function scoreOrder(params, A, B, order) {
-  const on = scoreState(params, A, B, order, false);
+  const on = scoreAmmo(params, A, B, order, false);
   const seconds = params[P.timedSeconds];
   if (!(seconds > 0) || !(on > 0)) return on;
-  const plain = scoreState(params, A, B, order, true);
+  const plain = scoreAmmo(params, A, B, order, true);
   const uptime = plain > 0 ? seconds / (seconds + 1 / plain) : 0;
   return uptime * on + (1 - uptime) * plain;
 }
 
-/** Kill speed with the timed buff on, or `plain` without its fire rate and Infinite Ammo. */
-function scoreState(params, A, B, order, plain) {
+/**
+ * Ammo buffs a kill triggers (Arcane Pistoleer) need the kill spacing: scored once without them,
+ * then again with that spacing (damage.ts ammoHit repeats this until it settles).
+ * shortcut: one round, and 1 / score as the spacing (exact: shots to kill at the sustained rate).
+ */
+function scoreAmmo(params, A, B, order, plain) {
+  const first = scoreState(params, A, B, order, plain, 0);
+  return params[P.killBuffs] > 0 && first > 0 ? scoreState(params, A, B, order, plain, 1 / first) : first;
+}
+
+/** Share of the time a timed ammo buff is up at `interval` seconds between its events (ammo.ts ammoBuffUptime). */
+function ammoUptime(chance, seconds, refresh, interval) {
+  const c = Math.min(1, Math.max(0, chance));
+  if (!(c > 0) || !(interval > 0) || !Number.isFinite(interval)) return 0;
+  if (refresh) return c >= 1 ? 1 : 1 - Math.pow(1 - c, seconds / interval);
+  return seconds / (seconds + interval / c);
+}
+
+/**
+ * Average ammo per shot (ammo.ts expectedAmmoCost): the fixed part's Ammo Efficiency, capped, times the
+ * multiplicative sources, with the timed buffs at their uptimes. Hit-triggered buffs depend on the
+ * pellet rate, which depends on the cost: iterated as damage.ts ammoHit does.
+ */
+function ammoCostOf(params, plain, shells, fireRate, reload, multishot, killSpacing) {
+  const scale = params[plain ? P.plainAmmoScale : P.ammoScale];
+  const costWith = (extra) => (1 - Math.min(AMMO_CAP, Math.max(0, params[P.ammoEfficiency] + extra))) * scale;
+  const slot = (i, field) => params[P.ammoBuffs + i * AMMO_FIELDS + field];
+  const chances = Array.from({ length: AMMO_SLOTS }, (_, i) => slot(i, 0));
+  let cost = costWith(0);
+  if (!chances.some((c) => c > 0) || !(reload > 0)) return cost;
+  let uptimes = chances.map(() => 0);
+  for (let round = 0; round < 20; round++) {
+    const shots = Math.max(1, shells) / Math.max(1e-6, cost);
+    const pellets = (cost > 1e-9 ? shots / (shots / Math.max(0.01, fireRate) + reload) : fireRate) * Math.max(1, multishot);
+    const next = chances.map((c, i) => ammoUptime(c, slot(i, 1), slot(i, 2) > 0, slot(i, 5) > 0 ? killSpacing : (slot(i, 4) || 1) / pellets));
+    if (next.every((u, i) => Math.abs(u - uptimes[i]) < 1e-6)) break;
+    uptimes = next;
+    cost = 0;
+    for (let mask = 0; mask < 1 << AMMO_SLOTS; mask++) {
+      let odds = 1;
+      let extra = 0;
+      let free = false;
+      for (let i = 0; i < AMMO_SLOTS; i++) {
+        const on = (mask >> i) & 1;
+        odds *= on ? uptimes[i] : 1 - uptimes[i];
+        if (on && slot(i, 3) >= 1) free = true;
+        else if (on) extra += slot(i, 3);
+      }
+      if (odds > 0 && !free) cost += odds * costWith(extra);
+    }
+  }
+  return cost;
+}
+
+/**
+ * Kill speed with the timed buff on, or `plain` without its fire rate and Infinite Ammo;
+ * `killSpacing` seconds between kills for kill-triggered ammo buffs (0: off).
+ */
+function scoreState(params, A, B, order, plain, killSpacing) {
   const stats = params.slice(P.stats, P.stats + 16);
   // Status types: the build's own (types it deals, forced ones) plus the extra ones, unless pinned.
   const shape = composition(params, A.map((a, c) => a + B[c]), 1, order);
@@ -192,7 +274,8 @@ function scoreState(params, A, B, order, plain) {
   // Shell-by-shell reloads load the real capacity, not the Ammo Efficiency stretched magazine.
   const shells = Math.max(1, Math.round(params[P.shellMagazine] * (1 + S[CH.magazine])));
   const reload = (params[P.reloadTime] + params[P.reloadPerShell] * shells) / (1 + S[CH.reloadSpeed]);
-  const magazine = Math.max(1, Math.round(params[plain ? P.plainMagazine : P.magazineSize] * (1 + S[CH.magazine])));
+  // Ammo Efficiency stretches the magazine: shots per reload.
+  const magazine = shells / Math.max(1e-6, ammoCostOf(params, plain, shells, fireRate, reload, multishot, killSpacing));
   const status = params[P.statusChance] * (1 + S[CH.statusChance]) + S[CH.statusChanceFlat];
   const tier = pieces(P.vigilante, S[CH.vigilante]);
   const head = params[P.head] > 0;
@@ -226,10 +309,12 @@ function scoreState(params, A, B, order, plain) {
     const rateAt = (t, chance, pCrit) => multishot * pulls * (chance * (damage[t] / total) + forcedOf(t, pCrit));
     const pCrit0 = Math.min(1, crit0);
     const puncture = stacks(rateAt(T.puncture, status, pCrit0), 10 * duration, 5);
-    const cold = stacks(rateAt(T.cold, status, pCrit0), 6 * duration, 9);
+    // Secondary Cryogenic: Cold stacks per Puncture proc.
+    const coldRate = rateAt(T.cold, status, pCrit0) + params[P.cryogenic] * rateAt(T.puncture, status, pCrit0);
+    const cold = stacks(coldRate, 6 * duration, Infinity);
     const tau = stacks(rateAt(T.tau, status, pCrit0), 8 * duration, 10);
     const crit = crit0 + 0.05 * puncture;
-    const critDamage = Math.max(1, critMods + (cold > 0 ? Math.min(0.5, 0.1 + 0.05 * (cold - 1)) : 0));
+    const critDamage = Math.max(1, critMods + coldBonus(cold, coldRate, duration, !(params[P.overguard] > 0)));
     const chance = status * (1 + Math.min(1, 0.1 * tau));
     const perTier = head && params[P.critHeadshot] > 0 ? 2 * critDamage - 1 : critDamage - 1;
     const averageCrit = 1 + (crit + Math.min(1, crit) * tier) * perTier;
@@ -272,16 +357,21 @@ function scoreState(params, A, B, order, plain) {
       const weighted = (natural + forcedPlain) * averageCrit + forcedCrit * critOnCrit;
       const elemental = t >= T.heat && t <= T.toxin ? S[4 + t] : 0;
       const typeBonus = t === T.toxin ? 1 + params[P.toxinStatusBonus] : 1;
-      const raw = (seed * faction + 1) * coefficient * (1 + elemental) * (1 + S[CH.statusDamage]) * typeBonus * faction;
+      const scale = coefficient * (1 + elemental) * (1 + S[CH.statusDamage]) * typeBonus * faction;
+      // Heat and Gas stacks tick together: one +1 per tick while any is up (dot.ts MERGED_TICKS).
+      const merged = t === T.heat || t === T.gas;
+      const raw = (seed * faction + (merged ? 0 : 1)) * scale;
       const trueDamage = t === T.slash;
       const toShield = location * (1 + (trueDamage ? 0 : params[P.healthMod + t]));
-      const tick = raw * toShield * (1 - (trueDamage ? 0 : dr)) * viral;
+      const toHealth = (1 - (trueDamage ? 0 : dr)) * viral;
       const span = t === T.blast ? length : length * duration;
       const landed = steady && at !== Infinity ? within(at - delay, span) / span : 1;
       const active = (natural + forcedPlain + forcedCrit) * 6 * duration;
       const kept = t === T.gas && active > GAS_CAP ? GAS_CAP / active : 1;
-      dotDps += weighted * tick * ticks * landed * kept;
-      if (params[P.shield] > 0 && !(t === T.toxin && params[P.toxinBypass] > 0)) dotShield += weighted * raw * toShield * ticks * landed * kept;
+      const plusOne = merged ? (1 - Math.exp(-active)) * scale : 0;
+      const attacker = (weighted * raw * ticks * kept + plusOne) * toShield * landed;
+      dotDps += attacker * toHealth;
+      if (params[P.shield] > 0 && !(t === T.toxin && params[P.toxinBypass] > 0)) dotShield += attacker;
     }
 
     // Sequential kill: Overguard, then shields (Toxin chewing health meanwhile), then health.
@@ -409,6 +499,12 @@ fn armorDr(a: f32) -> f32 {
 }
 fn viralMul(s: f32) -> f32 { if (s <= 0.0) { return 1.0; } return 1.0 + min(3.25, 1.0 + 0.25 * (s - 1.0)); }
 fn corrMul(s: f32) -> f32 { if (s <= 0.0) { return 1.0; } return 1.0 - min(1.0, 0.26 + 0.06 * (s - 1.0)); }
+fn coldCrit(procs: f32, rate: f32, d: f32, canFreeze: bool) -> f32 {
+  if (!(procs > 0.0)) { return 0.0; }
+  if (!canFreeze || procs < 10.0) { return min(0.5, 0.1 + 0.05 * (procs - 1.0)); }
+  let frozen = 3.0 * d / (3.0 * d + 7.0 / rate);
+  return frozen + (1.0 - frozen) * 0.35;
+}
 fn pieces(table: u32, count: f32) -> f32 { return params[table + u32(clamp(round(count), 0.0, 7.0))]; }
 
 var<private> S: array<f32, ${NC}>;
@@ -421,6 +517,11 @@ fn compose(db: f32, orderIn: array<u32, 4>, len: u32) {
   var baseTotal = 0.0;
   for (var t = 0u; t < 16u; t++) { baseTotal += params[${P.stats}u + t]; dmg[t] = 0.0; }
   for (var t = 0u; t < 3u; t++) { dmg[t] = params[${P.stats}u + t] * (1.0 + S[4u + t]) * db; }
+  let physical = dmg[0] + dmg[1] + dmg[2];
+  if (params[${P.madurai}u] > 0.0 && physical > 0.0) {
+    let added = baseTotal * params[${P.madurai}u] * db;
+    for (var t = 0u; t < 3u; t++) { dmg[t] += added * dmg[t] / physical; }
+  }
   for (var t = 7u; t < 16u; t++) { dmg[t] = params[${P.stats}u + t] * db + baseTotal * S[4u + t] * db; }
   var hierarchy: array<u32, 4>;
   var used = 0u;
@@ -444,16 +545,93 @@ fn compose(db: f32, orderIn: array<u32, 4>, len: u32) {
 
 // A timed trait buff (Athodai's Overdrive): on and plain kill speeds blended by uptime (JS scoreOrder).
 fn scoreOrder(order: array<u32, 4>, len: u32) -> f32 {
-  let on = scoreState(order, len, false);
+  let on = scoreAmmo(order, len, false);
   let seconds = params[${P.timedSeconds}u];
   if (!(seconds > 0.0) || !(on > 0.0)) { return on; }
-  let plain = scoreState(order, len, true);
+  let plain = scoreAmmo(order, len, true);
   var uptime = 0.0;
   if (plain > 0.0) { uptime = seconds / (seconds + 1.0 / plain); }
   return uptime * on + (1.0 - uptime) * plain;
 }
 
-fn scoreState(order: array<u32, 4>, len: u32, plain: bool) -> f32 {
+// Kill-triggered ammo buffs: scored without them, then with that kill spacing (JS scoreAmmo).
+// One call site in a loop: the compiler inlines scoreState at each call (SwiftShader took 19x longer with two).
+fn scoreAmmo(order: array<u32, 4>, len: u32, plain: bool) -> f32 {
+  var score = 0.0;
+  var spacing = 0.0;
+  for (var k = 0u; k < 2u; k++) {
+    score = scoreState(order, len, plain, spacing);
+    if (!(params[${P.killBuffs}u] > 0.0 && score > 0.0)) { break; }
+    spacing = 1.0 / score;
+  }
+  return score;
+}
+
+fn ammoUptime(chance: f32, seconds: f32, refreshes: bool, interval: f32) -> f32 {
+  let c = clamp(chance, 0.0, 1.0);
+  if (!(c > 0.0) || !(interval > 0.0) || interval > 1e30) { return 0.0; }
+  if (refreshes) {
+    if (c >= 1.0) { return 1.0; }
+    return 1.0 - pow(1.0 - c, seconds / interval);
+  }
+  return seconds / (seconds + interval / c);
+}
+fn ammoSlot(i: u32, field: u32) -> f32 { return params[${P.ammoBuffs}u + i * ${AMMO_FIELDS}u + field]; }
+fn ammoCostWith(extra: f32, plain: bool) -> f32 {
+  var scale = params[${P.ammoScale}u];
+  if (plain) { scale = params[${P.plainAmmoScale}u]; }
+  return (1.0 - min(${AMMO_CAP}, max(0.0, params[${P.ammoEfficiency}u] + extra))) * scale;
+}
+// Average ammo per shot with the timed buffs at their uptimes (JS ammoCostOf).
+fn ammoCost(plain: bool, shells: f32, fireRate: f32, reload: f32, multishot: f32, killSpacing: f32) -> f32 {
+  var chances: array<f32, ${AMMO_SLOTS}>;
+  var hasBuff = false;
+  for (var i = 0u; i < ${AMMO_SLOTS}u; i++) {
+    chances[i] = ammoSlot(i, 0u);
+    if (chances[i] > 0.0) { hasBuff = true; }
+  }
+  var cost = ammoCostWith(0.0, plain);
+  if (!hasBuff || !(reload > 0.0)) { return cost; }
+  var uptimes: array<f32, ${AMMO_SLOTS}>;
+  for (var tries = 0u; tries < 20u; tries++) {
+    let shots = max(1.0, shells) / max(1e-6, cost);
+    var pellets = fireRate;
+    if (cost > 1e-9) { pellets = shots / (shots / max(0.01, fireRate) + reload); }
+    pellets *= max(1.0, multishot);
+    var settled = true;
+    var next: array<f32, ${AMMO_SLOTS}>;
+    for (var i = 0u; i < ${AMMO_SLOTS}u; i++) {
+      var interval = killSpacing;
+      if (ammoSlot(i, 5u) <= 0.0) {
+        var every = ammoSlot(i, 4u);
+        if (every == 0.0) { every = 1.0; }
+        interval = every / pellets;
+      }
+      next[i] = ammoUptime(chances[i], ammoSlot(i, 1u), ammoSlot(i, 2u) > 0.0, interval);
+      if (abs(next[i] - uptimes[i]) >= 1e-6) { settled = false; }
+    }
+    if (settled) { break; }
+    uptimes = next;
+    cost = 0.0;
+    for (var mask = 0u; mask < ${1 << AMMO_SLOTS}u; mask++) {
+      var odds = 1.0;
+      var extra = 0.0;
+      var free = false;
+      for (var i = 0u; i < ${AMMO_SLOTS}u; i++) {
+        if (((mask >> i) & 1u) == 1u) {
+          odds *= uptimes[i];
+          if (ammoSlot(i, 3u) >= 1.0) { free = true; } else { extra += ammoSlot(i, 3u); }
+        } else {
+          odds *= 1.0 - uptimes[i];
+        }
+      }
+      if (odds > 0.0 && !free) { cost += odds * ammoCostWith(extra, plain); }
+    }
+  }
+  return cost;
+}
+
+fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> f32 {
   for (var c = 0u; c < NC; c++) { S[c] = A[c] + B[c]; }
   compose(1.0, order, len);
   let status0 = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
@@ -488,13 +666,12 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool) -> f32 {
   kCritMods = params[${P.critMultiplier}u] * (1.0 + S[${CH.critDamage}u]) + S[${CH.critDamageFlat}u];
   kMultishot = params[${P.multishot}u] * (1.0 + S[${CH.multishot}u]);
   var timedFireRate = 0.0;
-  var magazineBase = params[${P.magazineSize}u];
-  if (plain) { timedFireRate = params[${P.timedFireRate}u]; magazineBase = params[${P.plainMagazine}u]; }
+  if (plain) { timedFireRate = params[${P.timedFireRate}u]; }
   kFireRate = params[${P.fireRate}u] * (1.0 + S[${CH.fireRate}u] - timedFireRate);
   if (S[${CH.fireRateLock}u] > 0.0) { kFireRate = params[${P.fireRate}u]; }
   let shells = max(1.0, round(params[${P.shellMagazine}u] * (1.0 + S[${CH.magazine}u])));
   let reload = (params[${P.reloadTime}u] + params[${P.reloadPerShell}u] * shells) / (1.0 + S[${CH.reloadSpeed}u]);
-  let magazine = max(1.0, round(magazineBase * (1.0 + S[${CH.magazine}u])));
+  let magazine = shells / max(1e-6, ammoCost(plain, shells, kFireRate, reload, kMultishot, killSpacing));
   kStatus = params[${P.statusChance}u] * (1.0 + S[${CH.statusChance}u]) + S[${CH.statusChanceFlat}u];
   kTier = pieces(${P.vigilante}u, S[${CH.vigilante}u]);
   kHead = params[${P.head}u] > 0.0;
@@ -589,12 +766,11 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
   let d = kDuration;
   let pCrit0 = min(1.0, kCrit0);
   let puncture = stacksAt(rateAt(${T.puncture}u, kStatus, pCrit0), 10.0 * d, 5.0, at, inf);
-  let cold = stacksAt(rateAt(${T.cold}u, kStatus, pCrit0), 6.0 * d, 9.0, at, inf);
+  let coldRate = rateAt(${T.cold}u, kStatus, pCrit0) + params[${P.cryogenic}u] * rateAt(${T.puncture}u, kStatus, pCrit0);
+  let cold = stacksAt(coldRate, 6.0 * d, 1e30, at, inf);
   let tau = stacksAt(rateAt(${T.tau}u, kStatus, pCrit0), 8.0 * d, 10.0, at, inf);
   let crit = kCrit0 + 0.05 * puncture;
-  var coldBonus = 0.0;
-  if (cold > 0.0) { coldBonus = min(0.5, 0.1 + 0.05 * (cold - 1.0)); }
-  let critDamage = max(1.0, kCritMods + coldBonus);
+  let critDamage = max(1.0, kCritMods + coldCrit(cold, coldRate, d, !(params[${P.overguard}u] > 0.0)));
   let chance = kStatus * (1.0 + min(1.0, 0.1 * tau));
   var perTier = critDamage - 1.0;
   if (kHead && params[${P.critHeadshot}u] > 0.0) { perTier = 2.0 * critDamage - 1.0; }
@@ -649,7 +825,11 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
     if (t >= ${T.heat}u && t <= ${T.toxin}u) { elemental = S[4u + t]; }
     var typeBonus = 1.0;
     if (t == ${T.toxin}u) { typeBonus = 1.0 + params[${P.toxinStatusBonus}u]; }
-    let rawTick = (kSeed * kFaction + 1.0) * dotC[e] * (1.0 + elemental) * (1.0 + S[${CH.statusDamage}u]) * typeBonus * kFaction;
+    let scale = dotC[e] * (1.0 + elemental) * (1.0 + S[${CH.statusDamage}u]) * typeBonus * kFaction;
+    let merged = t == ${T.heat}u || t == ${T.gas}u;
+    var plusOne = 1.0;
+    if (merged) { plusOne = 0.0; }
+    let rawTick = (kSeed * kFaction + plusOne) * scale;
     var hm = params[${P.healthMod}u + t];
     var tdr = dr;
     if (t == ${T.slash}u) { hm = 0.0; tdr = 0.0; }
@@ -662,7 +842,9 @@ fn killRate(at: f32, firing: f32, inf: bool) -> f32 {
     let stacked = (natural + forcedPlain + forcedCrit) * 6.0 * d;
     var kept = 1.0;
     if (t == ${T.gas}u && stacked > ${GAS_CAP.toFixed(1)}) { kept = ${GAS_CAP.toFixed(1)} / stacked; }
-    let landed = weighted * rawTick * kZoneMul * (1.0 + hm) * ticks * landedShare * kept;
+    var mergedOne = 0.0;
+    if (merged) { mergedOne = (1.0 - exp(-stacked)) * scale; }
+    let landed = (weighted * rawTick * ticks * kept + mergedOne) * kZoneMul * (1.0 + hm) * landedShare;
     dotDps += landed * (1.0 - tdr) * viral;
     if (params[${P.shield}u] > 0.0 && !(t == ${T.toxin}u && params[${P.toxinBypass}u] > 0.0)) { dotShield += landed; }
   }`)}

@@ -24,6 +24,8 @@ const REQUESTS = [
   { weapon: 'Soma Prime', enemy: 'Bombard', level: 150, pool: 14, simulate: false, limit: 1, form: 'normal' },
   { weapon: 'Hek', enemy: 'Corpus Tech', level: 150, pool: 14, simulate: true, limit: 1 },
   { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, simulate: true, limit: 1, objective: 'kpm' as const, base: { arcanes: ['Primary Compression'] } },
+  // Timed ammo buffs on hit (Chamber Cascade) and on kill (Pistoleer), Madurai.
+  { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', level: 150, pool: 14, simulate: true, limit: 1, base: { hit: 'head' as const, stackMode: 'max' as const, arcanes: ['Arcane Pistoleer'], buffs: ['phoenix-talons'] } },
 ];
 
 /** Starts a process and resolves once a stdout line matches. */

@@ -256,7 +256,7 @@ const DOT_TIMING: Record<string, { delay: number; length: number }> = {
 
 function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions): EnemyHit {
   if (options.steadyStatus && options.at === undefined) return fightLengthHit(snapshot, build, scaled, options);
-  if (options.steadyStatus) build = withSteadyCrit(build, options.at ?? Infinity);
+  if (options.steadyStatus) build = withSteadyCrit(build, options.at ?? Infinity, !(scaled.overguard > 0));
   const warnings: string[] = [];
   const armor = scaled.pools.find((pool) => pool.category === 'armor');
   const shields = scaled.pools.filter((pool) => pool.category === 'shield');
@@ -608,10 +608,10 @@ function stacksAt(build: ResolvedBuild, procs: number, life: number, cap: number
  * Puncture, Cold and Tau from the build's own procs, as the simulation applies them (simulate.ts),
  * all additive after mods: Puncture +5% crit chance per stack (5, 10 s); Cold +0.1, then +0.05 per
  * stack, to the crit multiplier (+0.5 at 9, 6 s; Cryogenic adds stacks per Puncture proc); Tau
- * +10% status chance per stack (10, 8 s).
- * shortcut: Cold's freeze at 10 stacks (+1.0 for 3 s) is left out; model it if Cold builds misrank.
+ * +10% status chance per stack (10, 8 s). Ten Cold procs in a window freeze the target (no
+ * freeze through Overguard): +1.0 for 3 s, then 3 stacks back and 7 more procs to the next freeze.
  */
-function withSteadyCrit(build: ResolvedBuild, seconds: number): ResolvedBuild {
+function withSteadyCrit(build: ResolvedBuild, seconds: number, canFreeze: boolean): ResolvedBuild {
   const pulls = sustainedPulls(build);
   const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
   const rates = procRates(build, pulls, hitProfile(build, null).critChance);
@@ -619,15 +619,29 @@ function withSteadyCrit(build: ResolvedBuild, seconds: number): ResolvedBuild {
   const extra = arcaneProcRates(build, pulls, own);
   const rate = (type: DamageType): number => own(type) + (extra[type] ?? 0);
   const puncture = stacksAt(build, rate('puncture'), 10 * duration, 5, seconds);
-  const cold = stacksAt(build, rate('cold') + rate('puncture') * (build.cryogenicStacks ?? 0), 6 * duration, 9, seconds);
+  // Cryogenic's Cold per Puncture proc is in `extra` already (arcaneProcRates).
+  const coldRate = rate('cold');
+  const cold = stacksAt(build, coldRate, 6 * duration, Infinity, seconds);
   const tau = stacksAt(build, rate('tau'), 8 * duration, 10, seconds);
   if (puncture <= 0 && cold <= 0 && tau <= 0) return build;
   return {
     ...build,
     critChance: build.critChance + 0.05 * puncture,
-    critMultiplier: build.critMultiplier + (cold > 0 ? Math.min(0.5, 0.1 + 0.05 * (cold - 1)) : 0),
+    critMultiplier: build.critMultiplier + coldCritBonus(cold, coldRate, duration, canFreeze),
     statusChance: build.statusChance * (1 + Math.min(1, 0.1 * tau)),
   };
+}
+
+/**
+ * Cold's crit multiplier bonus from `procs` in its window: +0.1, then +0.05 per stack to +0.5 at 9.
+ * Once ten land, the frozen share of each freeze cycle gets +1.0 and the rest the average of
+ * stacks 3-9 (+0.35). Mirrored in src/web/gpu-search.js.
+ */
+function coldCritBonus(procs: number, rate: number, duration: number, canFreeze: boolean): number {
+  if (!(procs > 0)) return 0;
+  if (!canFreeze || procs < 10) return Math.min(0.5, 0.1 + 0.05 * (procs - 1));
+  const frozen = 3 * duration / (3 * duration + 7 / rate);
+  return frozen + (1 - frozen) * 0.35;
 }
 
 /** Heat's armour strip rises by these every 0.5 s of the chain, to 50% (simulate.ts). */

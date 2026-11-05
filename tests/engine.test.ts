@@ -1427,6 +1427,16 @@ test('simulation: the 10th Cold stack freezes the target at +1.0 crit multiplier
   assert.ok(ratio > 2.7 && ratio <= 3, `crit gain ${ratio}`);
 });
 
+test('the ranking estimate freezes on the 10th Cold stack too (wiki: Cold Damage)', () => {
+  // Same weapon as above: frozen 3 s of every 3.7 s cycle, +0.35 on average between freezes.
+  const fight = (critChance: number) => {
+    const snap = snapshot([weapon({ cold: 100, statusChance: 1, fireRate: 10, magazineSize: 1000, critChance, critMultiplier: 2 })], [], [dummy]);
+    return hitEnemy(snap, build(snap, []), scaleEnemy(snap, dummy, 1), { steadyStatus: true }).timeToKill!;
+  };
+  const ratio = fight(0) / fight(1);
+  assert.ok(ratio > 2.8 && ratio <= 3, `crit gain ${ratio}`);
+});
+
 test('simulation: the automatic time step is fine enough that a finer one changes nothing', () => {
   // A fast-firing weapon on a long fight: the case coarse steps (estimate / 200) got wrong by ~1%.
   const snap = snapshot([weapon({ slash: 300, impact: 100, statusChance: 0.4, fireRate: 15, magazineSize: 100, reloadTime: 2 })], [], [dummy]);

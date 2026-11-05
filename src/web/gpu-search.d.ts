@@ -5,6 +5,8 @@ export const CHANNELS: string[];
 export const CH: Record<string, number>;
 export const P: Record<string, number>;
 export const STRIDE: number;
+export const AMMO_SLOTS: number;
+export const AMMO_FIELDS: number;
 export function binomial(n: number, k: number): number;
 export function proxyScore(model: GpuModel, combo: number[]): number;
 export function cpuSearch(model: GpuModel, limit?: number): Array<{ combo: number[]; score: number }>;
