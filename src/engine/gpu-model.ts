@@ -6,14 +6,16 @@
  * bonuses (Galvanized Aptitude, Condition Overload) scale with each combination's own types.
  */
 import type { Build, BuildMod } from './build.ts';
-import { resolveBuild } from './build.ts';
+import { quantizeCritBase, resolveBuild } from './build.ts';
 import { exilusCost, gpuPlan, modElement, twinRequirements, type BruteForcePlan, type BruteForceRequest } from './bruteforce.ts';
 import { effectiveArmor } from './dot.ts';
 import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
 import { rivenAsMod, type RivenSpec } from './riven.ts';
+import { beamStart } from './simulate.ts';
+import { spoolSeconds } from './traits.ts';
 import { BASE_ELEMENTS, DAMAGE_TYPES, type Snapshot } from '../types.ts';
-import { CH, CHANNELS, P, STRIDE, binomial } from '../web/gpu-search.js';
+import { AMMO_FIELDS, AMMO_SLOTS, CH, CHANNELS, P, STRIDE, binomial } from '../web/gpu-search.js';
 
 export interface GpuModel {
   candidates: string[];
@@ -139,7 +141,13 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
     params[P.overguardMod + t] = modifier(type, 'Overguard');
   });
   params[P.critChance] = stats.critChance ?? 0;
-  params[P.critMultiplier] = stats.critMultiplier ?? 1;
+  // The exact pass quantizes damage and the base crit multiplier unless told not to (build.ts).
+  const quantize = plan.base.quantize !== false;
+  params[P.critMultiplier] = quantize ? quantizeCritBase(stats.critMultiplier ?? 1) : stats.critMultiplier ?? 1;
+  params[P.quantize] = quantize ? 1 : 0;
+  // Spool-up seconds x fire rate, so each combination divides by its own rate (traits.ts spoolSeconds).
+  // shortcut: summed over the fixed build's magazine; only a magazine shorter than the ramp (a few shots) differs.
+  params[P.spoolSum] = spoolSeconds(weapon.name, Math.max(1, stats.magazineSize ?? 1), 1);
   params[P.statusChance] = stats.statusChance ?? 0;
   params[P.multishot] = stats.multishot ?? 1;
   params[P.fireRate] = stats.fireRate ?? 1;
@@ -147,13 +155,35 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   params[P.reloadTime] = zero.shellReload ? zero.shellReload.delay : stats.reloadTime ?? 0;
   params[P.reloadPerShell] = zero.shellReload?.perShell ?? 0;
   params[P.shellMagazine] = stats.magazineSize ?? 1;
-  // Ammo Efficiency from the fixed part of the build (arcanes, Incarnon, riven, buffs) stretches the magazine.
-  params[P.magazineSize] = (stats.magazineSize ?? 1) / Math.max(1e-6, zero.ammo.cost);
   // A timed trait buff (Athodai's Overdrive) is in the fixed part: the shader blends it by uptime.
   const plain = zero.timedBuff?.off;
   params[P.timedSeconds] = plain ? zero.timedBuff!.seconds : 0;
   params[P.timedFireRate] = plain ? (zero.bonusTotals.fireRate ?? 0) - (plain.bonusTotals.fireRate ?? 0) : 0;
-  params[P.plainMagazine] = (stats.magazineSize ?? 1) / Math.max(1e-6, (plain ?? zero).ammo.cost);
+  // Ammo (ammo.ts): the fixed part's Ammo Efficiency, its multiplicative sources (Overdrive's
+  // Infinite Ammo is one, gone in the plain state) and its timed buffs.
+  const scale = (multipliers: number[]) => multipliers.reduce((cost, value) => cost * (1 - Math.min(1, value)), 1);
+  params[P.ammoEfficiency] = zero.ammo.efficiency;
+  params[P.ammoScale] = scale(zero.ammo.multipliers);
+  params[P.plainAmmoScale] = scale((plain ?? zero).ammo.multipliers);
+  const buffs = zero.ammo.buffs;
+  // shortcut: the first AMMO_SLOTS timed buffs only (no build has more today); a bigger table if one does.
+  const ammoSlots = buffs.slice(0, AMMO_SLOTS);
+  ammoSlots.forEach((buff, i) => {
+    const at = P.ammoBuffs + i * AMMO_FIELDS;
+    params[at] = buff.chance;
+    params[at + 1] = buff.seconds;
+    params[at + 2] = buff.refresh ? 1 : 0;
+    params[at + 3] = buff.efficiency;
+    params[at + 4] = buff.every ?? 1;
+    params[at + 5] = buff.trigger === 'weakPointKill' ? 1 : 0;
+  });
+  params[P.killBuffs] = ammoSlots.some((buff) => buff.trigger === 'weakPointKill') ? 1 : 0;
+  params[P.cryogenic] = zero.cryogenicStacks ?? 0;
+  params[P.encumber] = zero.encumberChance ?? 0;
+  params[P.debilitate] = zero.debilitateChance ?? 0;
+  // A held beam's starting share of full damage (simulate.ts), 0 for anything else.
+  params[P.beamStart] = beamStart(zero) ?? 0;
+  params[P.madurai] = zero.bonusTotals.maduraiPhysical ?? 0;
   params[P.comboFactor] = Math.max(0, zero.comboMultiplier - 1);
   // The player's strips are fixed; Corrosive and Heat build up per combination, in the shader.
   params[P.armor] = effectiveArmor(scaled.armor, { ...zero.debuffs, armorBase: armorPool?.amount, corrosiveStacks: 0, heatStrip: 0 });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loadSnapshot } from '../src/data.ts';
 import { bruteForce, bruteForceFromCombinations, gpuPlan, scoreCombinations } from '../src/engine/bruteforce.ts';
 import { gpuModel } from '../src/engine/gpu-model.ts';
-import { cpuSearch, proxyScore } from '../src/web/gpu-search.js';
+import { P, cpuSearch, proxyScore } from '../src/web/gpu-search.js';
 
 const snapshot = loadSnapshot();
 
@@ -88,4 +88,49 @@ test('GPU pre-filter reloads shell by shell like the exact ranking (Strun with P
   const exact = scoreCombinations(snapshot, gpuPlan(snapshot, request), [combo.map((i) => model.candidates[i])], 1).top[0];
   const ratio = (60 * proxyScore(model, combo)) / exact.score;
   assert.ok(ratio > 0.99 && ratio < 1.01, `proxy/exact kills per minute ${ratio}`);
+});
+
+// Mechanics the proxy mirrors from the exact ranking: its 20 best builds score within 1% of it.
+const mirrored: Array<[string, Record<string, unknown>]> = [
+  ['Cold freeze', { weapon: 'Glaxion Vandal', enemy: 'Heavy Gunner', requireStatus: ['cold'] }],
+  ['Cold on Overguard', { weapon: 'Glaxion Vandal', enemy: 'Heavy Gunner', overguard: 50_000, requireStatus: ['cold'] }],
+  ['beam ramp in a short fight', { weapon: 'Glaxion', enemy: 'Charger', requireStatus: ['cold'] }],
+  ['Heat ramp steps (Soma Prime)', { weapon: 'Soma Prime', enemy: 'Bombard' }],
+  ['Secondary Cryogenic', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { arcanes: ['Secondary Cryogenic'] } }],
+  ['Secondary Encumber', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { arcanes: ['Secondary Encumber'] } }],
+  ['Primary Debilitate', { weapon: 'Soma Prime', enemy: 'Bombard', base: { arcanes: ['Primary Debilitate'] } }],
+  ['Madurai Phoenix Talons', { weapon: 'Hek', enemy: 'Corpus Tech', base: { buffs: ['phoenix-talons'] } }],
+  ['Infinite Ammo on hit (Chamber Cascade)', { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', base: { stackMode: 'max' } }],
+  ['Infinite Ammo on kill (Arcane Pistoleer)', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', arcanes: ['Arcane Pistoleer'] } }],
+];
+for (const [name, extra] of mirrored) {
+  test(`GPU pre-filter scores like the exact ranking: ${name}`, () => {
+    const request = { level: 150, pool: 16, limit: 1, workers: 1, simulate: true, ...extra } as Parameters<typeof gpuModel>[1];
+    const model = gpuModel(snapshot, request, 20);
+    const top = cpuSearch(model, 20);
+    const names = top.map(({ combo }) => combo.map((i: number) => model.candidates[i]));
+    const exact = new Map(scoreCombinations(snapshot, gpuPlan(snapshot, request), names, 20).top.map((build) => [build.mods.map((mod) => mod.name).sort().join(), build.score]));
+    top.forEach(({ score }, i) => {
+      const ratio = score / exact.get([...names[i]].sort().join())!;
+      assert.ok(ratio > 0.99 && ratio < 1.01, `proxy/exact ${ratio}: ${names[i].join(', ')}`);
+    });
+  });
+}
+
+test('the GPU model carries the fixed build\'s timed ammo buffs', () => {
+  const pistoleer = gpuModel(snapshot, { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', arcanes: ['Arcane Pistoleer'] } }, 10);
+  assert.equal(pistoleer.params[P.killBuffs], 1);
+});
+
+test('GPU pre-filter matches the exact static score: quantization and spool-up', () => {
+  // Lex Prime's small Slash share moves with quantization (its ticks carry the kill through
+  // armour); Soma Prime spools up after every reload.
+  for (const [weapon, mods] of [['Lex Prime', ['Hornet Strike', 'Barrel Diffusion']], ['Soma Prime', ['Serration', 'Split Chamber']]] as const) {
+    const request = { weapon, enemy: 'Bombard', level: 150, pool: 40, limit: 1, workers: 1, simulate: false, form: 'normal' as const };
+    const model = gpuModel(snapshot, request, 5);
+    const combo = mods.map((name) => model.candidates.indexOf(name)).sort((a, b) => a - b);
+    const exact = scoreCombinations(snapshot, gpuPlan(snapshot, request), [[...mods]], 1).top[0];
+    const ratio = proxyScore(model, combo) / exact.score;
+    assert.ok(Math.abs(ratio - 1) < 1e-3, `${weapon}: proxy/exact ${ratio}`);
+  }
 });
