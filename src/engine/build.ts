@@ -256,6 +256,8 @@ export interface ResolvedBuild {
   bonusTotals: Record<string, number>;
   /** Chance a critical hit gains one more tier (Vigilante Set: 5% per piece), 0 when none. */
   critTierBonus: number;
+  /** Extra damage on non-critical hits (Cull the Weak: +2.4), 0 when none. */
+  nonCritBonus: number;
   /** Multiplier on damage to Overguard (Secondary Fortifier: x8), 1 when none. */
   overguardDamageMultiplier: number;
   /** Flat damage per status proc, of the proc's own type (Cascadia Empowered: 750), 0 when none. */
@@ -1334,7 +1336,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const shotDamage = projectileTotal * multishot * headshotMultiplier * heavyMultiplier;
   // Head crits double the critical multiplier (wiki: Critical Headshots), weak point crit chance included.
   const shownCritMultiplier = hitZone === 'head'
-    ? 1 + (critChance + weakPointCritChance) * (2 * crit - 1)
+    ? 1 + (critChance + weakPointCritChance) * (2 * crit - 1) + (1 - Math.min(1, critChance + weakPointCritChance)) * nonCritBonus
     : averageCritMultiplier;
   const averageShotDamage = shotDamage * shownCritMultiplier;
 
@@ -1415,6 +1417,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     ammo,
     timedBuff: collected.timed ?? undefined,
     critTierBonus: vigilante,
+    nonCritBonus,
     bonusTotals: Object.fromEntries(collected.byTarget),
     baseStats: stats,
     overguardDamageMultiplier: bonus('overguardDamage') || 1,
