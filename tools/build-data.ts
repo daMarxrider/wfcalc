@@ -185,7 +185,8 @@ function buildMods(unmatchedReport: string[]): Record<string, ModData> {
     const source = internal ? wfcd.get(internal) : undefined;
 
     // Per-rank stat strings: WFCD if we have them, else the wiki's max-rank description.
-    const ranks: string[][] = Array.isArray(source?.levelStats) && source!.levelStats.length
+    const wfcdRanks = Array.isArray(source?.levelStats) && source!.levelStats.length > 0;
+    const ranks: string[][] = wfcdRanks
       ? source!.levelStats.map((l: Loose) => (Array.isArray(l.stats) ? l.stats : []))
       : [[String(entry.Description ?? '')].filter(Boolean)];
 
@@ -213,7 +214,8 @@ function buildMods(unmatchedReport: string[]): Record<string, ModData> {
       polarity: typeof entry.Polarity === 'string' ? entry.Polarity.toLowerCase() : null,
       rarity: typeof entry.Rarity === 'string' ? entry.Rarity : null,
       baseDrain: Number(entry.BaseDrain ?? 0),
-      maxRank: Number(entry.MaxRank ?? 0),
+      // With WFCD's per-rank table, its fusionLimit: the wiki module says 5 for some rank-3 mods (Charged Chamber, Reach; their pages say 3).
+      maxRank: Number((wfcdRanks ? source!.fusionLimit : undefined) ?? entry.MaxRank ?? 0),
       description: String(entry.Description ?? '').replace(/\r\n?/g, '\n').trim(),
       levels: ranks.map((rank) => cleanRankLines(rank.length ? rank : [String(entry.Description ?? '')])),
       effects: parsed.effects,
