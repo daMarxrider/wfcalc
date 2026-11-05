@@ -182,9 +182,8 @@ for (const weaponName of Object.keys(snapshot.weapons).slice(0, 200)) {
   if (dotDps > ceiling) fail('dot ceiling', weaponName, `${dotDps} > ${ceiling}`);
 }
 
-console.log('7. weapon mods have one per-rank line per rank');
-const weaponMods = new Set(weapons.flatMap((weapon) => modsForWeapon(snapshot, weapon)));
-for (const mod of weaponMods) {
+console.log('7. mods have one per-rank line per rank');
+for (const mod of Object.values(snapshot.mods)) {
   // One level = only the max-rank description, no per-rank table to check.
   const levels = mod.levels?.length ?? 0;
   if (levels > 1 && levels !== mod.maxRank + 1) fail('rank count', mod.name, `maxRank ${mod.maxRank}, ${levels} levels`);
