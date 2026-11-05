@@ -15,6 +15,7 @@ import { hitProfile, weakPointBase } from '../src/engine/hit.ts';
 import { hitEnemy } from '../src/engine/damage.ts';
 import { simulateKill } from '../src/engine/simulate.ts';
 import { parseModEffects } from '../src/mods/parse.ts';
+import { byExactName } from '../src/data.ts';
 import { buffEffects, buffById, abilityStrengthFromMods } from '../src/engine/buffs.ts';
 import { rivenEffects } from '../src/engine/riven.ts';
 import { enumerateRivens, rivenPicker } from '../src/engine/riven-picker.ts';
@@ -1707,4 +1708,12 @@ test('weapon augments fit their weapon and its variants, not other weapons (#35)
   // Wiki: Bright Purity is Skana-only, Dual Skana is a separate weapon.
   assert.ok(offered('Prisma Skana', 'Bright Purity'));
   assert.equal(offered('Dual Skana', 'Bright Purity'), false);
+});
+
+test('build lookups take the exact or normalised name, never a partial one', () => {
+  const items = { 'Primary Merciless': { name: 'Primary Merciless' }, 'Primary Deadhead': { name: 'Primary Deadhead' } };
+  assert.equal(byExactName(items, 'Primary Merciless')?.name, 'Primary Merciless');
+  assert.equal(byExactName(items, 'primary  merciless')?.name, 'Primary Merciless');
+  assert.equal(byExactName(items, 'Primary'), undefined);
+  assert.equal(byExactName(items, ''), undefined);
 });
