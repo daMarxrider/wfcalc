@@ -14,6 +14,7 @@
 import type { AbilityData, DamageType, Effect, Snapshot } from '../types.ts';
 import type { Conditions } from './build.ts';
 import { arcaneEffectsAt } from './arcanes.ts';
+import { byExactName } from '../data.ts';
 
 /** Extra context a buff needs: buff stacks plus whether the shot is a weak-point hit. */
 export interface BuffContext {
@@ -215,8 +216,7 @@ export function abilityStrengthFromMods(
   for (const entry of arcanes) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
     const rank = typeof entry === 'string' ? undefined : entry.rank;
-    const arcane = snapshot.arcanes[wanted]
-      ?? snapshot.arcanes[Object.keys(snapshot.arcanes).find((key) => key.toLowerCase() === wanted.toLowerCase()) ?? ''];
+    const arcane = byExactName(snapshot.arcanes, wanted);
     if (!arcane) {
       warnings.push(`warframe arcane not found: ${wanted}`);
       continue;
@@ -236,8 +236,7 @@ export function abilityStrengthFromMods(
   for (const entry of mods) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
     const rank = typeof entry === 'string' ? undefined : entry.rank;
-    const mod = snapshot.mods[wanted]
-      ?? snapshot.mods[Object.keys(snapshot.mods).find((key) => key.toLowerCase() === wanted.toLowerCase()) ?? ''];
+    const mod = byExactName(snapshot.mods, wanted);
     if (!mod) {
       warnings.push(`warframe mod not found: ${wanted}`);
       continue;
