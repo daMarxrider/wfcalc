@@ -42,7 +42,7 @@ export const ELEMENT_COMBINATIONS: Record<string, [BaseElement, BaseElement]> = 
 /** Stats where a negative value helps (less recoil): a drawback there is a positive value. */
 export const LOWER_IS_BETTER = new Set(['recoil', 'spread']);
 
-export const FACTIONS = ['grineer', 'corpus', 'infested', 'orokin', 'murmur', 'sentient', 'narmer', 'tenno'] as const;
+export const FACTIONS = ['grineer', 'corpus', 'infested', 'orokin', 'murmur', 'sentient', 'narmer', 'tenno', 'scaldra', 'techrot'] as const;
 export type Faction = (typeof FACTIONS)[number];
 
 /**

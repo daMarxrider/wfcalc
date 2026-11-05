@@ -81,6 +81,8 @@ const FACTION_ATTRIBUTES: Array<[string, Faction]> = [
   ['orokin', 'orokin'],
   ['murmur', 'murmur'],
   ['sentient', 'sentient'],
+  ['scaldra', 'scaldra'],
+  ['techrot', 'techrot'],
 ];
 
 /** Every riven attribute the calculator understands, with the id used on the CLI. */
