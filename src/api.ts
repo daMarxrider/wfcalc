@@ -82,10 +82,10 @@ function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; 
     exclude: asList(body.exclude),
     requireStatus: asList(body.requireStatus),
     pool: body.pool !== undefined ? Number(body.pool) : undefined,
-    maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
+    maxEvaluations: body.maxEvaluations !== undefined ? Math.max(1, Math.min(50_000_000, Number(body.maxEvaluations))) : undefined,
     allCombinations: body.allCombinations === true,
     simulate: body.simulate !== false,
-    limit: body.limit !== undefined ? Number(body.limit) : 5,
+    limit: body.limit !== undefined ? Math.max(1, Math.min(50, Number(body.limit))) : 5,
     base,
   };
 }
@@ -276,8 +276,9 @@ function searchOptions(body: any, base: Build): Omit<SearchRequest, 'weapon'> {
     maxForma: body.maxForma === null ? null : body.maxForma !== undefined ? Number(body.maxForma) : undefined,
     exclude: asList(body.exclude),
     mustInclude: asList(body.mustInclude ?? body.must),
-    limit: body.limit !== undefined ? Number(body.limit) : 3,
-    budget: body.budget !== undefined ? Number(body.budget) : undefined,
+    limit: body.limit !== undefined ? Math.max(1, Math.min(50, Number(body.limit))) : 3,
+    // ~20k evaluations a second: at most about a minute.
+    budget: body.budget !== undefined ? Math.max(1, Math.min(1_000_000, Number(body.budget))) : undefined,
     chooseIncarnon,
     chooseArcane: Boolean(body.chooseArcane) || body.arcane === 'auto',
     eximus: Boolean(body.eximus),

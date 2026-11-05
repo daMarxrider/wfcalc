@@ -28,6 +28,7 @@ const portArg = args.indexOf('--port');
 const hostArg = args.indexOf('--host');
 const PORT = portArg >= 0 ? Number(args[portArg + 1]) : 7777;
 const HOST = hostArg >= 0 ? args[hostArg + 1] : '127.0.0.1';
+const LOCAL = HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1';
 
 /** Mod artwork the snapshot lacks, from WFCD's export when we have it (data/raw is not in git). */
 try {
@@ -68,9 +69,19 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
+// The GPU finish step sends up to 100,000 mod lists, ~16 MB of JSON.
+const MAX_BODY = 32 * 1024 * 1024;
+const tooLarge = () => new InputError(`request body is over ${MAX_BODY / 1024 / 1024} MB`, 'body_too_large');
+
 async function readBody(req: IncomingMessage): Promise<any> {
+  if (Number(req.headers['content-length']) > MAX_BODY) throw tooLarge();
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY) throw tooLarge();
+    chunks.push(chunk as Buffer);
+  }
   if (!chunks.length) return {};
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -87,7 +98,12 @@ const server = createServer(async (req, res) => {
       const stopped = new AbortController();
       res.on('close', () => { if (!res.writableFinished) stopped.abort(new Error('stopped by the client')); });
       const ndjson = (): void => { if (!res.headersSent) res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' }); };
-      const answer = await handleApi(req.method ?? 'GET', url, await readBody(req), {
+      const body = await readBody(req);
+      // Off localhost, a search must stay inside the maxEvaluations budget (clamped in api.ts).
+      if (!LOCAL && url.pathname.startsWith('/api/bruteforce') && (body.allCombinations === true || body.pool !== undefined)) {
+        throw new InputError('allCombinations and pool are only allowed when the server listens on localhost', 'local_only');
+      }
+      const answer = await handleApi(req.method ?? 'GET', url, body, {
         signal: stopped.signal,
         progress: (line) => { ndjson(); res.write(`${JSON.stringify(line)}\n`); },
       });

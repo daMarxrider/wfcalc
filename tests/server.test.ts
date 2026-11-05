@@ -12,8 +12,8 @@ import { join } from 'node:path';
 const ROOT = new URL('..', import.meta.url).pathname;
 const PORT = 7913;
 
-async function withServer(run: (base: string) => Promise<void>): Promise<void> {
-  const child = spawn(process.execPath, [join(ROOT, 'src/server.ts'), '--port', String(PORT)], {
+async function withServer(run: (base: string) => Promise<void>, host = '127.0.0.1'): Promise<void> {
+  const child = spawn(process.execPath, [join(ROOT, 'src/server.ts'), '--port', String(PORT), '--host', host], {
     cwd: ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -28,7 +28,7 @@ async function withServer(run: (base: string) => Promise<void>): Promise<void> {
       });
       child.on('error', reject);
     });
-    await run(`http://127.0.0.1:${PORT}`);
+    await run(`http://${host}:${PORT}`);
   } finally {
     child.kill();
   }
@@ -169,4 +169,23 @@ test('a body that is not JSON is the caller\'s mistake: 400, not 500', async () 
       assert.equal(((await response.json()) as any).code, 'invalid_json');
     }
   });
+});
+
+test('a body over 32 MB is refused before it is parsed', async () => {
+  await withServer(async (base) => {
+    const response = await fetch(`${base}/api/calc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: 'x'.repeat(33 * 1024 * 1024) });
+    assert.equal(response.status, 400);
+    assert.equal(((await response.json()) as any).code, 'body_too_large');
+  });
+});
+
+// 127.0.0.2 is loopback on Linux but not one of the names the server treats as local: it stands in for serve:lan.
+test('off localhost, brute force refuses allCombinations and pool', async () => {
+  await withServer(async (base) => {
+    for (const extra of [{ allCombinations: true }, { pool: 40 }]) {
+      const response = await fetch(`${base}/api/bruteforce`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ weapon: 'Lex', ...extra }) });
+      assert.equal(response.status, 400, JSON.stringify(extra));
+      assert.equal(((await response.json()) as any).code, 'local_only');
+    }
+  }, '127.0.0.2');
 });
