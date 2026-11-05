@@ -15,8 +15,7 @@ import { loadSnapshot } from '../src/data.ts';
 import { bruteForce } from '../src/engine/bruteforce.ts';
 import { rivenPicker } from '../src/engine/riven-picker.ts';
 
-// Ubuntu 24.04 runners block the user namespaces Chrome's sandbox needs.
-const CI_FLAGS = process.env.CI ? ['--no-sandbox'] : [];
+// Chrome before Chromium: on GitHub's Ubuntu runners `chromium` never opened its debug port (likely the snap).
 const browser = [process.env.WFCALC_BROWSER, 'brave', 'google-chrome-stable', 'google-chrome', 'chromium']
   .filter((name): name is string => Boolean(name))
   .find((name) => spawnSync('which', [name]).status === 0);
@@ -75,7 +74,7 @@ test('GPU mode (WGSL in a browser + exact pass) finds the CPU brute force\'s win
   const profile = mkdtempSync(join(tmpdir(), 'wfcalc-gpu-test-'));
   const server = spawn(process.execPath, ['src/server.ts', '--port', String(appPort)], { stdio: ['ignore', 'pipe', 'inherit'] });
   const chrome = spawn(browser!, ['--headless=new', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`,
-    '--enable-unsafe-webgpu', '--no-first-run', ...CI_FLAGS, 'about:blank'], { stdio: ['ignore', 'ignore', process.env.CI ? 'inherit' : 'ignore'] });
+    '--enable-unsafe-webgpu', '--no-first-run', 'about:blank'], { stdio: 'ignore' });
   try {
     await started(server, /wfcalc web UI/);
     const snapshot = loadSnapshot();
@@ -117,7 +116,7 @@ test('GPU mode (WGSL in a browser + exact pass) finds the CPU brute force\'s win
     assert.ok(Math.abs(gpuRiven.pick.score - cpuRiven.picks[0].score) < 1e-9 * cpuRiven.picks[0].score, 'GPU riven pick matches the CPU one');
   } finally {
     // The browser writes to its profile until it has exited.
-    // A browser that already died (no sandbox on the runner) never sends 'exit' again.
+    // A browser that already died never sends 'exit' again: waiting for it hung CI for 300 s.
     const closed = chrome.exitCode === null && chrome.signalCode === null ? new Promise((resolve) => chrome.once('exit', resolve)) : null;
     chrome.kill();
     server.kill();

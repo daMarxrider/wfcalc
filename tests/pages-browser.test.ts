@@ -14,8 +14,7 @@ import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { handleApi } from '../src/api.ts';
 
-// Ubuntu 24.04 runners block the user namespaces Chrome's sandbox needs.
-const CI_FLAGS = process.env.CI ? ['--no-sandbox'] : [];
+// Chrome before Chromium: on GitHub's Ubuntu runners `chromium` never opened its debug port (likely the snap).
 const browser = [process.env.WFCALC_BROWSER, 'brave', 'google-chrome-stable', 'google-chrome', 'chromium']
   .filter((name): name is string => Boolean(name))
   .find((name) => spawnSync('which', [name]).status === 0);
@@ -90,7 +89,7 @@ test('GitHub Pages build answers every API kind from the Web Worker like the Nod
   const sitePort = (site.address() as { port: number }).port;
   const debugPort = 40_000 + Math.floor(Math.random() * 20_000);
   const chrome = spawn(browser!, ['--headless=new', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`,
-    '--enable-unsafe-webgpu', '--no-first-run', ...CI_FLAGS, 'about:blank'], { stdio: ['ignore', 'ignore', process.env.CI ? 'inherit' : 'ignore'] });
+    '--enable-unsafe-webgpu', '--no-first-run', 'about:blank'], { stdio: 'ignore' });
   try {
     const page = await evaluate(debugPort, `http://127.0.0.1:${sitePort}/wfcalc/`, `(async () => {
       const post = (path, body, signal) => fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal });
@@ -152,7 +151,7 @@ test('GitHub Pages build answers every API kind from the Web Worker like the Nod
     assert.ok(Math.abs(page.riven.picks[0].score - riven.picks[0].score) < 1e-9 * riven.picks[0].score, 'riven pick matches');
     assert.match(page.art, /^https:\/\/raw\.githubusercontent\.com\//);
   } finally {
-    // A browser that already died (no sandbox on the runner) never sends 'exit' again.
+    // A browser that already died never sends 'exit' again: waiting for it hung CI for 300 s.
     const closed = chrome.exitCode === null && chrome.signalCode === null ? new Promise((resolve) => chrome.once('exit', resolve)) : null;
     chrome.kill();
     site.close();
