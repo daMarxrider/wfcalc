@@ -140,7 +140,9 @@ test('GitHub Pages build answers every API kind from the Web Worker like the Nod
     assert.deepEqual(names(page.brute.builds[0]), names(brute.builds[0]));
     assert.equal(page.brute.builds[0].timeToKill, brute.builds[0].timeToKill);
     assert.ok(page.brute.workers > 1, `CPU brute force on ${page.brute.workers} worker threads`);
-    assert.equal(page.aborted, 'AbortError');
+    // Before the first progress line the fetch rejects with the AbortError; after it, Chrome turns the
+    // errored body stream into "TypeError: Failed to fetch". The UI checks its own signal, not the name.
+    assert.ok(['AbortError', 'TypeError'].includes(page.aborted), `stopped request: ${page.aborted}`);
 
     assert.ok(page.drift < 1e-4, `shader drift ${page.drift}`);
     assert.ok(page.gpu.workers > 1, `exact pass on ${page.gpu.workers} worker threads`);
