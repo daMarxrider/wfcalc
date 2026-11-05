@@ -11,11 +11,10 @@
  *
  * Only the fields the export defines for the primary attack are touched: the damage
  * distribution, crit chance and multiplier, status chance, fire rate, multishot, magazine,
- * reload and Mastery Rank. Two sources win over the export:
- *   - data/weapon-overrides.json, the verified corrections of known export quirks (Felarx's
- *     per-shell reload, Fulmin Prime's magazine);
- *   - the snapshot's riven disposition: the export's `omegaAttenuation` is 1.2 for every weapon,
- *     a placeholder rather than the live disposition.
+ * reload and Mastery Rank. data/weapon-overrides.json wins over the export: the verified
+ * corrections of known export quirks (Felarx's per-shell reload, Fulmin Prime's magazine).
+ * The export's `omegaAttenuation` (1.2 everywhere) is not read: disposition is retired, and
+ * riven.ts uses the flat 1.2 itself.
  * Non-positive values (a charge weapon's `fireRate: 0`) are never applied.
  *
  * Stack caps come from the same export: ExportUpgrades (mods) and ExportRelicArcane (arcanes)
