@@ -235,11 +235,11 @@ async function main(): Promise<void> {
   // `npm run update`.
   for (const patch of PATCH_TOOLS) run(patch);
 
-  console.log('\n3/5 invariants…');
+  console.log('\n3/5 section sizes and invariants…');
   try {
-    run('validate.ts');
+    run('guard-snapshot.ts');
   } catch {
-    console.error('invariants failed — snapshot kept, review before shipping');
+    console.error('guard rejected the rebuild — previous snapshot restored; `npm run rebuild -- --force` keeps it');
     writeFileSync(STATE_FILE, JSON.stringify(outgoing, null, 2) + '\n');
     process.exitCode = 1;
     return;

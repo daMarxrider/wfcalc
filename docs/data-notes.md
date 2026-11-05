@@ -249,6 +249,12 @@ tools that write what build-data does not build: `public-export.ts` (DE's weapon
 `tools/sync.ts` runs the same patch list after its rebuild. Running `build-data.ts` on its own
 leaves those sections out, so always follow it with `npm run patch`.
 
+The last step of `npm run rebuild` (and step 3 of sync) is `tools/guard-snapshot.ts`. build-data
+saves the snapshot it replaces as `data/snapshot.prev.json`; the guard prints every section whose
+entry count changed (top-level sections, riven stats per class, mods with parsed effects), runs
+`tools/validate.ts`, and restores the old snapshot if a section is empty, lost more than 2% of its
+entries, or validation failed. `npm run rebuild -- --force` keeps the rebuild anyway.
+
 `build-data.ts` reads `data/raw/ability-stats.json` and `data/raw/set-bonuses.json`, so running it
 alone after a fresh checkout fails (or loses the set bonuses) until those fetchers ran once. The
 riven tables come from the wiki's per-class tabs through `tools/lib/riven-stats.ts`, the same
