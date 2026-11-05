@@ -52,10 +52,17 @@ export function hitProfile(build: ResolvedBuild, faction: string | null | undefi
   const critDamage = Math.max(1, build.critMultiplier);
   // Expected crit tier equals the crit chance at any value, so the average is linear in it.
   const critHeadshot = head && !NO_CRIT_HEADSHOT.has(String(faction ?? '').toLowerCase());
-  const perTier = critHeadshot ? 2 * critDamage - 1 : critDamage - 1;
-  // Vigilante: a hit that crits gains one more tier at `critTierBonus` odds.
-  const averageCrit = 1 + (critChance + Math.min(1, critChance) * build.critTierBonus) * perTier;
-  const p = Math.min(1, critChance);
-  const critOnCrit = p > 0 ? (averageCrit - (1 - p)) / p : 1 + perTier;
+  const { averageCrit, critOnCrit } = critAverages(build, critChance, critDamage, critHeadshot);
   return { zone: head ? 'head' : 'body', location, critChance, averageCrit, critOnCrit, critHeadshot };
+}
+
+/** Average crit multiplier over all hits and over the hits that crit. */
+export function critAverages(build: ResolvedBuild, critChance: number, critDamage: number, critHeadshot: boolean): { averageCrit: number; critOnCrit: number } {
+  const perTier = critHeadshot ? 2 * critDamage - 1 : critDamage - 1;
+  const p = Math.min(1, critChance);
+  // Vigilante: a hit that crits gains one more tier at `critTierBonus` odds.
+  const crits = 1 + (critChance + p * build.critTierBonus) * perTier;
+  const critOnCrit = p > 0 ? (crits - (1 - p)) / p : 1 + perTier;
+  // Cull the Weak: "Non-critical hits deal +240%" lifts only the share that does not crit.
+  return { averageCrit: crits + (1 - p) * build.nonCritBonus, critOnCrit };
 }

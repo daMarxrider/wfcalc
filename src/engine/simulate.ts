@@ -51,7 +51,7 @@ import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
 import { armorDamageReduction, type ScaledEnemy } from './enemy.ts';
 import { atLeastTen, COMBINED_DURATION, COMBINED_PARTS, dotTicks, effectiveArmor, ENCUMBER_TYPES, GAS_CAP, healthModifier, MERGED_TICKS, TICK_COEFFICIENT, TICK_DAMAGE_TYPE, type DotContext } from './dot.ts';
-import { hitProfile } from './hit.ts';
+import { critAverages, hitProfile } from './hit.ts';
 import type { BuildUpSource } from './arcanes.ts';
 import { isPeacemaker, peacemakerDamageShare, peacemakerRateShare } from './exalted.ts';
 
@@ -449,10 +449,8 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
     // Crit with Cold and Puncture, additive after mods; critical headshots double the multiplier.
     const critChance = hit.critChance + punctureCritBonus(puncture);
     const critDamage = Math.max(1, build.critMultiplier + (frozen ? COLD_FROZEN_BONUS : coldCritBonus(cold)));
-    const perTier = hit.critHeadshot ? 2 * critDamage - 1 : critDamage - 1;
-    const averageCrit = 1 + (critChance + Math.min(1, critChance) * build.critTierBonus) * perTier;
+    const { averageCrit, critOnCrit } = critAverages(build, critChance, critDamage, hit.critHeadshot);
     const pCrit = Math.min(1, critChance);
-    const critOnCrit = pCrit > 0 ? (averageCrit - (1 - pCrit)) / pCrit : 1 + perTier;
 
     // ---- direct damage this step, per layer
     const firingSeconds = firing(dt);
