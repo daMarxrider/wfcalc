@@ -33,6 +33,13 @@ export const WIKI_PAGE_SOURCES: Array<[page: string, file: string]> = [
   ['Damage_Type_Modifier', 'wiki-damage-type-modifier.wiki'],
   ['Enemy_Level_Scaling', 'wiki-enemy-level-scaling.wiki'],
   ['Riven_Mods', 'wiki-riven-mods.wiki'],
+  // Enemy factions WFCD does not export (Scaldra, Techrot, The Murmur, Anarchs), and Corpus for
+  // the Treasurer: build-data takes only enemies WFCD lacks from these.
+  ['Module:Enemies/data/scaldra', 'module-enemies-scaldra.lua'],
+  ['Module:Enemies/data/techrot', 'module-enemies-techrot.lua'],
+  ['Module:Enemies/data/themurmur', 'module-enemies-themurmur.lua'],
+  ['Module:Enemies/data/anarchs', 'module-enemies-anarchs.lua'],
+  ['Module:Enemies/data/corpus', 'module-enemies-corpus.lua'],
   // The wiki's weapon database. Its primary/secondary/melee subpages carry the Incarnon form
   // as an attack of its own ("Incarnon Form", or the melee "Spectral Axe/Dagger/Blade"), which
   // WFCD does not export at all.
