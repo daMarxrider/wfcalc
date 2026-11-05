@@ -29,7 +29,7 @@ import {
   type WeaponMode,
   type WeaponStats,
 } from '../types.ts';
-import { normalizeName } from '../data.ts';
+import { augmentFits, normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
@@ -707,7 +707,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`mod not found: ${wanted}`);
       continue;
     }
-    const fits = mod.classes.some((c) => weapon.modClasses.some((w) => w.toLowerCase() === c.toLowerCase()))
+    const fits = mod.classes.some((c) => weapon.modClasses.some((w) => w.toLowerCase() === c.toLowerCase()) || augmentFits(weapon, c))
       || mod.classes.some((c) => ['Mod', 'Antique', 'Primary', 'Secondary'].includes(c));
     if (!fits) collected.warnings.push(`${mod.name} does not fit a ${weapon.type} (${weapon.modClasses.join('/')})`);
     if (mod.incompatible.some((other) => equipped.includes(other))) {

@@ -18,7 +18,7 @@ import { parseModEffects } from '../src/mods/parse.ts';
 import { buffEffects, buffById, abilityStrengthFromMods } from '../src/engine/buffs.ts';
 import { rivenEffects } from '../src/engine/riven.ts';
 import { enumerateRivens, rivenPicker } from '../src/engine/riven-picker.ts';
-import { loadSnapshot } from '../src/data.ts';
+import { loadSnapshot, modsForWeapon } from '../src/data.ts';
 import { viralMultiplier, corrosiveArmorMultiplier } from '../src/engine/dot.ts';
 import type { AbilityData, ArcaneData, EnemyData, ModData, Snapshot, WeaponData, WeaponStats } from '../src/types.ts';
 
@@ -1602,4 +1602,22 @@ test('riven picker: the riven never takes the Exilus or stance slot', async () =
 test('a shared "for 12s. Stacks up to 40x." tail caps both stats of an "A and B" line (Primary Blight)', () => {
   const { effects } = parseModEffects([['On Toxin Status Effect:\n+3.6% Critical Damage and +1.8% Multishot for 12s. Stacks up to 40x.']]);
   assert.deepEqual(effects.map((effect) => [effect.target, effect.maxStacks]), [['critDamage', 40], ['multishot', 40]]);
+});
+
+test('weapon augments fit their weapon and its variants, not other weapons (#35)', () => {
+  const real = loadSnapshot();
+  const offered = (weapon: string, mod: string) => modsForWeapon(real, real.weapons[weapon]).some((m) => m.name === mod);
+  const fitWarning = (weapon: string, mod: string) =>
+    resolveBuild(real, { weapon, mods: [mod] }).warnings.some((line) => /does not fit/.test(line));
+  for (const weapon of ['Ballistica', 'Ballistica Prime', 'Rakta Ballistica']) {
+    assert.ok(offered(weapon, 'Soaring Truth'), weapon);
+    assert.equal(fitWarning(weapon, 'Soaring Truth'), false, weapon);
+  }
+  assert.ok(offered('Burston Prime', 'Gilded Truth'));
+  assert.equal(offered('Burston', 'Gilded Truth'), false);
+  assert.equal(offered('Lex', 'Soaring Truth'), false);
+  assert.ok(fitWarning('Lex', 'Soaring Truth'));
+  // Wiki: Bright Purity is Skana-only, Dual Skana is a separate weapon.
+  assert.ok(offered('Prisma Skana', 'Bright Purity'));
+  assert.equal(offered('Dual Skana', 'Bright Purity'), false);
 });
