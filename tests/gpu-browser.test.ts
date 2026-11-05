@@ -15,9 +15,8 @@ import { loadSnapshot } from '../src/data.ts';
 import { bruteForce } from '../src/engine/bruteforce.ts';
 import { rivenPicker } from '../src/engine/riven-picker.ts';
 
-// shortcut: on GitHub's hosted runners headless Chrome hangs until the 300 s timeout (cause not yet
-// found, no GPU there either); run these locally, or debug the runner if CI should cover them.
-const skip = process.env.CI ? 'skipped on CI: headless Chrome hangs on the hosted runners' : false;
+// Ubuntu 24.04 runners block the user namespaces Chrome's sandbox needs.
+const CI_FLAGS = process.env.CI ? ['--no-sandbox'] : [];
 const browser = [process.env.WFCALC_BROWSER, 'brave', 'chromium', 'google-chrome-stable', 'google-chrome']
   .filter((name): name is string => Boolean(name))
   .find((name) => spawnSync('which', [name]).status === 0);
@@ -44,6 +43,7 @@ async function evaluate(port: number, url: string, expression: string): Promise<
     try { targets = ((await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as any[]).filter((t: any) => t.type === 'page'); }
     catch { await new Promise((r) => setTimeout(r, 100)); }
   }
+  if (!targets.length) throw new Error('the browser exposed no page (did it start?)');
   const socket = new WebSocket(targets[0].webSocketDebuggerUrl);
   await new Promise((resolve) => socket.addEventListener('open', resolve));
   let id = 0;
@@ -69,13 +69,13 @@ async function evaluate(port: number, url: string, expression: string): Promise<
   }
 }
 
-test('GPU mode (WGSL in a browser + exact pass) finds the CPU brute force\'s winner', { skip: skip || (!browser && 'no Chromium-family browser installed'), timeout: 300_000 }, async () => {
+test('GPU mode (WGSL in a browser + exact pass) finds the CPU brute force\'s winner', { skip: (!browser && 'no Chromium-family browser installed'), timeout: 300_000 }, async () => {
   const appPort = 20_000 + Math.floor(Math.random() * 20_000);
   const debugPort = appPort + 1;
   const profile = mkdtempSync(join(tmpdir(), 'wfcalc-gpu-test-'));
   const server = spawn(process.execPath, ['src/server.ts', '--port', String(appPort)], { stdio: ['ignore', 'pipe', 'inherit'] });
   const chrome = spawn(browser!, ['--headless=new', `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`,
-    '--enable-unsafe-webgpu', '--no-first-run', 'about:blank'], { stdio: 'ignore' });
+    '--enable-unsafe-webgpu', '--no-first-run', ...CI_FLAGS, 'about:blank'], { stdio: ['ignore', 'ignore', process.env.CI ? 'inherit' : 'ignore'] });
   try {
     await started(server, /wfcalc web UI/);
     const snapshot = loadSnapshot();
@@ -117,7 +117,8 @@ test('GPU mode (WGSL in a browser + exact pass) finds the CPU brute force\'s win
     assert.ok(Math.abs(gpuRiven.pick.score - cpuRiven.picks[0].score) < 1e-9 * cpuRiven.picks[0].score, 'GPU riven pick matches the CPU one');
   } finally {
     // The browser writes to its profile until it has exited.
-    const closed = new Promise((resolve) => chrome.once('exit', resolve));
+    // A browser that already died (no sandbox on the runner) never sends 'exit' again.
+    const closed = chrome.exitCode === null && chrome.signalCode === null ? new Promise((resolve) => chrome.once('exit', resolve)) : null;
     chrome.kill();
     server.kill();
     await closed;
