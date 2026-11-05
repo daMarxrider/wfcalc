@@ -186,7 +186,8 @@ console.log('7. weapon mods have one per-rank line per rank');
 const weaponMods = new Set(weapons.flatMap((weapon) => modsForWeapon(snapshot, weapon)));
 for (const mod of weaponMods) {
   // One level = only the max-rank description, no per-rank table to check.
-  if (mod.levels.length > 1 && mod.levels.length !== mod.maxRank + 1) fail('rank count', mod.name, `maxRank ${mod.maxRank}, ${mod.levels.length} levels`);
+  const levels = mod.levels?.length ?? 0;
+  if (levels > 1 && levels !== mod.maxRank + 1) fail('rank count', mod.name, `maxRank ${mod.maxRank}, ${levels} levels`);
 }
 
 // ------------------------------------------------------------------- report
