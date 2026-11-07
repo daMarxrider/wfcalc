@@ -242,6 +242,10 @@ export interface ResolvedBuild {
   encumberChance: number;
   /** Secondary Cryogenic's Cold stacks per Puncture proc, 0 when none. */
   cryogenicStacks: number;
+  /** Archon Continuity on an exalted weapon's frame: a Corrosive proc per Toxin proc. */
+  archonContinuity: boolean;
+  /** Archon Vitality on an exalted weapon's frame: a second Heat proc per Heat proc. */
+  archonVitality: boolean;
   /** Secondary Irradiate's share of a hit dealt to nearby enemies (on 10 Radiation stacks), 0 when none. */
   irradiateShare: number;
   /**
@@ -1414,6 +1418,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     debilitateChance: bonus('debilitate'),
     encumberChance: bonus('encumber'),
     cryogenicStacks: bonus('cryogenic'),
+    archonContinuity: exalted?.continuity ?? false,
+    archonVitality: exalted?.vitality ?? false,
     irradiateShare: bonus('irradiate'),
     ammo,
     timedBuff: collected.timed ?? undefined,
