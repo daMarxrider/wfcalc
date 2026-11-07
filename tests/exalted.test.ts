@@ -7,6 +7,7 @@ import { resolveBuild, arcaneSlotsOf } from '../src/engine/build.ts';
 import { exaltedInfo, peacemakerDamageShare, peacemakerRateShare } from '../src/engine/exalted.ts';
 import { loadSnapshot } from '../src/data.ts';
 import { hitEnemy } from '../src/engine/damage.ts';
+import { arcaneProcRates } from '../src/engine/dot.ts';
 import { scaleEnemy } from '../src/engine/enemy.ts';
 
 const snapshot = loadSnapshot();
@@ -80,4 +81,34 @@ test('the UI gets each exalted weapon\'s frame and its augments', () => {
   assert.equal(info?.frame, 'Excalibur');
   assert.deepEqual(info?.augments.map((augment) => augment.name), ['Chromatic Blade']);
   for (const weapon of Object.values(snapshot.weapons).filter((weapon) => weapon.exalted)) assert.ok(exaltedInfo(weapon), weapon.name);
+});
+
+test('Archon Continuity and Vitality on the frame reach every exalted weapon (wiki: "All Exalted Weapons")', () => {
+  const frameMods = [{ name: 'Archon Continuity', rank: 0 }, { name: 'Archon Vitality', rank: 0 }];
+  for (const weapon of Object.values(snapshot.weapons).filter((weapon) => weapon.exalted)) {
+    const resolved = shot({ weapon: weapon.name, mods: [], frameMods });
+    assert.equal(resolved.archonContinuity, true, weapon.name);
+    assert.equal(resolved.archonVitality, true, weapon.name);
+    // A Corrosive proc per Toxin proc, a second Heat proc per Heat proc.
+    const extra = arcaneProcRates(resolved, 1, (type) => (type === 'toxin' ? 2 : type === 'heat' ? 3 : 0));
+    close(extra.corrosive ?? 0, 2);
+    close(extra.heat ?? 0, 3);
+  }
+  // Not on other weapons: the mods only touch abilities.
+  const lex = shot({ weapon: 'Lex Prime', mods: [], frameMods });
+  assert.equal(lex.archonContinuity, false);
+  assert.equal(lex.archonVitality, false);
+});
+
+test('Dex Pixia: Archon Continuity strips armour with its Toxin procs, Archon Vitality doubles Heat procs', () => {
+  const target = scaleEnemy(snapshot, snapshot.enemies['Heavy Gunner'], 100);
+  const toxin = (frameMods: string[]) => hitEnemy(snapshot, shot({ weapon: 'Dex Pixia', mods: [{ name: 'Pathogen Rounds' }], frameMods }), target, { simulate: true });
+  const plain = toxin([]);
+  const continuity = toxin(['Archon Continuity']);
+  assert.equal(plain.simulation!.atEnd.corrosive, 0);
+  assert.ok(continuity.simulation!.atEnd.corrosive > 0);
+  assert.ok(continuity.timeToKill! < plain.timeToKill!, `${continuity.timeToKill} vs ${plain.timeToKill}`);
+  const heatProcs = (frameMods: string[]) => hitEnemy(snapshot, shot({ weapon: 'Dex Pixia', mods: [{ name: 'Heated Charge' }], frameMods }), target)
+    .dot.find((entry) => entry.type === 'heat')!.procsPerSecond;
+  close(heatProcs(['Archon Vitality']), 2 * heatProcs([]));
 });

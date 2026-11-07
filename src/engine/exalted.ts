@@ -116,6 +116,10 @@ export interface ExaltedSetup {
   sources: Array<{ name: string; effects: Effect[]; ramps?: boolean }>;
   /** Element the physical damage of this attack becomes (Chromatic Blade). */
   element: DamageType | null;
+  /** Archon Continuity on the frame: every Toxin proc also procs Corrosive. */
+  continuity: boolean;
+  /** Archon Vitality on the frame: every Heat proc adds one more Heat proc. */
+  vitality: boolean;
   lines: string[];
   warnings: string[];
 }
@@ -126,7 +130,14 @@ export function exaltedSetup(
 ): ExaltedSetup | null {
   if (!weapon.exalted) return null;
   const rule = EXALTED[weapon.exalted.family];
-  const setup: ExaltedSetup = { scale: 1, sources: [], element: null, lines: [], warnings: [] };
+  const setup: ExaltedSetup = { scale: 1, sources: [], element: null, continuity: false, vitality: false, lines: [], warnings: [] };
+  // Archon mods (wiki notes): "All Exalted Weapons when modded with Toxin" (Continuity) / "with
+  // Heat" (Vitality). Every exalted weapon is one; the effect does not scale with mod rank.
+  const frameModNames = (options.frameMods ?? []).map((entry) => normalizeName(typeof entry === 'string' ? entry : entry.name ?? ''));
+  setup.continuity = frameModNames.includes(normalizeName('Archon Continuity'));
+  setup.vitality = frameModNames.includes(normalizeName('Archon Vitality'));
+  if (setup.continuity) setup.lines.push('Archon Continuity: every Toxin proc also procs Corrosive');
+  if (setup.vitality) setup.lines.push('Archon Vitality: every Heat proc adds a second Heat proc');
   if (!rule) {
     setup.warnings.push(`${weapon.name}: no Ability Strength rule for this exalted weapon; stats used at 100%`);
     return setup;
