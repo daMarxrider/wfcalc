@@ -11,14 +11,14 @@
  * and a mod marked `partial` makes the result a lower bound.
  */
 import type { Build, BuildMod } from './build.ts';
-import { arcaneSlotsOf, COMPRESSION_NOT_AIMING, needsAiming, resolveBuild } from './build.ts';
+import { arcaneGroupOf, arcaneSlotsOf, COMPRESSION_NOT_AIMING, needsAiming, resolveBuild } from './build.ts';
 import { arcaneEffectsAt } from './arcanes.ts';
 import { hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import type { ModData, Snapshot, WeaponData } from '../types.ts';
 import { LOWER_IS_BETTER } from '../types.ts';
-import { modsForWeapon } from '../data.ts';
+import { byExactName, modsForWeapon } from '../data.ts';
 import { rivenAsMod } from './riven.ts';
 import { InputError } from '../errors.ts';
 
@@ -701,15 +701,30 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
  * Search with or without an automatic arcane choice.
  *
  * An arcane is a 2-3x multiplier that the mod optimiser cannot see, so `--arcane auto` runs the
- * same search once per arcane whose slot fits and keeps the best answer. ~20 arcanes at ~55 ms
- * each is about a second, which is cheap for a decision this large.
+ * same search once per arcane whose slot fits and keeps the best answer (~20 arcanes at ~55 ms
+ * each). Weapons with more than one arcane slot (arch-guns, kitguns, zaws, amps) fill every free
+ * slot: each slot's arcanes are ranked alone first, then the best `shortlist` per slot group are
+ * combined and searched again. Arcanes the player already chose stay; only free slots are filled.
  */
-export function search(snapshot: Snapshot, request: SearchRequest): SearchResult {
+export function search(snapshot: Snapshot, request: SearchRequest, shortlist = 3): SearchResult {
   if (!request.chooseArcane) return searchOnce(snapshot, request);
   const weapon = snapshot.weapons[request.weapon];
   if (!weapon) throw new Error(`weapon not found: ${request.weapon}`);
-  // An explicit arcane is a decision, not a suggestion: respect it.
-  if (request.base?.arcanes?.length) return searchOnce(snapshot, { ...request, chooseArcane: false });
+  const plain: SearchRequest = { ...request, chooseArcane: false };
+  const given = (request.base?.arcanes ?? []).map((entry) => (typeof entry === 'string' ? { name: entry } : entry));
+
+  // Free places per slot group, after the arcanes the player chose.
+  const free = new Map<string, number>();
+  for (const slot of arcaneSlotsOf(weapon)) {
+    const { group, size } = arcaneGroupOf(weapon, slot);
+    free.set(group, size);
+  }
+  for (const entry of given) {
+    const slot = byExactName(snapshot.arcanes, entry.name)?.slot;
+    if (!slot) continue;
+    const { group } = arcaneGroupOf(weapon, slot);
+    if (free.has(group)) free.set(group, Math.max(0, free.get(group)! - 1));
+  }
 
   const allowed = arcaneSlotsOf(weapon);
   const relevant = new Set([
@@ -718,11 +733,13 @@ export function search(snapshot: Snapshot, request: SearchRequest): SearchResult
     'statusDamage', 'weakPointOverride', 'weakPointCritChance', 'damageMultiplier', 'doughty', 'duplicateChance',
     'platedRound', 'enervateResets', 'overguardDamage', 'procDamage', 'debilitate', 'encumber', 'cryogenic',
   ]);
+  const givenNames = new Set(given.map((entry) => entry.name));
   const candidates = Object.values(snapshot.arcanes).filter(
-    (arcane) => arcane.slot && allowed.includes(arcane.slot)
+    (arcane) => arcane.slot && allowed.includes(arcane.slot) && !givenNames.has(arcane.name)
+      && (free.get(arcaneGroupOf(weapon, arcane.slot).group) ?? 0) > 0
       && arcaneEffectsAt(arcane, arcane.maxRank, { heavyAttack: Boolean(request.base?.heavyAttack) }).some((effect) => relevant.has(String(effect.target))),
   );
-  if (!candidates.length) return searchOnce(snapshot, { ...request, chooseArcane: false });
+  if (!candidates.length) return searchOnce(snapshot, plain);
 
   const scoreOf = (result: SearchResult): number => {
     const top = result.builds[0];
@@ -732,19 +749,41 @@ export function search(snapshot: Snapshot, request: SearchRequest): SearchResult
       ? top.totalDps
       : (top.timeToKill === null ? -Infinity : -top.timeToKill);
   };
-  // A baseline with no arcane first: an arcane whose conditions are not active must not win a
-  // tie just because it was iterated first (Fractalized Reset with no --stacks onAbilityCast).
-  const baseline = searchOnce(snapshot, { ...request, chooseArcane: false });
-  let best: { result: SearchResult; score: number } = { result: baseline, score: scoreOf(baseline) };
-
-  for (const arcane of candidates) {
+  const run = (picked: Array<{ name: string; maxRank: number }>): { result: SearchResult; score: number } => {
     const result = searchOnce(snapshot, {
-      ...request,
-      chooseArcane: false,
-      base: { ...(request.base ?? {}), arcanes: [{ name: arcane.name, rank: arcane.maxRank }] },
+      ...plain,
+      base: { ...(request.base ?? {}), arcanes: [...given, ...picked.map((arcane) => ({ name: arcane.name, rank: arcane.maxRank }))] },
     });
-    const score = scoreOf(result);
-    if (score > best.score + 1e-9) best = { result, score };
+    return { result, score: scoreOf(result) };
+  };
+  // A baseline with no new arcane first: an arcane whose conditions are not active must not win a
+  // tie just because it was iterated first (Fractalized Reset with no --stacks onAbilityCast).
+  let best = run([]);
+  const baseline = best.score;
+
+  // Every arcane alone, ranked per slot group; only those that beat the baseline go on.
+  const ranked = new Map<string, Array<{ arcane: (typeof candidates)[number]; score: number }>>();
+  for (const arcane of candidates) {
+    const tried = run([arcane]);
+    if (tried.score > best.score + 1e-9) best = tried;
+    if (tried.score <= baseline + 1e-9) continue;
+    const { group } = arcaneGroupOf(weapon, arcane.slot!);
+    ranked.set(group, [...(ranked.get(group) ?? []), { arcane, score: tried.score }]);
+  }
+
+  // Combine the best few per group: each group fills all its free places from its shortlist.
+  const subsets = <T>(items: T[], size: number): T[][] => (size === 0 ? [[]]
+    : items.flatMap((item, index) => subsets(items.slice(index + 1), size - 1).map((rest) => [item, ...rest])));
+  let combos: Array<Array<(typeof candidates)[number]>> = [[]];
+  for (const [group, list] of ranked) {
+    const top = list.sort((a, b) => b.score - a.score).slice(0, shortlist).map((entry) => entry.arcane);
+    const options = subsets(top, Math.min(free.get(group)!, top.length));
+    combos = combos.flatMap((combo) => options.map((option) => [...combo, ...option]));
+  }
+  // Singles were searched above.
+  for (const combo of combos.filter((combo) => combo.length > 1)) {
+    const tried = run(combo);
+    if (tried.score > best.score + 1e-9) best = tried;
   }
   return best.result;
 }
