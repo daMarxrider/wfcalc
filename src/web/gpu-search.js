@@ -509,8 +509,20 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   // No step past a fifth of a magazine cycle: a midpoint samples one phase of it (damage.ts).
   const longest = Math.max(cycle / 5, killTime / 32);
   let step = first;
-  for (let i = 0; i < 48 && t < settled; i++) {
-    let next = Math.min(settled, t + Math.min(step, Math.max(first, t), longest), breaks.find((x) => x > t + 1e-9) ?? Infinity);
+  let skipped = false;
+  for (let i = 0; i < 48; i++) {
+    // Settled: whole magazine cycles at the settled rate, then step the last ones (damage.ts).
+    if (t >= settled && !skipped) {
+      skipped = true;
+      const left = spendLayers([...pools], Infinity, full);
+      if (left === null) break;
+      const skip = Math.max(0, Math.floor(left / cycle) - 1) * cycle;
+      if (skip > 0) {
+        spendLayers(pools, skip, full);
+        t += skip;
+      }
+    }
+    let next = Math.min(t < settled ? settled : Infinity, t + Math.min(step, Math.max(first, t), longest), breaks.find((x) => x > t + 1e-9) ?? Infinity);
     let kill = progress(t, next);
     for (let k = 0; k < 4 && kill !== null && kill < (next - t) * (1 - 1e-3); k++) {
       next = t + kill;
@@ -858,6 +870,7 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   var next = min(min(settled, t + min(min(step, max(first, t)), longest)), nextBreak(t));
   var steps = 0u;
   var shrinks = 0u;
+  var skipped = false;
   for (var turn = 0u; turn < 240u; turn++) {
     kPools = pools;
     let kill = progress(t, next);
@@ -873,8 +886,24 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
     step *= 1.6;
     steps++;
     shrinks = 0u;
-    if (steps >= 48u || t >= settled) { break; }
-    next = min(min(settled, t + min(min(step, max(first, t)), longest)), nextBreak(t));
+    if (steps >= 48u) { break; }
+    // Settled: whole magazine cycles at the settled rate, then step the last ones (JS skipped).
+    if (t >= settled && !skipped) {
+      skipped = true;
+      kPools = pools;
+      let left = spendLayers(1e30, full);
+      if (left < 0.0) { break; }
+      let skip = max(0.0, floor(left / kCycle) - 1.0) * kCycle;
+      if (skip > 0.0) {
+        kPools = pools;
+        _ = spendLayers(skip, full);
+        pools = kPools;
+        t += skip;
+      }
+    }
+    var bound = 1e30;
+    if (t < settled) { bound = settled; }
+    next = min(min(bound, t + min(min(step, max(first, t)), longest)), nextBreak(t));
   }
   kPools = pools;
   let rest = spendLayers(1e30, full);
