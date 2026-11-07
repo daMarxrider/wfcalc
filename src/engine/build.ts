@@ -442,6 +442,17 @@ export function arcaneSlotsOf(weapon: WeaponData): string[] {
   return kind === 'zaw' ? [...own, 'zaw'] : kind?.startsWith('kitgun') ? [...own, 'kitgun'] : own;
 }
 
+/**
+ * The slot group an arcane fills on this weapon and how many arcanes that group holds: arch-guns
+ * hold one Primary and one Secondary arcane, zaws and kitguns one in a slot of their own, amps
+ * two amp arcanes and the Operator two of their own (wiki: Arcane Enhancement).
+ */
+export function arcaneGroupOf(weapon: WeaponData, slot: string): { group: string; size: number } {
+  const group = weapon.category === 'archgun' ? (slot === 'secondary' ? 'secondary' : 'primary')
+    : slot === 'zaw' || slot === 'kitgun' ? 'modular' : slot === 'amp' || slot === 'operator' ? slot : 'weapon';
+  return { group, size: group === 'amp' || group === 'operator' ? 2 : 1 };
+}
+
 export function statsForMode(weapon: WeaponData, modeName?: string): { stats: WeaponData['stats']; mode: WeaponMode | null } {
   if (modeName) {
     const wanted = normalizeName(modeName);
@@ -741,9 +752,6 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   // Zaw and kitgun arcanes sit in a slot of their own; an amp holds two amp arcanes, and the
   // Operator two of their own.
   const allowedArcanes = arcaneSlotsOf(weapon);
-  const arcaneGroup = (slot: string): string => (weapon.category === 'archgun' ? (slot === 'secondary' ? 'secondary' : 'primary')
-    : slot === 'zaw' || slot === 'kitgun' ? 'modular' : slot === 'amp' || slot === 'operator' ? slot : 'weapon');
-  const groupSize = (group: string): number => (group === 'amp' || group === 'operator' ? 2 : 1);
   const usedArcaneGroups = new Map<string, string[]>();
   let compressionRank: number | null = null;
   for (const entry of build.arcanes ?? []) {
@@ -763,12 +771,12 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     } else if ((arcane.slot === 'bow' && weapon.type !== 'Bow') || (arcane.slot === 'shotgun' && weapon.type !== 'Shotgun')) {
       collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.type}`);
     }
-    const group = arcaneGroup(arcane.slot ?? '');
+    const { group, size } = arcaneGroupOf(weapon, arcane.slot ?? '');
     const taken = usedArcaneGroups.get(group) ?? [];
-    if (taken.length >= groupSize(group)) {
+    if (taken.length >= size) {
       collected.warnings.push(weapon.category === 'archgun'
         ? `${arcane.name}: an arch-gun holds one ${group} arcane, and ${taken[0]} already fills it`
-        : groupSize(group) > 1
+        : size > 1
           ? `${arcane.name}: only two ${group} arcanes fit, and ${taken.join(' and ')} already fill them`
           : `${arcane.name}: a weapon holds one ${group === 'modular' ? `${arcane.slot} ` : ''}arcane, and ${taken[0]} already fills the slot`);
     }
