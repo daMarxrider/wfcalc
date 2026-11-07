@@ -30,7 +30,7 @@ import { hitEnemy } from './damage.ts';
 import type { SimulationResult } from './simulate.ts';
 import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
 import type { AttenuationProfile } from './attenuation.ts';
-import { DAMAGE_TARGETS, drawbackTwins, fitMods, isDrawback, search, searchableMods } from './search.ts';
+import { DAMAGE_TARGETS, drawbackTwins, fitMods, isDrawback, objectiveScore, rankArcaneSets, search, searchableMods } from './search.ts';
 import { InputError } from '../errors.ts';
 import { rivenAsMod } from './riven.ts';
 import { byExactName, loadSnapshot, modsForWeapon } from '../data.ts';
@@ -62,6 +62,11 @@ export interface BruteForceRequest {
   requireStatus?: string[];
   /** Everything the player decides: buffs, Ability Strength, Incarnon, arcanes, riven, debuffs. */
   base?: Partial<Build>;
+  /**
+   * Choose the arcanes together with the mods: every free arcane slot is filled. The quick search
+   * ranks the arcane sets (search.ts rankArcaneSets) and the brute force runs once per best set.
+   */
+  chooseArcane?: boolean;
   /**
    * Status effects build up over the fight (simulate.ts). Every combination is ranked with a fast
    * estimate of that build-up (damage.ts steadyStatus), and the best `rerank` are simulated shot
@@ -159,6 +164,8 @@ export interface BruteForceBuild {
   elements: Array<{ type: DamageType; share: number }>;
   /** The riven's stat lines, when the build has one. */
   riven: string[];
+  /** Weapon arcanes the build was searched with. */
+  arcanes: Array<{ name: string; rank?: number }>;
   /** From the fight simulation: status stacks on the target when it died, and damage by source. */
   statusAtKill: SimulationResult['atEnd'] | null;
   damageBySource: Record<string, number> | null;
@@ -728,6 +735,7 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
   return {
     mods: fit.entries.map((entry) => ({ ...entry, fixed: fixedNames.has(entry.name) || entry.name === 'Riven' })),
     riven: resolved.rivenLines,
+    arcanes: (plan.base.arcanes ?? []).map((entry) => (typeof entry === 'string' ? { name: entry } : { name: entry.name, rank: entry.rank })),
     exilus: plan.exilus ? { name: plan.exilus.name, rank: plan.exilus.rank ?? 0 } : null,
     capacityUsed: fit.drain + exilusDrain,
     capacity: plan.capacity,
@@ -794,7 +802,54 @@ function runInWorkers(
 }
 
 /** Plans, enumerates (in parallel when allowed) and reports the best builds. */
+/** How many arcane sets get a full brute force each when the arcanes are chosen too. */
+export const ARCANE_SETS = 3;
+
+/**
+ * The arcane sets worth a brute force each: the quick search's best few, with the player's own
+ * arcanes kept and every free slot filled. Ranked on the quick search's mods, so the mods each set
+ * really wants are found by the brute force that follows.
+ */
+export function arcaneSetsFor(snapshot: Snapshot, request: BruteForceRequest, keep = ARCANE_SETS): Array<Array<{ name: string; rank?: number }>> {
+  return rankArcaneSets(snapshot, {
+    weapon: request.weapon, objective: request.objective, enemy: request.enemy, level: request.level,
+    steelPath: request.steelPath, eximus: request.eximus, overguard: request.overguard, attenuation: request.attenuation,
+    capacity: request.capacity, maxForma: request.maxForma, exclude: request.exclude,
+    mustInclude: (request.fixed ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.name)),
+    simulate: request.simulate, base: request.base, limit: 1, chooseArcane: true,
+  }).slice(0, keep).map((set) => set.arcanes);
+}
+
+/** The best of one brute force per arcane set, with a note on what was tried. */
+export function bestArcaneSet(results: BruteForceResult[], elapsedMs: number): BruteForceResult {
+  const scored = results.map((result) => ({ result, score: objectiveScore(result.builds[0], result.objective) }));
+  const best = scored.reduce((a, b) => (b.score > a.score + 1e-9 ? b : a)).result;
+  const label = (result: BruteForceResult) => result.builds[0]?.arcanes.map((arcane) => arcane.name).join(' + ') || 'no arcane';
+  return {
+    ...best,
+    elapsedMs: Math.round(elapsedMs),
+    combinations: results.reduce((sum, result) => sum + result.combinations, 0),
+    evaluated: results.reduce((sum, result) => sum + result.evaluated, 0),
+    notes: [`Arcanes chosen with the mods: the quick search's best ${results.length} arcane set${results.length === 1 ? '' : 's'} (${results.map(label).join('; ')}) each got a full brute force; ${label(best)} won.`, ...best.notes],
+  };
+}
+
 export async function bruteForce(snapshot: Snapshot, request: BruteForceRequest): Promise<BruteForceResult> {
+  if (!request.chooseArcane) return bruteForceOnce(snapshot, request);
+  const started = performance.now();
+  const sets = arcaneSetsFor(snapshot, request);
+  const results: BruteForceResult[] = [];
+  for (const [index, arcanes] of sets.entries()) {
+    results.push(await bruteForceOnce(snapshot, {
+      ...request,
+      base: { ...(request.base ?? {}), arcanes },
+      onProgress: request.onProgress && ((done, total) => request.onProgress!(index * total + done, sets.length * total)),
+    }));
+  }
+  return bestArcaneSet(results, performance.now() - started);
+}
+
+async function bruteForceOnce(snapshot: Snapshot, request: BruteForceRequest): Promise<BruteForceResult> {
   const started = performance.now();
   request.signal?.throwIfAborted();
   const plan = planBruteForce(snapshot, request);
