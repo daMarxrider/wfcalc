@@ -203,3 +203,15 @@ test('quick search keeps the riven slot and pays its drain (#5)', () => {
   }
   assert.throws(() => search(snapshot, { ...request, mustInclude: ['Serration', 'Split Chamber', 'Point Strike', 'Vital Sense', 'Hellfire', 'Cryo Rounds', 'Stormbringer', 'Infected Clip'], base: { riven: { stats: ['critChance'] } } }), /too many fixed mods/);
 });
+
+test('arcane auto fills both arch-gun slots, keeps a given arcane, and the shortlist matches the full pairing', () => {
+  const request = { weapon: 'Fluctus', objective: 'ttk' as const, enemy: 'Bombard', level: 150, limit: 1, chooseArcane: true };
+  const slots = (names: string[]) => names.map((name) => snapshot.arcanes[name]?.slot).sort();
+  const picked = search(snapshot, request).builds[0].arcanes.map((arcane) => arcane.name);
+  assert.deepEqual(slots(picked), ['primary', 'secondary'], picked.join(', '));
+  assert.deepEqual(search(snapshot, request, Infinity).builds[0].arcanes.map((arcane) => arcane.name), picked);
+
+  const kept = search(snapshot, { ...request, base: { arcanes: [{ name: 'Primary Deadhead', rank: 5 }] } }).builds[0].arcanes.map((arcane) => arcane.name);
+  assert.equal(kept[0], 'Primary Deadhead');
+  assert.deepEqual(slots(kept), ['primary', 'secondary'], kept.join(', '));
+});
