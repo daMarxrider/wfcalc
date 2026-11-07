@@ -497,6 +497,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
     let gasProcs = 0;
     let heatProcs = 0;
     let heatWeight = 0;
+    let toxinProcs = 0;
     let blastWeight = 0;
     // Cascadia Empowered: flat damage of the proc's type, no crit, through resistances and armour.
     let procHealth = 0;
@@ -518,6 +519,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
         if (target.tick >= 0) tickWeight[target.tick] += procs * crit;
         if (target.tick === gasTick) gasProcs += procs;
         if (target.heat) { heatProcs += procs; heatWeight += procs * crit; }
+        if (target.type === 'toxin') toxinProcs += procs;
         if (target.blast) blastWeight += procs * crit;
       };
       // A proc's ticks scale with its hit's damage, so a ramping beam's early procs are weaker.
@@ -550,6 +552,16 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
       });
       // Secondary Cryogenic: every Puncture proc that landed adds Cold stacks.
       if (cryogenic > 0 && stackProcs[iPuncture] > 0) add(procTargets('cold'), stackProcs[iPuncture] * cryogenic, 0);
+      // Archon Continuity / Vitality (dot.ts arcaneProcRates): Corrosive per Toxin proc, a second Heat per Heat proc.
+      if (build.archonContinuity && toxinProcs > 0) {
+        add(procTargets('corrosive'), toxinProcs, 0);
+        procHit('corrosive', toxinProcs);
+      }
+      if (build.archonVitality && heatProcs > 0) {
+        const procs = heatProcs;
+        add(procTargets('heat'), procs, heatWeight / procs);
+        procHit('heat', procs);
+      }
     } else combinedProcs.fill(0);
 
     // ---- damage over time this step, through the current target state (per second x dt)

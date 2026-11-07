@@ -101,6 +101,8 @@ const mirrored: Array<[string, Record<string, unknown>]> = [
   ['Secondary Cryogenic', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { arcanes: ['Secondary Cryogenic'] } }],
   ['Secondary Encumber', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { arcanes: ['Secondary Encumber'] } }],
   ['Primary Debilitate', { weapon: 'Soma Prime', enemy: 'Bombard', base: { arcanes: ['Primary Debilitate'] } }],
+  ['Archon Continuity (exalted)', { weapon: 'Dex Pixia', enemy: 'Heavy Gunner', base: { frameMods: ['Archon Continuity'] }, requireStatus: ['toxin'] }],
+  ['Archon Vitality (exalted)', { weapon: 'Dex Pixia', enemy: 'Bombard', base: { frameMods: ['Archon Vitality'] }, requireStatus: ['heat'] }],
   ['Madurai Phoenix Talons', { weapon: 'Hek', enemy: 'Corpus Tech', base: { buffs: ['phoenix-talons'] } }],
   ['Infinite Ammo on hit (Chamber Cascade)', { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', base: { stackMode: 'max' } }],
   ['Infinite Ammo on kill (Arcane Pistoleer)', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', arcanes: ['Arcane Pistoleer'] } }],

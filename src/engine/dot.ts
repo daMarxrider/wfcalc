@@ -251,9 +251,11 @@ export const ENCUMBER_TYPES: DamageType[] = ['impact', 'puncture', 'slash', 'hea
  *     1 - (1 - chance x min(status chance, 1)) ^ pellets.
  *   - Primary Debilitate: see `debilitateRates`, fed by the build's and Encumber's procs.
  *   - Secondary Cryogenic: every Puncture proc puts `cryogenicStacks` Cold stacks on the target.
+ *   - Archon Continuity / Vitality (exalted weapons): a Corrosive proc per Toxin proc, a second
+ *     Heat proc per Heat proc, arcane ones included (wiki: Secondary Encumber's Toxin counts).
  */
 export function arcaneProcRates(
-  build: Pick<ResolvedBuild, 'statusChance' | 'multishot' | 'statusDurationBonus' | 'debilitateChance' | 'encumberChance' | 'cryogenicStacks'>,
+  build: Pick<ResolvedBuild, 'statusChance' | 'multishot' | 'statusDurationBonus' | 'debilitateChance' | 'encumberChance' | 'cryogenicStacks' | 'archonContinuity' | 'archonVitality'>,
   pullsPerSecond: number,
   rateOf: (type: DamageType) => number,
 ): Partial<Record<DamageType, number>> {
@@ -267,6 +269,9 @@ export function arcaneProcRates(
   const debilitated = debilitateRates(build.debilitateChance ?? 0, 1 + Math.max(-0.9, build.statusDurationBonus ?? 0), withEncumber);
   for (const [type, rate] of Object.entries(debilitated) as Array<[DamageType, number]>) extra[type] = (extra[type] ?? 0) + rate;
   if ((build.cryogenicStacks ?? 0) > 0) extra.cold = (extra.cold ?? 0) + build.cryogenicStacks * (rateOf('puncture') + (extra.puncture ?? 0));
+  // shortcut: Continuity's Corrosive does not feed Debilitate back; second-order, add it if asked.
+  if (build.archonContinuity) extra.corrosive = (extra.corrosive ?? 0) + rateOf('toxin') + (extra.toxin ?? 0);
+  if (build.archonVitality) extra.heat = (extra.heat ?? 0) + rateOf('heat') + (extra.heat ?? 0);
   return extra;
 }
 

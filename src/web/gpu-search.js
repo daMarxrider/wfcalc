@@ -59,7 +59,7 @@ export const P = (() => {
   field('timedSeconds'); field('timedFireRate'); field('kpm');
   field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
   field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
-  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate'); field('boss');
+  field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate'); field('boss'); field('continuity'); field('vitality');
   field('quantize'); field('spoolSum'); field('shieldTakes', 16);
   layout.size = at;
   return layout;
@@ -104,7 +104,7 @@ const DEBILITATE = [[T.viral, T.cold, T.toxin, 6], [T.corrosive, T.electricity, 
 const ENCUMBER_COUNT = T.viral + 1;
 
 /**
- * Procs per second Encumber and Primed Debilitate add on top of `rateOf` (dot.ts arcaneProcRates):
+ * Procs per second Encumber, Primed Debilitate and the Archon mods add on top of `rateOf` (dot.ts arcaneProcRates):
  * Encumber at most one random status per pull, Debilitate a base status on combined procs that
  * land on 10+ stacks.
  */
@@ -124,6 +124,9 @@ function arcaneExtra(params, rateOf, chance, multishot, pulls, duration) {
       extra[b] += added;
     }
   }
+  // Archon Continuity / Vitality on an exalted weapon's frame (dot.ts arcaneProcRates).
+  if (params[P.continuity] > 0) extra[T.corrosive] += rateOf(T.toxin) + extra[T.toxin];
+  if (params[P.vitality] > 0) extra[T.heat] += rateOf(T.heat) + extra[T.heat];
   return extra;
 }
 
@@ -991,6 +994,9 @@ fn arcaneExtra(chance: f32, pCrit: f32) {
       extraProc[DEB_TYPES[3u * j + 2u]] += added;
     }
   }
+  // Archon Continuity / Vitality (JS arcaneExtra).
+  if (params[${P.continuity}u] > 0.0) { extraProc[${T.corrosive}u] += rateAt(${T.toxin}u, chance, pCrit) + extraProc[${T.toxin}u]; }
+  if (params[${P.vitality}u] > 0.0) { extraProc[${T.heat}u] += rateAt(${T.heat}u, chance, pCrit) + extraProc[${T.heat}u]; }
 }
 fn rateAt(t: u32, chance: f32, pCrit: f32) -> f32 {
   return kMultishot * kPulls * (chance * (dmg[t] / kTotal) + S[${CH['forcedCrit:impact']}u + t] * pCrit + S[${CH['forced:impact']}u + t]);
