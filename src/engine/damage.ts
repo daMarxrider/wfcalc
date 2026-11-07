@@ -258,10 +258,17 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
   const breaks = [0.5 * duration, duration, 1.5 * duration, 2 * duration, 1, 1.5, 1.75].sort((x, y) => x - y);
   let t = 0;
   const first = Math.min(full.timeToKill / 4, settled / 8);
+  // A midpoint samples one phase of the magazine cycle: steps near a whole cycle see the state
+  // just after a reload (or mid-magazine) every time, up to 17% off (Acceltra vs Kela, #62).
+  // A fifth of a cycle follows the simulation within 0.3%.
+  // shortcut: at least a 32nd of the kill time, so long fights fit in the 48 steps; aliasing comes back there if the stacks swing with the cycle.
+  const cost = build.ammo?.cost ?? 1;
+  const cycle = cost > 1e-9 ? Math.max(1, build.magazineSize) / cost / Math.max(0.01, build.fireRate) + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime) : Infinity;
+  const longest = Math.max(cycle / 5, full.timeToKill / 32);
   let step = first;
   for (let i = 0; i < 48 && t < settled; i++) {
     // No step longer than the fight so far: a midpoint far ahead would see a Heat chain that big.
-    let next = Math.min(settled, t + Math.min(step, Math.max(first, t)), breaks.find((x) => x > t + 1e-9) ?? Infinity);
+    let next = Math.min(settled, t + Math.min(step, Math.max(first, t), longest), breaks.find((x) => x > t + 1e-9) ?? Infinity);
     let kill = progress(t, next);
     // The kill falls inside this step: shrink it onto the kill (the pulls depend on where it ends).
     for (let k = 0; k < 4 && kill !== null && kill < (next - t) * (1 - 1e-3); k++) {
