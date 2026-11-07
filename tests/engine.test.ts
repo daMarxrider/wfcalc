@@ -1701,6 +1701,27 @@ test('riven picker: the riven never takes the Exilus or stance slot', async () =
   assert.ok(['Serration', 'Split Chamber'].includes(result.picks[0].replaces));
 });
 
+test('the ranking estimate follows the simulation across reload cliffs (#62)', () => {
+  // Steps near a whole magazine cycle sampled the state at one phase of it: 17% off on Acceltra,
+  // and a kill placed inside Hek's reload. Pools scaled by 3% push each kill over a reload.
+  const real = loadSnapshot();
+  const cases: Array<[string, string, string[]]> = [
+    ['Hek', 'Treasurer', ['Chilling Reload', 'Primed Charged Shell', 'Primed Ravage', "Hell's Chamber", 'Primed Point Blank', 'Scattered Justice', 'Semi-Shotgun Cannonade', 'Atomic Fallout']],
+    ['Acceltra', 'Kela De Thaym', ['Primed Cryo Rounds', 'Infected Clip', 'Thermite Rounds', 'Critical Delay', 'Serration', 'Split Chamber', 'Vital Sense', 'Vile Acceleration']],
+  ];
+  for (const [weapon, enemy, mods] of cases) {
+    for (const scale of [0.97, 1, 1.03]) {
+      const input = { weapon, mods };
+      const resolved = resolveQuantized(real, input);
+      const base = scaleEnemy(real, real.enemies[enemy], 150);
+      const scaled = { ...base, overguard: base.overguard * scale, shield: base.shield * scale, health: base.health * scale };
+      const estimate = hitEnemy(real, resolved, scaled, { steadyStatus: true, input }).timeToKill!;
+      const simulated = hitEnemy(real, resolved, scaled, { simulate: true, input }).timeToKill!;
+      assert.ok(Math.abs(estimate / simulated - 1) < 0.01, `${weapon} x${scale}: estimate ${estimate}, simulation ${simulated}`);
+    }
+  }
+});
+
 test('a shared "for 12s. Stacks up to 40x." tail caps both stats of an "A and B" line (Primary Blight)', () => {
   const { effects } = parseModEffects([['On Toxin Status Effect:\n+3.6% Critical Damage and +1.8% Multishot for 12s. Stacks up to 40x.']]);
   assert.deepEqual(effects.map((effect) => [effect.target, effect.maxStacks]), [['critDamage', 40], ['multishot', 40]]);
