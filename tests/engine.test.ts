@@ -1722,6 +1722,21 @@ test('the ranking estimate follows the simulation across reload cliffs (#62)', (
   }
 });
 
+test('the ranking estimate lets DoTs finish a kill in the last reload, like the simulation (#61)', () => {
+  // Slash ticks keep going through a long reload. The old tail turned the damage left into
+  // trigger pulls and waited for the next magazine whenever the last one fell just short.
+  const snap = snapshot([weapon({ slash: 100, statusChance: 1, fireRate: 5, magazineSize: 20, reloadTime: 6 })], [], [dummy]);
+  const resolved = build(snap, []);
+  const base = scaleEnemy(snap, dummy, 1);
+  let worst = 1;
+  for (let health = 60_000; health <= 90_000; health += 1_500) {
+    const scaled = { ...base, health };
+    const ratio = hitEnemy(snap, resolved, scaled, { steadyStatus: true }).timeToKill! / hitEnemy(snap, resolved, scaled, { simulate: true }).timeToKill!;
+    if (Math.abs(ratio - 1) > Math.abs(worst - 1)) worst = ratio;
+  }
+  assert.ok(Math.abs(worst - 1) < 0.02, `worst estimate / simulation ${worst}`);
+});
+
 test('a shared "for 12s. Stacks up to 40x." tail caps both stats of an "A and B" line (Primary Blight)', () => {
   const { effects } = parseModEffects([['On Toxin Status Effect:\n+3.6% Critical Damage and +1.8% Multishot for 12s. Stacks up to 40x.']]);
   assert.deepEqual(effects.map((effect) => [effect.target, effect.maxStacks]), [['critDamage', 40], ['multishot', 40]]);

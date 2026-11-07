@@ -266,9 +266,22 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
   const cycle = cost > 1e-9 ? Math.max(1, build.magazineSize) / cost / Math.max(0.01, build.fireRate) + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime) : Infinity;
   const longest = Math.max(cycle / 5, full.timeToKill / 32);
   let step = first;
-  for (let i = 0; i < 48 && t < settled; i++) {
+  let skipped = false;
+  for (let i = 0; i < 48; i++) {
+    if (t >= settled && !skipped) {
+      // Settled: whole magazine cycles at the settled rate, then step the last one or two, so DoTs
+      // ticking through the final reload can still land the kill (Soma Prime: 3 s early, #61).
+      skipped = true;
+      const left = spendLayers({ ...pools }, Infinity, full.layerDps);
+      if (left === null) break;
+      const skip = Math.max(0, Math.floor(left / cycle) - 1) * cycle;
+      if (skip > 0) {
+        spendLayers(pools, skip, full.layerDps);
+        t += skip;
+      }
+    }
     // No step longer than the fight so far: a midpoint far ahead would see a Heat chain that big.
-    let next = Math.min(settled, t + Math.min(step, Math.max(first, t), longest), breaks.find((x) => x > t + 1e-9) ?? Infinity);
+    let next = Math.min(t < settled ? settled : Infinity, t + Math.min(step, Math.max(first, t), longest), breaks.find((x) => x > t + 1e-9) ?? Infinity);
     let kill = progress(t, next);
     // The kill falls inside this step: shrink it onto the kill (the pulls depend on where it ends).
     for (let k = 0; k < 4 && kill !== null && kill < (next - t) * (1 - 1e-3); k++) {
