@@ -12,7 +12,7 @@ import { search, type SearchRequest } from './engine/search.ts';
 import { modularParts } from './engine/modular.ts';
 import { partSearch } from './engine/part-search.ts';
 import type { ModularKind, WeaponData } from './types.ts';
-import { bruteForce, bruteForceFromCombinations, warmExactPool, type BruteForceRequest } from './engine/bruteforce.ts';
+import { arcaneSetsFor, bruteForce, bruteForceFromCombinations, warmExactPool, type BruteForceRequest } from './engine/bruteforce.ts';
 import { gpuModel } from './engine/gpu-model.ts';
 import { rivenGpuModel, rivenPicker, type RivenPickerRequest } from './engine/riven-picker.ts';
 import { SHARD_BONUSES } from './engine/shards.ts';
@@ -86,6 +86,7 @@ function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; 
     allCombinations: body.allCombinations === true,
     simulate: body.simulate !== false,
     limit: body.limit !== undefined ? Number(body.limit) : 5,
+    chooseArcane: body.chooseArcane === true,
     base,
   };
 }
@@ -405,6 +406,17 @@ export async function handleApi(method: string, url: URL, body: any, io: ApiIo =
         minimumCombo: data.minimumCombo,
         zooms: data.zooms.map((zoom) => ({ zoom: zoom.zoom, text: zoom.text })),
       }])));
+    }
+    // Arcanes chosen with the mods: the sets the Find tab runs one brute force each for (CPU or GPU).
+    if (url.pathname === '/api/bruteforce/arcane-sets' && method === 'POST') {
+      try {
+        const request = bruteForceRequestFrom(body);
+        if ('error' in request) return reply(404, request);
+        return reply(200, { sets: arcaneSetsFor(snapshot, request) });
+      } catch (error) {
+        if (error instanceof InputError) return reply(400, { error: error.message, code: error.code });
+        throw error;
+      }
     }
     // GPU brute force: the model for the browser's pre-filter, then the exact pass on its shortlist.
     if (url.pathname === '/api/bruteforce/gpu-model' && method === 'POST') {
