@@ -506,9 +506,11 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   };
   let t = 0;
   const first = Math.min(killTime / 4, settled / 8);
+  // No step past a fifth of a magazine cycle: a midpoint samples one phase of it (damage.ts).
+  const longest = Math.max(cycle / 5, killTime / 32);
   let step = first;
   for (let i = 0; i < 48 && t < settled; i++) {
-    let next = Math.min(settled, t + Math.min(step, Math.max(first, t)), breaks.find((x) => x > t + 1e-9) ?? Infinity);
+    let next = Math.min(settled, t + Math.min(step, Math.max(first, t), longest), breaks.find((x) => x > t + 1e-9) ?? Infinity);
     let kill = progress(t, next);
     for (let k = 0; k < 4 && kill !== null && kill < (next - t) * (1 - 1e-3); k++) {
       next = t + kill;
@@ -849,9 +851,11 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   var pools = start;
   let first = min(killTime / 4.0, settled / 8.0);
   var step = first;
+  // No step past a fifth of a magazine cycle (JS longest).
+  let longest = max(kCycle / 5.0, killTime / 32.0);
   // The JS loop with its inner shrink loop, flattened: progress has one call site, since the
   // compiler copies it (and layerDps inside) per call site. Each turn spends the step on a copy.
-  var next = min(min(settled, t + min(step, max(first, t))), nextBreak(t));
+  var next = min(min(settled, t + min(min(step, max(first, t)), longest)), nextBreak(t));
   var steps = 0u;
   var shrinks = 0u;
   for (var turn = 0u; turn < 240u; turn++) {
@@ -870,7 +874,7 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
     steps++;
     shrinks = 0u;
     if (steps >= 48u || t >= settled) { break; }
-    next = min(min(settled, t + min(step, max(first, t))), nextBreak(t));
+    next = min(min(settled, t + min(min(step, max(first, t)), longest)), nextBreak(t));
   }
   kPools = pools;
   let rest = spendLayers(1e30, full);
