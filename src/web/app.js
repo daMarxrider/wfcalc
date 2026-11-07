@@ -1923,20 +1923,45 @@ async function runBruteForce(weapon) {
     const el = $('find-clock');
     if (el) el.textContent = `${((performance.now() - started) / 1000).toFixed(0)}s`;
   }, 500);
-  try {
+  const runOne = async (request, progress) => {
     let result = null;
     let gpuFailure = '';
     if (await gpuWanted()) {
       try {
-        result = await gpuBruteForce(payload, stopper.signal, showProgress);
+        result = await gpuBruteForce(request, stopper.signal, progress);
       } catch (error) {
         if (stopper.signal.aborted) throw error;
         gpuFailure = String(error.message ?? error);
       }
     }
-    if (!result) result = await serverBruteForce(payload, stopper.signal, showProgress);
+    if (!result) result = await serverBruteForce(request, stopper.signal, progress);
     if (gpuFailure && result && !result.error) {
       result.notes = [await gpuFailed(gpuFailure), ...(result.notes ?? [])];
+    }
+    return result;
+  };
+  try {
+    let result = null;
+    if ($('find-arcane-auto').checked) {
+      // Arcanes with the mods: the server ranks the arcane sets, each of the best few gets a brute force.
+      $('find-phase').textContent = 'Ranking the arcanes…';
+      const { stream, ...body } = payload;
+      const ranked = await fetch('/api/bruteforce/arcane-sets', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: stopper.signal,
+      }).then((response) => response.json());
+      if (ranked.error) result = ranked;
+      else {
+        const results = [];
+        for (const [index, arcanes] of ranked.sets.entries()) {
+          const one = await runOne({ ...payload, base: { ...payload.base, arcanes } },
+            (done, total) => showProgress(index * total + done, ranked.sets.length * total));
+          if (!one || one.error) { result = one; break; }
+          results.push(one);
+        }
+        if (!result) result = bestArcaneSet(results, performance.now() - started);
+      }
+    } else {
+      result = await runOne(payload, showProgress);
     }
     if (!result || result.error) {
       $('find-out').innerHTML = `<p class="error">${escapeHtml(result?.error ?? 'the search ended without a result')}</p>`;
@@ -1951,6 +1976,25 @@ async function runBruteForce(weapon) {
     clearInterval(clock);
     button.disabled = false;
   }
+}
+
+/** Same pick as bruteforce.ts bestArcaneSet: the best of one brute force per arcane set. */
+function bestArcaneSet(results, elapsedMs) {
+  const score = (result) => {
+    const build = result.builds?.[0];
+    if (!build) return -Infinity;
+    if (result.objective === 'kpm') return build.killsPerMinute || -Infinity;
+    return result.objective === 'dps' ? build.totalDps : (build.timeToKill === null ? -Infinity : -build.timeToKill);
+  };
+  const best = results.reduce((a, b) => (score(b) > score(a) + 1e-9 ? b : a));
+  const label = (result) => result.builds?.[0]?.arcanes?.map((arcane) => arcane.name).join(' + ') || 'no arcane';
+  return {
+    ...best,
+    elapsedMs: Math.round(elapsedMs),
+    combinations: results.reduce((sum, result) => sum + result.combinations, 0),
+    evaluated: results.reduce((sum, result) => sum + result.evaluated, 0),
+    notes: [`Arcanes chosen with the mods: the quick search's best ${results.length} arcane set${results.length === 1 ? '' : 's'} (${results.map(label).join('; ')}) each got a full brute force; ${label(best)} won.`, ...(best.notes ?? [])],
+  };
 }
 
 /** The CPU brute force on the server, streaming its progress. */
@@ -2040,7 +2084,8 @@ function renderFind(result) {
           .map((mod) => (mod.name === 'Riven'
             ? `<span class="chip fixed" title="riven, kept in its slot">Riven: ${escapeHtml((build.riven ?? []).join(', '))}</span>`
             : `<span class="chip${mod.fixed ? ' fixed' : ''}" ${mod.fixed ? 'title="fixed mod"' : ''}>${mod.name}${mod.rank < 99 ? ` R${mod.rank}` : ''}</span>`))
-          .join('')}${build.exilus ? `<span class="chip fixed">${build.exilus.name} R${build.exilus.rank} · exilus</span>` : ''}</div>
+          .join('')}${build.exilus ? `<span class="chip fixed">${build.exilus.name} R${build.exilus.rank} · exilus</span>` : ''}${
+          (build.arcanes ?? []).map((arcane) => `<span class="chip fixed">${escapeHtml(arcane.name)} · arcane</span>`).join('')}</div>
         ${build.statusAtKill ? `<div class="meta">${[
           ['viral', build.statusAtKill.viral], ['corrosive', build.statusAtKill.corrosive],
           ['magnetic', build.statusAtKill.magnetic], ['cold', build.statusAtKill.cold],
@@ -2264,6 +2309,7 @@ const TIPS = {
   'find-status': 'Only builds that deal these damage types, e.g. Blast for its procs or Viral for the damage bonus. Combined elements come from their mods\' order.',
   'find-all': 'Try every combination of every candidate mod, with no shortlist. Can take a very long time.',
   'find-incarnon': 'Let the quick search also pick Incarnon evolutions.',
+  'find-arcane-auto': 'Also choose the arcanes: every empty arcane slot is filled (arch-guns get a primary and a secondary arcane), arcanes typed above stay. The best 3 arcane sets each get a full brute force, so it takes about 3x as long.',
   'find-arcane': 'Weapon arcane, used as given (arch-guns: the Primary one).',
   'find-arcane2': 'Arch-guns only: the Secondary arcane.',
   'find-strength': 'Ability Strength for the buffs below.',

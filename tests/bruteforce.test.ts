@@ -424,3 +424,18 @@ test('blast radius mods are searched: they feed Primary Compression', () => {
   // Ranked with the rest (whether it makes the shortlist depends on the budget).
   assert.ok([...plan.candidates, ...plan.leftOut].includes('Primed Firestorm'));
 });
+
+test('real weapon: arcanes brute forced with the mods fill both arch-gun slots and keep a given one', async () => {
+  const request = { weapon: 'Fluctus', enemy: 'Bombard', level: 150, maxEvaluations: 5_000, limit: 1, workers: 2, chooseArcane: true };
+  const slots = (arcanes: Array<{ name: string }>) => arcanes.map((arcane) => snapshot.arcanes[arcane.name]?.slot).sort();
+  const result = await bruteForce(snapshot, request);
+  assert.deepEqual(slots(result.builds[0].arcanes), ['primary', 'secondary'], JSON.stringify(result.builds[0].arcanes));
+  assert.match(result.notes[0], /^Arcanes chosen with the mods/);
+  // Never worse than the brute force with no arcane at all.
+  const plain = await bruteForce(snapshot, { ...request, chooseArcane: false });
+  assert.ok((result.builds[0].timeToKill ?? Infinity) <= (plain.builds[0].timeToKill ?? Infinity));
+
+  const kept = await bruteForce(snapshot, { ...request, base: { arcanes: [{ name: 'Primary Deadhead', rank: 5 }] } });
+  assert.equal(kept.builds[0].arcanes[0].name, 'Primary Deadhead');
+  assert.deepEqual(slots(kept.builds[0].arcanes), ['primary', 'secondary']);
+});

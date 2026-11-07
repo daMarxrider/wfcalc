@@ -932,6 +932,7 @@ async function main(): Promise<void> {
         pool: numeric('pool'),
         maxEvaluations: numeric('max-evals'),
         allCombinations: Boolean(flag(args, 'all-combinations')),
+        chooseArcane: commaList('arcane').some((name) => name.toLowerCase() === 'auto'),
         limit: numeric('top') ?? 5,
         workers: numeric('workers'),
         simulate: !args.flags.has('no-sim'),
