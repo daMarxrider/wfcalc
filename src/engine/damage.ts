@@ -68,6 +68,8 @@ export interface HitOptions {
   firing?: number;
   /** With `at`: the beam ramp's share of full damage over that step (beamShare). */
   beam?: number;
+  /** With `at`: the Cold crit multiplier bonus the settled magazine cycle averages (settledColdBonus), instead of the one the window's stacks give. */
+  coldBonus?: number;
 }
 
 export interface EnemyHit {
@@ -265,6 +267,13 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
   const cost = build.ammo?.cost ?? 1;
   const cycle = cost > 1e-9 ? Math.max(1, build.magazineSize) / cost / Math.max(0.01, build.fireRate) + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime) : Infinity;
   const longest = Math.max(cycle / 5, full.timeToKill / 32);
+  // Settled, Cold's freeze and cap act on the stacks inside each magazine, not on their mean over the
+  // cycle: price the cycle with the Cold bonus its shots average (settledColdBonus, #68).
+  const cycleRates = (): LayerDps => {
+    const coldBonus = settledColdBonus(build, cycle);
+    return coldBonus === null ? full.layerDps : hitOnce(snapshot, build, scaled, { ...options, at: Infinity, coldBonus }).layerDps;
+  };
+  let settledRates: LayerDps | null = null;
   let step = first;
   let skipped = false;
   for (let i = 0; i < 48; i++) {
@@ -272,11 +281,12 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
       // Settled: whole magazine cycles at the settled rate, then step the last one or two, so DoTs
       // ticking through the final reload can still land the kill (Soma Prime: 3 s early, #61).
       skipped = true;
-      const left = spendLayers({ ...pools }, Infinity, full.layerDps);
+      settledRates = cycleRates();
+      const left = spendLayers({ ...pools }, Infinity, settledRates);
       if (left === null) break;
       const skip = Math.max(0, Math.floor(left / cycle) - 1) * cycle;
       if (skip > 0) {
-        spendLayers(pools, skip, full.layerDps);
+        spendLayers(pools, skip, settledRates);
         t += skip;
       }
     }
@@ -295,7 +305,7 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
     step *= 1.6;
   }
   // The rest at the settled rate: the pulls it needs, then the time to fire them with whole reloads.
-  const rest = spendLayers(pools, Infinity, full.layerDps) ?? Infinity;
+  const rest = spendLayers(pools, Infinity, settledRates ?? full.layerDps) ?? Infinity;
   return finish(secondsToFire(build, pullsBy(build, t) + rest * sustained));
 }
 
@@ -382,7 +392,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   if (options.steadyStatus && options.at === undefined) return fightLengthHit(snapshot, build, scaled, options);
   // Overguard takes only Cold (at most 4 stacks), so its layer gets a crit of its own.
   const overguardBuild = options.steadyStatus && scaled.overguard > 0 ? withSteadyCrit(build, options.at ?? Infinity, true) : null;
-  if (options.steadyStatus) build = withSteadyCrit(build, options.at ?? Infinity, false, scaled.enemy.boss === true);
+  if (options.steadyStatus) build = withSteadyCrit(build, options.at ?? Infinity, false, scaled.enemy.boss === true, options.coldBonus);
   const warnings: string[] = [];
   const armor = scaled.pools.find((pool) => pool.category === 'armor');
   const shields = scaled.pools.filter((pool) => pool.category === 'shield');
@@ -729,7 +739,7 @@ function stacksAt(build: ResolvedBuild, procs: number, life: number, cap: number
  * 3 s, then 3 stacks back and 7 more procs to the next freeze. On Overguard only Cold lands, at
  * most 4 stacks and no freeze (simulate.ts); a boss takes all statuses but Cold to 4, no freeze.
  */
-function withSteadyCrit(build: ResolvedBuild, seconds: number, overguard = false, boss = false): ResolvedBuild {
+function withSteadyCrit(build: ResolvedBuild, seconds: number, overguard = false, boss = false, settledCold?: number): ResolvedBuild {
   const pulls = sustainedPulls(build);
   const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
   const rates = procRates(build, pulls, hitProfile(build, null).critChance);
@@ -745,7 +755,7 @@ function withSteadyCrit(build: ResolvedBuild, seconds: number, overguard = false
   return {
     ...build,
     critChance: build.critChance + 0.05 * puncture,
-    critMultiplier: build.critMultiplier + coldCritBonus(cold, coldRate, duration, !overguard && !boss),
+    critMultiplier: build.critMultiplier + (settledCold !== undefined && !overguard && !boss ? settledCold : coldCritBonus(cold, coldRate, duration, !overguard && !boss)),
     statusChance: build.statusChance * (1 + Math.min(1, 0.1 * tau)),
   };
 }
@@ -761,6 +771,66 @@ function coldCritBonus(procs: number, rate: number, duration: number, canFreeze:
   const frozen = 3 * duration / (3 * duration + 7 / rate);
   return frozen + (1 - frozen) * 0.35;
 }
+
+/** Cold procs per trigger pull from the build's own procs (Cryogenic's included), as withSteadyCrit counts them. */
+function coldProcsPerPull(build: ResolvedBuild): number {
+  const pulls = sustainedPulls(build);
+  const rates = procRates(build, pulls, hitProfile(build, null).critChance);
+  const own = (type: DamageType): number => rates(type).natural + rates(type).forced;
+  return (own('cold') + (arcaneProcRates(build, pulls, own).cold ?? 0)) / pulls;
+}
+
+/**
+ * Cold's crit multiplier bonus averaged over the shots of a settled magazine cycle, by stepping
+ * the stacks the way the simulation does: procs while the trigger is held, a 6 s window, the
+ * freeze at 10 (+1.0 for 3 s, no new procs, 3 stacks back after). Stacks peak inside a magazine
+ * and fall in the reload, so the freeze and the +0.5 cap bite there even where the mean over the
+ * cycle stays below them (Soma Prime: mean 8 stacks, froze 36% of the shots, #68). Null: no Cold.
+ */
+function settledColdBonus(build: ResolvedBuild, cycle: number): number | null {
+  const perPull = coldProcsPerPull(build);
+  if (!(perPull > 0) || !Number.isFinite(cycle) || !(cycle > 0)) return null;
+  const duration = 1 + Math.max(-0.9, build.statusDurationBonus ?? 0);
+  const dt = Math.max(0.05, cycle / 200);
+  const window = Math.max(1, Math.round((6 * duration) / dt));
+  const steps = Math.ceil((8 * cycle) / dt);
+  const recordFrom = Math.floor(steps / 2);
+  const procs = new Float64Array(steps);
+  let total = 0;
+  let frozenUntil = -1;
+  let weighted = 0;
+  let pulls = 0;
+  for (let i = 0; i < steps; i++) {
+    const t = i * dt;
+    if (i >= window) total -= procs[i - window];
+    if (frozenUntil >= 0 && t >= frozenUntil) {
+      frozenUntil = -1;
+      procs[i] += COLD_AFTER_FREEZE;
+      total += COLD_AFTER_FREEZE;
+    }
+    if (frozenUntil < 0 && total >= COLD_FREEZE_STACKS) {
+      frozenUntil = t + COLD_FREEZE_SECONDS * duration;
+      procs.fill(0, Math.max(0, i - window), i + 1);
+      total = 0;
+    }
+    const frozen = frozenUntil >= 0;
+    const fired = pullsBy(build, t + dt) - pullsBy(build, t);
+    if (i >= recordFrom) {
+      weighted += fired * (frozen ? COLD_FROZEN_BONUS : Math.max(0, Math.min(0.5, total > 0 ? 0.1 + 0.05 * (total - 1) : 0)));
+      pulls += fired;
+    }
+    if (!frozen) {
+      procs[i] += fired * perPull;
+      total += fired * perPull;
+    }
+  }
+  return pulls > 0 ? weighted / pulls : null;
+}
+
+const COLD_FREEZE_STACKS = 10;
+const COLD_FREEZE_SECONDS = 3;
+const COLD_FROZEN_BONUS = 1;
+const COLD_AFTER_FREEZE = 3;
 
 /** Cold stacks an Overguarded target or a boss takes (simulate.ts COLD_OVERGUARD_CAP). */
 const COLD_OVERGUARD_CAP = 4;
