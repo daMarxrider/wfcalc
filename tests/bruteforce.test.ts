@@ -421,6 +421,18 @@ test('the ranking estimate sees Cold freeze inside each magazine: Soma Prime Gas
   assert.ok(Math.abs(estimate / simulated - 1) < 0.005, `estimate ${estimate} vs simulated ${simulated}`);
 });
 
+test('Blast is 0.3 x the modded base damage, no +1, in the estimate and the simulation: Soma Prime Heat + Cold within 0.5% (#73)', () => {
+  const snapshot = loadSnapshot();
+  const base = scaleTarget(snapshot, {}, snapshot.enemies.Bombard, 150);
+  const scaled = { ...base, health: base.health * 10, shield: base.shield * 10, overguard: base.overguard * 10 };
+  // Heavy Caliber instead of Infected Clip: Hellfire + Primed Cryo Rounds make Blast.
+  const mods = ['Serration', 'Split Chamber', 'Vital Sense', 'Point Strike', 'Hellfire', 'Heavy Caliber', 'Primed Cryo Rounds', 'Vile Acceleration'];
+  const resolved = resolveBuild(snapshot, { weapon: 'Soma Prime', mods: mods.map((name) => ({ name })) });
+  const estimate = hitEnemy(snapshot, resolved, scaled, { steadyStatus: true, kills: 1 }).timeToKill!;
+  const simulated = hitEnemy(snapshot, resolved, scaled, { simulate: true, kills: 1 }).timeToKill!;
+  assert.ok(Math.abs(estimate / simulated - 1) < 0.005, `estimate ${estimate} vs simulated ${simulated}`);
+});
+
 test('a run of kills shares the reloads: no reload cliff between the estimate and the simulation (#74)', () => {
   const snapshot = loadSnapshot();
   const base = scaleTarget(snapshot, {}, snapshot.enemies.Bombard, 150);
