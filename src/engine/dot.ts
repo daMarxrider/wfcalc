@@ -39,7 +39,7 @@ export const TICK_COEFFICIENT: Record<string, number> = {
   toxin: 0.5,
   electricity: 0.5,
   gas: 0.5,
-  blast: 0.5,
+  blast: 0.3,
 };
 
 /** Number of ticks per proc. */
@@ -346,7 +346,8 @@ export function computeDot(
     const typeBonus = type === 'toxin' ? 1 + (build.toxinStatusDamageBonus ?? 0) : 1;
     const scale = coefficient * (1 + elementalBonus) * statusDamageBonus * typeBonus * factionMultiplier;
     const merged = MERGED_TICKS.has(type);
-    const rawTick = ((seed * factionMultiplier) + (merged ? 0 : 1)) * scale;
+    // Blast is one hit, not a DoT: no +1 (wiki: Blast).
+    const rawTick = ((seed * factionMultiplier) + (merged || type === 'blast' ? 0 : 1)) * scale;
     const dr = dotType === 'true' ? 0 : armorDamageReduction(armor);
     const healthMod = dotType === 'true' ? 0 : healthModifier(snapshot, dotType, healthClass);
     const toShield = hit.location * (1 + healthMod);
@@ -400,6 +401,6 @@ export function statusProcDamage(
   const armor = effectiveArmor(scaled.armor, context);
   const dr = dotType === 'true' ? 0 : armorDamageReduction(armor);
   const healthMod = dotType === 'true' ? 0 : healthModifier(snapshot, dotType, healthClass);
-  const tickDamage = (seed + 1) * coefficient * (1 + healthMod) * (1 - dr) * viralMultiplier(viralStacks);
+  const tickDamage = (seed + (type === 'blast' ? 0 : 1)) * coefficient * (1 + healthMod) * (1 - dr) * viralMultiplier(viralStacks);
   return { type, damageType: dotType, tickDamage, ticks, total: tickDamage * ticks };
 }
