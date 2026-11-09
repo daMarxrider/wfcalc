@@ -337,7 +337,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
     gasOne = tickScale('gas', TICK_COEFFICIENT.gas ?? 0.5);
     heatOne = tickScale('heat', TICK_COEFFICIENT.heat ?? 0.5);
     heatSeed = tickSeed('heat', TICK_COEFFICIENT.heat ?? 0.5);
-    blastSeed = ((total * faction) + 1) * BLAST_COEFFICIENT * statusDamage * faction * hit.location;
+    blastSeed = (build.dotSeed ?? total) * faction * BLAST_COEFFICIENT * statusDamage * faction * hit.location;
     typeTargets = types.map(procTargets);
     forced = (build.forcedProcs ?? []).map((proc) => ({ ...procTargets(proc.type), chance: proc.chance, requiresCrit: proc.requiresCrit }));
     const ammoCost = build.ammo?.cost ?? 1;
