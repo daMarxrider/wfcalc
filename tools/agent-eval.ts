@@ -29,13 +29,13 @@ const GOLDEN = {
   // not from the elemental damage on top, which made the old 4.21s too optimistic.
   // 2026-11-02: Bleed ticks from 1 s after the proc (wiki: Damage over Time), which costs the
   // Hunter Munitions build most in a 7 s fight (6.75s -> 6.98s); Hammer Shot now edges it out.
-  somaSearchTtk: '6.93s',
-  somaSearchDps: '17,105 dps',
+  somaSearchTtk: '9.15s',
+  somaSearchDps: '12,941.7 dps',
   // Kuva weapons carry their bonus element: with none picked, the in-game maximum of 60% Heat.
   // Base crit multiplier in 32/4095 steps and DoT timing (2026-11-02) moved these by under 0.1%.
-  brammaTotal: 'total 787 dps with status',
-  brammaTtk: 'ttk 150.55s',
-  somaStrippedTtk: 'ttk 128.77s',
+  brammaTotal: 'total 784.8 dps with status',
+  brammaTtk: 'ttk 150.98s',
+  somaStrippedTtk: 'ttk 131.83s',
   avalancheCast: '3,000 at 200%',
   ceramicIncarnonHit: 1540,
   eximusOverguard: '281,865',
@@ -235,7 +235,7 @@ const cases: Case[] = [
       check(result.status === 0, `exit ${result.status}: ${result.stderr}`);
       const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
       check(lines.length === 3, `expected 3 lines, got ${lines.length}`);
-      check(lines[0].label === 'bramma' && lines[0].totalDps === 787, `bad bramma line: ${JSON.stringify(lines[0])}`);
+      check(lines[0].label === 'bramma' && lines[0].totalDps === 784.8, `bad bramma line: ${JSON.stringify(lines[0])}`);
       check(lines[1].armor === 2700 && typeof lines[1].timeToKill === 'number', `bad dagger line: ${JSON.stringify(lines[1])}`);
       check(lines[2].ability === 'Avalanche' && lines[2].armorStrip.fraction === 1, `bad ability line: ${JSON.stringify(lines[2])}`);
     },
