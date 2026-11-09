@@ -13,7 +13,7 @@
 import type { Build, BuildMod } from './build.ts';
 import { arcaneGroupOf, arcaneSlotsOf, COMPRESSION_NOT_AIMING, needsAiming, resolveBuild } from './build.ts';
 import { arcaneEffectsAt } from './arcanes.ts';
-import { hitEnemy } from './damage.ts';
+import { DEFAULT_KILLS, hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import type { ModData, Snapshot, WeaponData } from '../types.ts';
@@ -67,6 +67,8 @@ export interface SearchRequest {
   weapon: string;
   /** `ttk` minimises time to kill the target; `dps` maximises sustained damage. */
   objective?: 'ttk' | 'dps' | 'kpm';
+  /** Kills in the run the time to kill is averaged over (default 10, see HitOptions.kills). */
+  kills?: number;
   enemy?: string;
   level?: number;
   /** Mod capacity: 30, or 60 with an Orokin Catalyst. */
@@ -351,7 +353,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     let hit: ReturnType<typeof hitEnemy>;
     try {
       resolved = resolveBuild(snapshot, build);
-      hit = hitEnemy(snapshot, resolved, scaled, { attenuation: request.attenuation, steadyStatus: request.simulate });
+      hit = hitEnemy(snapshot, resolved, scaled, { attenuation: request.attenuation, steadyStatus: request.simulate, kills: request.kills ?? DEFAULT_KILLS });
       score = objective === 'kpm' ? hit.killsPerMinute || -1
         : objective === 'ttk'
         ? (hit.timeToKill === null ? -1 : (1 / Math.max(hit.timeToKill, 1e-6)) * (1 + 1e-4 * Math.min(1, Math.log10(1 + hit.damagePerShotHealth) / 10)))
@@ -556,7 +558,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     // What is reported comes from the fight simulation when asked for; the search itself ran on
     // the fast build-up estimate.
     const scored = request.simulate
-      ? { ...cached, hit: hitEnemy(snapshot, cached.resolved, scaled, { attenuation: request.attenuation, simulate: true, input: cached.build }) }
+      ? { ...cached, hit: hitEnemy(snapshot, cached.resolved, scaled, { attenuation: request.attenuation, simulate: true, input: cached.build, kills: request.kills ?? DEFAULT_KILLS }) }
       : cached;
     const fit = fits(names);
     return {

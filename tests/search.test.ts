@@ -182,7 +182,8 @@ test('equal-damage ties prefer the mod without an unmodelled accuracy penalty', 
 
 test('kills per minute is its own objective: Tigris Prime trades a slower first kill for more kills', () => {
   // With the fight simulated, as the CLI and UI run it: the first kill fires a full magazine.
-  const request = { weapon: 'Tigris Prime', enemy: 'Bombard', level: 150, simulate: true };
+  // One kill at a time: over a run of kills the reload is shared and the two objectives agree.
+  const request = { weapon: 'Tigris Prime', enemy: 'Bombard', level: 150, simulate: true, kills: 1 };
   const fastest = search(snapshot, { ...request, objective: 'ttk' }).builds[0];
   const most = search(snapshot, { ...request, objective: 'kpm' }).builds[0];
   assert.ok(most.killsPerMinute > fastest.killsPerMinute, `${most.killsPerMinute} <= ${fastest.killsPerMinute}`);

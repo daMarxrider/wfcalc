@@ -46,7 +46,7 @@ test('GPU pre-filter blends Athodai Overdrive by uptime, like the exact pass', a
 
 test('GPU pre-filter scores kills per minute like the exact ranking, not 1 / kill time', () => {
   // Acceltra kills inside its first magazine, so 1 / kill time would skip the reloads (~40% high).
-  const request = { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, limit: 1, workers: 1, simulate: true, objective: 'kpm' as const, base: { arcanes: ['Primary Compression'] } };
+  const request = { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, limit: 1, workers: 1, simulate: true, kills: 1, objective: 'kpm' as const, base: { arcanes: ['Primary Compression'] } };
   const model = gpuModel(snapshot, request, 150);
   const best = cpuSearch(model)[0];
   const exact = scoreCombinations(snapshot, gpuPlan(snapshot, request), [best.combo.map((i: number) => model.candidates[i])], 1).top[0];
@@ -90,7 +90,8 @@ test('GPU pre-filter reloads shell by shell like the exact ranking (Strun with P
   assert.ok(ratio > 0.99 && ratio < 1.01, `proxy/exact kills per minute ${ratio}`);
 });
 
-// Mechanics the proxy mirrors from the exact ranking: its 20 best builds score within 1% of it.
+// Mechanics the proxy mirrors from the exact ranking: its 20 best builds score within 1% of it (one kill
+// at a time: a run of kills is the proxy's own approximation, tested below).
 const mirrored: Array<[string, Record<string, unknown>]> = [
   ['Cold freeze', { weapon: 'Glaxion Vandal', enemy: 'Heavy Gunner', requireStatus: ['cold'] }],
   ['Cold on Overguard', { weapon: 'Glaxion Vandal', enemy: 'Heavy Gunner', overguard: 50_000, requireStatus: ['cold'] }],
@@ -110,7 +111,7 @@ const mirrored: Array<[string, Record<string, unknown>]> = [
 ];
 for (const [name, extra] of mirrored) {
   test(`GPU pre-filter scores like the exact ranking: ${name}`, () => {
-    const request = { level: 150, pool: 16, limit: 1, workers: 1, simulate: true, ...extra } as Parameters<typeof gpuModel>[1];
+    const request = { level: 150, pool: 16, limit: 1, workers: 1, simulate: true, kills: 1, ...extra } as Parameters<typeof gpuModel>[1];
     const model = gpuModel(snapshot, request, 20);
     const top = cpuSearch(model, 20);
     const names = top.map(({ combo }) => combo.map((i: number) => model.candidates[i]));
@@ -138,4 +139,37 @@ test('GPU pre-filter matches the exact static score: quantization and spool-up',
     const ratio = proxyScore(model, combo) / exact.score;
     assert.ok(Math.abs(ratio - 1) < 1e-3, `${weapon}: proxy/exact ${ratio}`);
   }
+});
+
+// A run of kills (#74): the proxy fires N times the first kill's pulls through the magazine cycle.
+// Against the exact 10-kill ranking that orders the shortlist far better than one kill at a time.
+test('GPU pre-filter orders builds by the run of kills like the exact ranking (Soma Prime vs Bombard)', () => {
+  const request = { weapon: 'Soma Prime', enemy: 'Bombard', level: 150, pool: 16, limit: 1, workers: 1, simulate: true, kills: 10 };
+  const rank = (values: number[]): number[] => {
+    const order = values.map((value, i) => [value, i]).sort((a, b) => a[0] - b[0]);
+    const ranks = new Array<number>(values.length);
+    order.forEach(([, i], place) => { ranks[i] = place; });
+    return ranks;
+  };
+  const spearman = (a: number[], b: number[]): number => {
+    const x = rank(a);
+    const y = rank(b);
+    const mid = (a.length - 1) / 2;
+    let sum = 0, vx = 0, vy = 0;
+    x.forEach((value, i) => { sum += (value - mid) * (y[i] - mid); vx += (value - mid) ** 2; vy += (y[i] - mid) ** 2; });
+    return sum / Math.sqrt(vx * vy);
+  };
+  const agreement = (proxyKills: number): number => {
+    const model = gpuModel(snapshot, { ...request, kills: proxyKills }, 150);
+    const plan = gpuPlan(snapshot, request);
+    const top = cpuSearch(model, 150).filter(({ combo }: { combo: number[] }) => combo.every((i) => plan.candidates.includes(model.candidates[i])));
+    const names = top.map(({ combo }: { combo: number[] }) => combo.map((i) => model.candidates[i]));
+    const exact = new Map(scoreCombinations(snapshot, plan, names, 150).top.map((build) => [build.mods.map((mod) => mod.name).sort().join(), build.score]));
+    const pairs = top.map(({ score }: { score: number }, i: number): [number, number] => [score, exact.get([...names[i]].sort().join())!]).filter((pair) => pair[1] !== undefined);
+    return spearman(pairs.map((pair) => pair[0]), pairs.map((pair) => pair[1]));
+  };
+  const run = agreement(10);
+  const single = agreement(1);
+  assert.ok(run > 0.93, `run of kills: Spearman ${run}`);
+  assert.ok(run > single + 0.05, `run ${run} vs single kill ${single}`);
 });

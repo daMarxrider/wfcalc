@@ -37,7 +37,7 @@ import { resolveStrip, type StripDebuff } from './engine/strip.ts';
 import { buildFromJson } from './request.ts';
 import { InputError } from './errors.ts';
 import { scaleEnemy } from './engine/enemy.ts';
-import { hitEnemy } from './engine/damage.ts';
+import { DEFAULT_KILLS, hitEnemy } from './engine/damage.ts';
 import { BUFFS, availableBuffs } from './engine/buffs.ts';
 import { RIVEN_ATTRIBUTES, type RivenSpec } from './engine/riven.ts';
 import { SHARD_BONUSES, type ShardColor, type ShardSpec } from './engine/shards.ts';
@@ -420,6 +420,7 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
     targets: flag(args, 'targets') ? Number(flag(args, 'targets')) : undefined,
     simulate: !args.flags.has('no-sim'),
     input: build,
+    kills: flag(args, 'kills') ? Number(flag(args, 'kills')) : DEFAULT_KILLS,
   });
   const allWarnings = [...resolved.warnings, ...hit.warnings];
   const capacityLimit = flag(args, 'capacity') ? Number(flag(args, 'capacity')) : 60;
@@ -655,6 +656,7 @@ function searchOptionsFromArgs(snapshot: Snapshot, args: Args): Omit<SearchReque
     chooseIncarnon: commaList('incarnon').includes('auto'),
     chooseArcane: commaList('arcane').some((name) => name.toLowerCase() === 'auto'),
     simulate: !args.flags.has('no-sim'),
+    kills: flag(args, 'kills') ? Number(flag(args, 'kills')) : undefined,
     ...targetScale(args),
     attenuation: attenuationFromArgs(args),
     base: commaList('incarnon').includes('auto') ? { ...base, incarnon: undefined } : base,
@@ -936,6 +938,7 @@ async function main(): Promise<void> {
         limit: numeric('top') ?? 5,
         workers: numeric('workers'),
         simulate: !args.flags.has('no-sim'),
+        kills: numeric('kills'),
         ...targetScale(args),
         attenuation: attenuationFromArgs(args),
         base: { ...base, mods: [] },
@@ -1169,6 +1172,7 @@ async function main(): Promise<void> {
           }), {
             simulate: record.simulate !== false,
             input: build,
+            kills: record.kills !== undefined ? Number(record.kills) : DEFAULT_KILLS,
             targets: record.targets !== undefined ? Number(record.targets) : undefined,
             attenuation: record.attenuation ?? (record.mdpt !== undefined || record.mdps !== undefined
               ? {
@@ -1287,6 +1291,7 @@ Ability options:
          --enemy NAME --level N  apply the target's modifiers and armour
 
 Search options:
+         --kills N                (kills the time to kill is averaged over, one target after another: default 10, 1 = a single kill)
          --objective ttk|dps|kpm  (default ttk: kill the target fastest; kpm: most kills per minute, one target after another)
          --capacity 30|60      (default 60, i.e. with an Orokin Catalyst)
          --forma N             maximum Forma the search may spend
