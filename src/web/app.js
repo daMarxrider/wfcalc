@@ -277,6 +277,7 @@ async function runPartSearch() {
       kind: $('parts-kind').value,
       parts,
       objective: $('find-objective').value,
+    kills: findKills(),
       enemy: $('find-enemy').value.trim() || 'Bombard',
       level: findLevel(),
       steelPath: $('find-sp').checked,
@@ -643,6 +644,7 @@ async function runRivenPicker() {
     riven: null,
     form,
     objective: $('riven-objective').value,
+    kills: findKills(),
     stats: ['riven-stat-1', 'riven-stat-2', 'riven-stat-3'].map((id) => $(id).value).filter(Boolean),
     malus: $('riven-malus').value || undefined,
     limit: 100,
@@ -1707,6 +1709,7 @@ function buildPayload(extra = {}) {
           ...(state.rivenPolarity ? { polarity: state.rivenPolarity } : {}),
         }
       : null,
+    kills: findKills(),
     ...extra,
   };
 }
@@ -1826,6 +1829,7 @@ async function runFind() {
   const payload = {
     weapon,
     objective: $('find-objective').value,
+    kills: findKills(),
     enemy: $('find-enemy').value.trim() || 'Bombard',
     level: findLevel(),
     steelPath: $('find-sp').checked,
@@ -1870,6 +1874,8 @@ function formChosen() {
   return false;
 }
 
+/** Kills in the run the time to kill is averaged over (the Kills field; 1 = a single kill). */
+const findKills = () => Math.min(100, Math.max(1, Math.floor(Number($('find-kills')?.value) || 10)));
 const findLevel = () => effectiveLevel(Number($('find-level').value) || 150, $('find-sp').checked, $('find-sp-offset').checked);
 
 async function runBruteForce(weapon) {
@@ -1884,6 +1890,7 @@ async function runBruteForce(weapon) {
     form: findForm(),
     weapon,
     objective: $('find-objective').value,
+    kills: findKills(),
     enemy: $('find-enemy').value.trim() || 'Bombard',
     level: findLevel(),
     steelPath: $('find-sp').checked,

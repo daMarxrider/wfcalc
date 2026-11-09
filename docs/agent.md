@@ -61,6 +61,7 @@ Flags:
 | Flag | Meaning |
 |---|---|
 | `--objective ttk\|dps` | Kill the target fastest (default) or maximise `totalDps` |
+| `--kills N` | Kills the time to kill is averaged over, one identical target after another (default 10; 1 = a single kill) |
 | `--enemy NAME --level N` | The target; armour changes the answer completely |
 | `--capacity 30\|60` | 60 = with an Orokin Catalyst (default) |
 | `--forma N` | Maximum Forma the search may spend |

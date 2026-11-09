@@ -18,6 +18,7 @@
  */
 import type { Build, BuildMod } from './build.ts';
 import { elementalOrders, modElement, makeScorer, scaleTarget, runOnPool } from './bruteforce.ts';
+import { DEFAULT_KILLS } from './damage.ts';
 import { rivenClass, rivenEffects, RIVEN_ATTRIBUTES, type RivenSpec } from './riven.ts';
 import { searchableMods } from './search.ts';
 import { BASE_ELEMENTS, ELEMENT_COMBINATIONS, type BaseElement, type Snapshot } from '../types.ts';
@@ -39,6 +40,8 @@ export interface RivenPickerRequest {
   steelPath?: boolean;
   eximus?: boolean;
   objective?: 'ttk' | 'dps' | 'kpm';
+  /** Kills in the run the time to kill is averaged over (default 10, see HitOptions.kills). */
+  kills?: number;
   /** How many of the best riven groups to report (default 200). */
   limit?: number;
   /** Only rivens with all of these positive stats (ids), e.g. a riven the player owns. */
@@ -171,7 +174,7 @@ export function rivenShard(snapshot: Snapshot, job: RivenShardJob): RivenShardRe
       let top = -Infinity;
       for (const order of elementalOrders([...kept, { name: RIVEN_SLOT }], (name) => (name === RIVEN_SLOT ? rivenElement ?? null : modElement(snapshot.mods[name])), [])) {
         const slot = order.findIndex((mod) => mod.name === RIVEN_SLOT);
-        const scorer = makeScorer(snapshot, weapon.name, { ...(request.base ?? {}), riven, rivenSlot: slot }, scaled, objective, null, 'steady');
+        const scorer = makeScorer(snapshot, weapon.name, { ...(request.base ?? {}), riven, rivenSlot: slot }, scaled, objective, null, 'steady', [], request.kills ?? DEFAULT_KILLS);
         top = Math.max(top, scorer([...order.filter((mod) => mod.name !== RIVEN_SLOT), ...fixed], null));
         evaluated++;
       }
@@ -272,7 +275,7 @@ export async function rivenPicker(snapshot: Snapshot, request: RivenPickerReques
   }));
 
   const scaled = scaleTarget(snapshot, { steelPath: request.steelPath, eximus: request.eximus }, enemy, request.level ?? 150);
-  const baselineScore = makeScorer(snapshot, weapon.name, base, scaled, objective, null, 'steady')([...mods, ...fixed], null);
+  const baselineScore = makeScorer(snapshot, weapon.name, base, scaled, objective, null, 'steady', [], request.kills ?? DEFAULT_KILLS)([...mods, ...fixed], null);
   const assumptions = [
     'Riven values: +3 -1 layout, best roll, rank 8, disposition 1.2 (wiki); the negative stat at its worst',
     'At most one spliced stat per riven; capacity is not checked (the riven takes the replaced slot)',
@@ -346,7 +349,7 @@ export function rivenGpuModel(snapshot: Snapshot, request: RivenPickerRequest): 
     weapon: weapon.name, enemy: enemyName, fixed, exilus: null,
     base: { ...(request.base ?? {}), riven: undefined, mods: [] },
     level: request.level ?? 150, eximus: Boolean(request.eximus), overguard: undefined, steelPath: Boolean(request.steelPath),
-    simulate: true, objective: request.objective ?? 'ttk', requireStatus: [], capacity: 1e9, maxForma: null, freeSlots: 0,
+    simulate: true, objective: request.objective ?? 'ttk', kills: request.kills ?? DEFAULT_KILLS, requireStatus: [], capacity: 1e9, maxForma: null, freeSlots: 0,
   };
   const model = vectorModel(snapshot, plan, items, 0, items.map(() => -1));
   const position = new Map(items.map((item, i) => [item.name, i]));

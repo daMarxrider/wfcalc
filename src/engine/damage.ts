@@ -19,6 +19,11 @@ import { hitProfile, type HitProfile } from './hit.ts';
 import { AMMO_EFFICIENCY_CAP, ammoBuffUptime, expectedAmmoCost } from './ammo.ts';
 import { BEAM_DECAY_DELAY, BEAM_DECAY_TIME, BEAM_RAMP_TIME, beamStart, simulateKill, type SimulationResult } from './simulate.ts';
 
+/** Targets in the run the entry points (search, brute force, calc) score a kill time over unless asked otherwise. */
+export const DEFAULT_KILLS = 10;
+/** The longest run: each kill costs a fight's worth of work. */
+export const MAX_KILLS = 100;
+
 export interface TypeBreakdown {
   type: DamageType;
   /** Damage of this type per projectile, before enemy modifiers. */
@@ -68,6 +73,14 @@ export interface HitOptions {
   firing?: number;
   /** With `at`: the beam ramp's share of full damage over that step (beamShare). */
   beam?: number;
+  /**
+   * Time to kill over a run of this many identical targets shot one after the other (default 1):
+   * the magazine and the reload carry over from one kill to the next, the statuses start fresh on
+   * each, and the time reported is the run's mean. One kill alone jumps by a whole reload
+   * whenever it lands at a magazine's end (the reload cliff, #74); over 10 that is a tenth.
+   * Only the step simulation and `steadyStatus` use it.
+   */
+  kills?: number;
   /** With `at`: the Cold crit multiplier bonus the settled magazine cycle averages (settledColdBonus), instead of the one the window's stacks give. */
   coldBonus?: number;
 }
@@ -233,6 +246,32 @@ function ammoHit(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
  * the sustained rate.
  */
 function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions): EnemyHit {
+  const kills = Math.min(MAX_KILLS, Math.max(1, Math.floor(options.kills ?? 1)));
+  const first = singleFight(snapshot, build, scaled, options);
+  const cycle = magazineCycle(build);
+  if (kills === 1 || first.timeToKill === null || first.timeToKill <= 0 || !Number.isFinite(cycle)) return first;
+  // The next target is shot the moment this one dies: wherever the magazine cycle is then.
+  let seconds = first.timeToKill;
+  let pulls = first.shotsToKill;
+  let phase = seconds % cycle;
+  for (let kill = 1; kill < kills; kill++) {
+    const next = singleFight(snapshot, { ...build, startPhase: phase }, scaled, options);
+    if (next.timeToKill === null) return next;
+    seconds += next.timeToKill;
+    pulls += next.shotsToKill;
+    phase = (phase + next.timeToKill) % cycle;
+  }
+  return { ...first, timeToKill: seconds / kills, shotsToKill: pulls / kills, killsPerMinute: (60 * kills) / seconds, totalDps: (first.totalDps * first.timeToKill * kills) / seconds };
+}
+
+/** Seconds of one magazine cycle: firing, spool-up and reload (Infinity: it never reloads). */
+function magazineCycle(build: ResolvedBuild): number {
+  const cost = build.ammo?.cost ?? 1;
+  return cost > 1e-9 ? Math.max(1, build.magazineSize) / cost / Math.max(0.01, build.fireRate) + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime) : Infinity;
+}
+
+/** One target's fight (fightLengthHit), from the trigger state `build.startPhase` says. */
+function singleFight(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, options: HitOptions): EnemyHit {
   const full = hitOnce(snapshot, build, scaled, { ...options, at: Infinity });
   if (full.timeToKill === null || full.timeToKill <= 0) return full;
   const sustained = sustainedPulls(build);
@@ -264,8 +303,7 @@ function fightLengthHit(snapshot: Snapshot, build: ResolvedBuild, scaled: Scaled
   // just after a reload (or mid-magazine) every time, up to 17% off (Acceltra vs Kela, #62).
   // A fifth of a cycle follows the simulation within 0.3%.
   // shortcut: at least a 32nd of the kill time, so long fights fit in the 48 steps; aliasing comes back there if the stacks swing with the cycle.
-  const cost = build.ammo?.cost ?? 1;
-  const cycle = cost > 1e-9 ? Math.max(1, build.magazineSize) / cost / Math.max(0.01, build.fireRate) + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime) : Infinity;
+  const cycle = magazineCycle(build);
   const longest = Math.max(cycle / 5, full.timeToKill / 32);
   // Settled, Cold's freeze and cap act on the stacks inside each magazine, not on their mean over the
   // cycle: price the cycle with the Cold bonus its shots average (settledColdBonus, #68).
@@ -314,9 +352,12 @@ function secondsToFire(build: ResolvedBuild, pulls: number): number {
   const cost = build.ammo?.cost ?? 1;
   if (!(cost > 1e-9)) return pulls / build.fireRate;
   const perMagazine = Math.max(1, build.magazineSize) / cost;
-  const cycle = perMagazine / Math.max(0.01, build.fireRate) + Math.max(0, build.spoolSeconds ?? 0) + Math.max(0, build.reloadTime);
-  const cycles = Math.max(0, Math.ceil(pulls / perMagazine) - 1);
-  return cycles * cycle + (pulls - cycles * perMagazine) / build.fireRate;
+  const cycle = magazineCycle(build);
+  // From a later kill's start: the pulls fired since the cycle began, then back to its seconds.
+  const phase = build.startPhase ?? 0;
+  const total = pulls + (phase > 0 ? pullsBy({ ...build, startPhase: 0 }, phase) : 0);
+  const cycles = Math.max(0, Math.ceil(total / perMagazine - 1e-9) - 1);
+  return cycles * cycle + (total - cycles * perMagazine) / build.fireRate - phase;
 }
 
 /**
@@ -586,6 +627,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
 
   let timeToKill = Number.isFinite(shotsToKill) && pullsPerSecond > 0 ? shotsToKill / pullsPerSecond : null;
   let simulation: SimulationResult | null = null;
+  let runKills = 1;
   if (options.simulate && !attenuation) {
     const input = options.input;
     const sources = input ? arcaneBuildUp(snapshot, input, build) : [];
@@ -594,12 +636,26 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
       const next = resolveBuild(snapshot, { ...input!, sourceStacks: { ...(input!.sourceStacks ?? {}), ...stacks } });
       return build.ammo?.buffs.length ? { ...next, ammo: build.ammo } : next;
     };
-    simulation = simulateKill(snapshot, build, scaled, { factionMultiplier, debuffs, estimate: timeToKill, buildUp: sources.length ? { sources, resolveAt } : undefined });
+    const run = { factionMultiplier, debuffs, estimate: timeToKill, buildUp: sources.length ? { sources, resolveAt } : undefined };
+    simulation = simulateKill(snapshot, build, scaled, run);
+    // A run of kills: each next target is shot from the trigger state the last one left.
+    const kills = Math.min(MAX_KILLS, Math.max(1, Math.floor(options.kills ?? 1)));
+    let runSeconds = simulation.timeToKill ?? 0;
+    let runPulls = simulation.shots;
+    let done = simulation.timeToKill === null ? 0 : 1;
+    for (let trigger = simulation.trigger; done > 0 && done < kills; done++) {
+      const next = simulateKill(snapshot, build, scaled, { ...run, trigger });
+      if (next.timeToKill === null) break;
+      runSeconds += next.timeToKill;
+      runPulls += next.shots;
+      trigger = next.trigger;
+    }
     const stacks = Object.entries(simulation.arcaneStacks ?? {});
     if (stacks.length) warnings.push(`arcane stacks build up in the fight: ${stacks.map(([name, value]) => `${name} ${value} at the kill`).join(', ')}`);
     if (simulation.timeToKill !== null) {
-      timeToKill = simulation.timeToKill;
-      shotsToKill = simulation.shots;
+      timeToKill = runSeconds / done;
+      shotsToKill = runPulls / done;
+      if (done > 1) runKills = done;
     } else if (timeToKill !== null) {
       // Killable, but slower than the simulation's horizon: keep the steady-state estimate.
       warnings.push(`fight longer than the simulation horizon; time to kill is the steady-state estimate`);
@@ -715,7 +771,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
     multiTargetTargets: requestedTargets,
     shotsToKill,
     timeToKill,
-    killsPerMinute: killRate(build, shotsToKill),
+    killsPerMinute: runKills > 1 && timeToKill ? 60 / timeToKill : killRate(build, shotsToKill),
     factionMultiplier,
     hit,
     simulation,
