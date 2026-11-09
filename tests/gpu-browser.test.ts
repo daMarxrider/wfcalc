@@ -20,12 +20,14 @@ const browser = [process.env.WFCALC_BROWSER, 'brave', 'google-chrome-stable', 'g
   .filter((name): name is string => Boolean(name))
   .find((name) => spawnSync('which', [name]).status === 0);
 
+// Hek runs the default run of 10 kills (the shader's run-of-kills finish); the rest one kill at a time, which
+// keeps the exact pass (a simulated fight per kill and build) within the time limit.
 const REQUESTS = [
   { weapon: 'Soma Prime', enemy: 'Bombard', level: 150, pool: 14, simulate: false, limit: 1, form: 'normal' },
   { weapon: 'Hek', enemy: 'Corpus Tech', level: 150, pool: 14, simulate: true, limit: 1 },
-  { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, simulate: true, limit: 1, objective: 'kpm' as const, base: { arcanes: ['Primary Compression'] } },
+  { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, simulate: true, kills: 1, limit: 1, objective: 'kpm' as const, base: { arcanes: ['Primary Compression'] } },
   // Timed ammo buffs on hit (Chamber Cascade) and on kill (Pistoleer), Madurai, Encumber.
-  { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', level: 150, pool: 14, simulate: true, limit: 1, base: { hit: 'head' as const, stackMode: 'max' as const, arcanes: ['Arcane Pistoleer', 'Secondary Encumber'], buffs: ['phoenix-talons'] } },
+  { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', level: 150, pool: 14, simulate: true, kills: 1, limit: 1, base: { hit: 'head' as const, stackMode: 'max' as const, arcanes: ['Arcane Pistoleer', 'Secondary Encumber'], buffs: ['phoenix-talons'] } },
 ];
 
 /** Starts a process and resolves once a stdout line matches. */
@@ -70,7 +72,7 @@ async function evaluate(port: number, url: string, expression: string): Promise<
   }
 }
 
-test('GPU mode (WGSL in a browser + exact pass) finds the CPU brute force\'s winner', { skip: (!browser && 'no Chromium-family browser installed'), timeout: 300_000 }, async () => {
+test('GPU mode (WGSL in a browser + exact pass) finds the CPU brute force\'s winner', { skip: (!browser && 'no Chromium-family browser installed'), timeout: 600_000 }, async () => {
   const appPort = 20_000 + Math.floor(Math.random() * 20_000);
   const debugPort = appPort + 1;
   const profile = mkdtempSync(join(tmpdir(), 'wfcalc-gpu-test-'));

@@ -8,6 +8,7 @@
 import type { Build, BuildMod } from './build.ts';
 import { quantizeCritBase, resolveBuild } from './build.ts';
 import { exilusCost, gpuPlan, modElement, twinRequirements, type BruteForcePlan, type BruteForceRequest } from './bruteforce.ts';
+import { MAX_KILLS } from './damage.ts';
 import { effectiveArmor, shieldTakes } from './dot.ts';
 import { scaleEnemy } from './enemy.ts';
 import { hitProfile, weakPointBase } from './hit.ts';
@@ -41,7 +42,7 @@ export function gpuModel(snapshot: Snapshot, request: BruteForceRequest, keep = 
 
 /** What a model needs from a plan: the target, the fixed loadout and the capacity. */
 export type ModelPlan = Pick<BruteForcePlan, 'weapon' | 'enemy' | 'fixed' | 'exilus' | 'base' | 'level' | 'eximus'
-  | 'overguard' | 'steelPath' | 'simulate' | 'objective' | 'requireStatus' | 'capacity' | 'maxForma' | 'freeSlots'>;
+  | 'overguard' | 'steelPath' | 'simulate' | 'objective' | 'kills' | 'requireStatus' | 'capacity' | 'maxForma' | 'freeSlots'>;
 
 /** One vector of the model: a mod, or a riven stat (as a one-stat riven with the given value). */
 export interface ModelItem {
@@ -231,6 +232,7 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   // The exact ranking estimates the status build-up only when the fight is simulated.
   params[P.steady] = plan.simulate ? 1 : 0;
   params[P.kpm] = plan.objective === 'kpm' ? 1 : 0;
+  params[P.kills] = Math.min(MAX_KILLS, Math.max(1, Math.floor(plan.kills ?? 1)));
 
   const slots = Math.min(plan.freeSlots, items.length);
   return {

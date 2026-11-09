@@ -6,7 +6,7 @@
 import { findEnemy, findWeapon, loadSnapshot, modsForWeapon } from './data.ts';
 import { arcaneSlotsOf, hasBonusElement, resolveBuild, type Build } from './engine/build.ts';
 import { scaleEnemy } from './engine/enemy.ts';
-import { hitEnemy, statusProcs } from './engine/damage.ts';
+import { DEFAULT_KILLS, hitEnemy, statusProcs } from './engine/damage.ts';
 import { availableBuffs } from './engine/buffs.ts';
 import { search, type SearchRequest } from './engine/search.ts';
 import { modularParts } from './engine/modular.ts';
@@ -85,6 +85,7 @@ function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; 
     maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
     allCombinations: body.allCombinations === true,
     simulate: body.simulate !== false,
+    kills: body.kills !== undefined ? Number(body.kills) : undefined,
     limit: body.limit !== undefined ? Number(body.limit) : 5,
     chooseArcane: body.chooseArcane === true,
     base,
@@ -167,6 +168,7 @@ function calculate(body: any) {
       targets: body.targets !== undefined ? Number(body.targets) : undefined,
       simulate: body.simulate !== false,
       input: build,
+      kills: body.kills !== undefined ? Number(body.kills) : DEFAULT_KILLS,
     });
     hitWarnings = hit.warnings;
     target = { name: enemy.name, faction: enemy.faction, pools: scaled.pools, ...hit };
@@ -285,6 +287,7 @@ function searchOptions(body: any, base: Build): Omit<SearchRequest, 'weapon'> {
     overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
     steelPath: Boolean(body.steelPath),
     simulate: body.simulate !== false,
+    kills: body.kills !== undefined ? Number(body.kills) : undefined,
     attenuation: body.attenuation !== undefined
       ? body.attenuation
       : (body.mdpt !== undefined || body.mdps !== undefined

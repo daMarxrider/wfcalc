@@ -13,6 +13,7 @@
 import type { ModularKind, Snapshot } from '../types.ts';
 import { InputError } from '../errors.ts';
 import { makeScorer } from './bruteforce.ts';
+import { DEFAULT_KILLS } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { combinations, modularParts } from './modular.ts';
 import { search, type SearchBuild, type SearchRequest } from './search.ts';
@@ -64,7 +65,7 @@ export function partSearch(snapshot: Snapshot, request: PartSearchRequest): Part
   // search() assumes a 12x melee combo unless told otherwise; the scores here have to match.
   const base = request.kind === 'zaw' && request.base?.comboHits === undefined ? { ...(request.base ?? {}), comboHits: 220 } : (request.base ?? {});
   const score = (parts: string[], build: Partial<SearchBuild> = {}, mode = base.mode): number => makeScorer(
-    snapshot, parts.join(' / '), { ...base, mode, arcanes: build.arcanes ?? base.arcanes }, scaled, objective, request.attenuation, request.simulate ? 'steady' : 'plain',
+    snapshot, parts.join(' / '), { ...base, mode, arcanes: build.arcanes ?? base.arcanes }, scaled, objective, request.attenuation, request.simulate ? 'steady' : 'plain', [], request.kills ?? DEFAULT_KILLS,
   )((build.mods ?? []).map(({ name, rank }) => ({ name, rank })), null);
   const searchFor = (parts: string[], chooseArcane: boolean): SearchBuild | undefined =>
     search(snapshot, { ...request, weapon: parts.join(' / '), limit: 1, chooseArcane }).builds[0];

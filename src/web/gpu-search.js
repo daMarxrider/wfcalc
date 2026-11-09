@@ -60,7 +60,7 @@ export const P = (() => {
   field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
   field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
   field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate'); field('boss'); field('continuity'); field('vitality');
-  field('quantize'); field('spoolSum'); field('shieldTakes', 16);
+  field('quantize'); field('spoolSum'); field('shieldTakes', 16); field('kills');
   layout.size = at;
   return layout;
 })();
@@ -487,7 +487,14 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   if (!steady) return 1 / killTime;
   // Kills per minute (damage.ts killRate): pulls per second over the pulls the kill took, so a
   // kill inside the first magazine does not get the reloads' credit 1 / seconds would give it.
-  const finish = (seconds) => (params[P.kpm] > 0 ? pulls / firedBy(seconds) : 1 / seconds);
+  // A run of kills (damage.ts HitOptions.kills): the pulls this kill took, N times over, fired through
+  // the magazine cycle with whole reloads, per kill: a reload is paid by the kills it serves, so a kill
+  // at a magazine's end no longer jumps by a whole reload.
+  const kills = Math.max(1, Math.floor(params[P.kills]) || 1);
+  const finish = (seconds) => {
+    if (kills > 1) return kills / secondsToFire(kills * firedBy(seconds));
+    return params[P.kpm] > 0 ? pulls / firedBy(seconds) : 1 / seconds;
+  };
   let after = pools;
   const progress = (a, b) => {
     after = [...pools];
@@ -955,6 +962,9 @@ fn beamShare(a: f32, b: f32, inf: bool) -> f32 {
 
 // 1 / kill time, or kills per second at the sustained pull rate (proxyScore's finish).
 fn finish(seconds: f32) -> f32 {
+  // A run of kills (JS finish): N times the pulls this kill took, with whole reloads, per kill.
+  let kills = max(1.0, floor(params[${P.kills}u]));
+  if (kills > 1.0) { return kills / secondsToFire(kills * firedBy(seconds)); }
   if (params[${P.kpm}u] > 0.0) { return kPulls / firedBy(seconds); }
   return 1.0 / seconds;
 }

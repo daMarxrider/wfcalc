@@ -192,7 +192,7 @@ const snapshot = loadSnapshot();
 test('real weapon: fixed mods and their ranks are kept in every build', async () => {
   const result = await bruteForce(snapshot, {
     weapon: 'Soma Prime', enemy: 'Bombard', level: 150, fixed: [{ name: 'Serration', rank: 8 }, { name: 'Hunter Munitions' }],
-    maxEvaluations: 20_000, limit: 3, workers: 2,
+    maxEvaluations: 20_000, limit: 3, workers: 2, kills: 1,
   });
   assert.ok(result.builds.length > 0);
   for (const build of result.builds) {
@@ -212,7 +212,7 @@ test('real weapon: the brute force is never worse than the greedy search it is s
 });
 
 test('real weapon: Steel Path makes the same target take longer to kill', async () => {
-  const request = { weapon: 'Soma Prime', enemy: 'Bombard', level: 200, fixed: ['Serration', 'Split Chamber', 'Point Strike', 'Vital Sense', 'Hammer Shot', 'Primed Bane of Grineer'] };
+  const request = { weapon: 'Soma Prime', enemy: 'Bombard', level: 200, kills: 1, fixed: ['Serration', 'Split Chamber', 'Point Strike', 'Vital Sense', 'Hammer Shot', 'Primed Bane of Grineer'] };
   const normal = await bruteForce(snapshot, { ...request, limit: 1 });
   const steel = await bruteForce(snapshot, { ...request, steelPath: true, limit: 1 });
   assert.equal(steel.steelPath, true);
@@ -421,6 +421,42 @@ test('the ranking estimate sees Cold freeze inside each magazine: Soma Prime Gas
   assert.ok(Math.abs(estimate / simulated - 1) < 0.005, `estimate ${estimate} vs simulated ${simulated}`);
 });
 
+test('a run of kills shares the reloads: no reload cliff between the estimate and the simulation (#74)', () => {
+  const snapshot = loadSnapshot();
+  const base = scaleTarget(snapshot, {}, snapshot.enemies.Bombard, 150);
+  const mods = ['Serration', 'Split Chamber', 'Vital Sense', 'Point Strike', 'Hellfire', 'Infected Clip', 'Primed Cryo Rounds', 'Vile Acceleration'];
+  const resolved = resolveBuild(snapshot, { weapon: 'Soma Prime', mods: mods.map((name) => ({ name })) });
+  // Pools x0.90-1.10: a single kill lands at the end of a magazine somewhere in here and jumps by a whole 3 s reload.
+  const worst = (kills: number): number => {
+    let top = 0;
+    for (let k = 0.9; k <= 1.1001; k += 0.02) {
+      const scaled = { ...base, health: base.health * k, shield: base.shield * k, overguard: base.overguard * k };
+      const estimate = hitEnemy(snapshot, resolved, scaled, { steadyStatus: true, kills }).timeToKill!;
+      const simulated = hitEnemy(snapshot, resolved, scaled, { simulate: true, kills }).timeToKill!;
+      top = Math.max(top, Math.abs(estimate / simulated - 1));
+    }
+    return top;
+  };
+  const single = worst(1);
+  const run = worst(10);
+  assert.ok(single > 0.05, `one kill: worst ${single}`);
+  assert.ok(run < 0.03, `ten kills: worst ${run}`);
+});
+
+test('a run of kills is the mean time per kill, and one kill alone is unchanged', () => {
+  const snapshot = loadSnapshot();
+  const scaled = scaleTarget(snapshot, {}, snapshot.enemies.Bombard, 150);
+  const resolved = resolveBuild(snapshot, { weapon: 'Soma Prime', mods: ['Serration', 'Split Chamber', 'Vital Sense', 'Point Strike'].map((name) => ({ name })) });
+  for (const mode of ['steadyStatus', 'simulate'] as const) {
+    const once = hitEnemy(snapshot, resolved, scaled, { [mode]: true }).timeToKill!;
+    assert.equal(hitEnemy(snapshot, resolved, scaled, { [mode]: true, kills: 1 }).timeToKill, once);
+    const run = hitEnemy(snapshot, resolved, scaled, { [mode]: true, kills: 10 });
+    // Between the cheapest kill (a fresh magazine) and one that pays a whole reload on top of it.
+    assert.ok(run.timeToKill! > once * 0.5 && run.timeToKill! < once + resolved.reloadTime, `${mode}: ${run.timeToKill} vs single ${once}`);
+    assert.ok(Math.abs(run.killsPerMinute - 60 / run.timeToKill!) < 1e-6, `${mode}: ${run.killsPerMinute} kills/min`);
+  }
+});
+
 test('the Exilus slot takes a Forma, and pinned mods are fitted around the Exilus drain', async () => {
   const snapshot = loadSnapshot();
   // Vigilante Supplies (Naramon) on Acceltra Prime's Madurai Exilus slot: 5 drain with a Forma, not 9.
@@ -439,7 +475,8 @@ test('blast radius mods are searched: they feed Primary Compression', () => {
 });
 
 test('real weapon: arcanes brute forced with the mods fill both arch-gun slots and keep a given one', async () => {
-  const request = { weapon: 'Fluctus', enemy: 'Bombard', level: 150, maxEvaluations: 5_000, limit: 1, workers: 2, chooseArcane: true };
+  // One kill at a time: this tests the arcane slots, not the run of kills (which costs ten simulated fights a build).
+  const request = { weapon: 'Fluctus', enemy: 'Bombard', level: 150, maxEvaluations: 5_000, limit: 1, workers: 2, chooseArcane: true, kills: 1 };
   const slots = (arcanes: Array<{ name: string }>) => arcanes.map((arcane) => snapshot.arcanes[arcane.name]?.slot).sort();
   const result = await bruteForce(snapshot, request);
   assert.deepEqual(slots(result.builds[0].arcanes), ['primary', 'secondary'], JSON.stringify(result.builds[0].arcanes));
