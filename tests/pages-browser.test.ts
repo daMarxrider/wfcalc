@@ -24,9 +24,11 @@ const MIME: Record<string, string> = { '.html': 'text/html', '.js': 'text/javasc
 /** Evaluates an async expression in the page at `url` over the DevTools protocol. */
 async function evaluate(port: number, url: string, expression: string): Promise<any> {
   let targets: Array<{ type: string; webSocketDebuggerUrl: string }> = [];
-  for (let i = 0; i < 100 && !targets.length; i++) {
+  // The port can answer before the first page is listed (busy runner): wait on a time budget, not on errors only.
+  for (const until = Date.now() + 15000; !targets.length && Date.now() < until;) {
     try { targets = ((await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as any[]).filter((t: any) => t.type === 'page'); }
-    catch { await new Promise((r) => setTimeout(r, 100)); }
+    catch { /* port not open yet */ }
+    if (!targets.length) await new Promise((r) => setTimeout(r, 100));
   }
   if (!targets.length) throw new Error(`${browser} exposed no page (did it start?)`);
   const socket = new WebSocket(targets[0].webSocketDebuggerUrl);
