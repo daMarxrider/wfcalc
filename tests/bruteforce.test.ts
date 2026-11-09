@@ -408,6 +408,19 @@ test('the ranking estimate follows the simulated build-up: Acceltra Prime kills 
   assert.ok(result.builds[0].timeToKill! < 0.32, `best ${result.builds[0].timeToKill}`);
 });
 
+test('the ranking estimate sees Cold freeze inside each magazine: Soma Prime Gas + Cold within 0.5% of the simulation (#68)', () => {
+  const snapshot = loadSnapshot();
+  const base = scaleTarget(snapshot, {}, snapshot.enemies.Bombard, 150);
+  // Ten times the pools: a long fight, so the gap is the settled rate, not a reload cliff. The mean Cold
+  // stacks over the cycle stay at 8, but they reach 10 in every magazine and the target freezes 36% of the shots.
+  const scaled = { ...base, health: base.health * 10, shield: base.shield * 10, overguard: base.overguard * 10 };
+  const mods = ['Serration', 'Split Chamber', 'Vital Sense', 'Point Strike', 'Hellfire', 'Infected Clip', 'Primed Cryo Rounds', 'Vile Acceleration'];
+  const resolved = resolveBuild(snapshot, { weapon: 'Soma Prime', mods: mods.map((name) => ({ name })) });
+  const estimate = hitEnemy(snapshot, resolved, scaled, { steadyStatus: true }).timeToKill!;
+  const simulated = hitEnemy(snapshot, resolved, scaled, { simulate: true }).timeToKill!;
+  assert.ok(Math.abs(estimate / simulated - 1) < 0.005, `estimate ${estimate} vs simulated ${simulated}`);
+});
+
 test('the Exilus slot takes a Forma, and pinned mods are fitted around the Exilus drain', async () => {
   const snapshot = loadSnapshot();
   // Vigilante Supplies (Naramon) on Acceltra Prime's Madurai Exilus slot: 5 drain with a Forma, not 9.
