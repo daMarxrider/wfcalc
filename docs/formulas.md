@@ -396,6 +396,14 @@ it off): `src/engine/simulate.ts` walks the fight in steps of 10 ms or finer on 
 the magazine and reload; each shot adds expected procs (none while Overguard is up); every status
 keeps its own stacks for its duration (Status Duration stretches it) and feeds back into damage:
 
+A **run of kills** (`kills`, default 10) simulates that many identical targets in a row: each starts
+with fresh statuses and the trigger where the last kill left it (pulls left in the magazine, or the
+reload still to wait), and the time reported is the run's mean. A single kill that lands at the end
+of a magazine pays a whole reload, a jump of up to ~12% (Soma Prime vs Bombard) that has nothing to
+do with the build; in a run the reload is shared by the kills it serves. The ranking estimate
+(`steadyStatus`) walks each kill from its own phase of the magazine cycle (`ResolvedBuild.startPhase`);
+the GPU proxy takes the pulls the first kill needed, N times over, through the magazine cycle.
+
 | Status | Effect | Duration, cap |
 |---|---|---|
 | Viral | +100%, then +25%/stack damage to health (to +325%) | 6 s, 10 |

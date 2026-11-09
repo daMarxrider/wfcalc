@@ -194,6 +194,8 @@ export interface ResolvedBuild {
   headshotFactor: number;
   /** Seconds a magazine loses to spool-up (traits.ts), 0 for weapons without one. */
   spoolSeconds: number;
+  /** Seconds into its magazine cycle the trigger is when the fight starts (a later kill of a run; 0: a fresh magazine). */
+  startPhase?: number;
   /** Unmodded split of a shell-by-shell reload (traits.ts), null for magazine reloads. */
   shellReload: { delay: number; perShell: number } | null;
   /** Chosen Incarnon evolutions, for display. */

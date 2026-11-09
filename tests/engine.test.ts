@@ -1691,7 +1691,7 @@ test('riven picker: each riven replaces the build mod it is worth most against, 
 test('riven picker: the riven never takes the Exilus or stance slot', async () => {
   const real = loadSnapshot();
   const result = await rivenPicker(real, {
-    weapon: 'Acceltra Prime', enemy: 'Bombard', level: 150, limit: 1, workers: 1,
+    weapon: 'Acceltra Prime', enemy: 'Bombard', level: 150, limit: 1, workers: 1, kills: 1,
     mods: [{ name: 'Serration' }, { name: 'Split Chamber' }, { name: 'Vigilante Supplies' }],
     fixed: [{ name: 'Primed Firestorm' }],
     base: { arcanes: ['Primary Compression'], conditions: { aiming: 1 } },

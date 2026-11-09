@@ -125,7 +125,12 @@ export interface SimulationOptions {
   step?: number;
   /** Arcanes whose stacks move during the fight, and the build at given stacks of them. */
   buildUp?: { sources: BuildUpSource[]; resolveAt: (stacks: Record<string, number>) => ResolvedBuild };
+  /** The trigger as the last kill left it (SimulationResult.trigger): the next target is shot at once, mid-magazine or mid-reload. */
+  trigger?: TriggerState;
 }
+
+/** Pulls left in the magazine and seconds still to wait (spool-up, reload) before the next one. */
+export interface TriggerState { ammoLeft: number; waitLeft: number }
 
 export interface SimulationSample {
   t: number;
@@ -151,6 +156,8 @@ export interface SimulationResult {
   step: number;
   /** Stacks of each build-up arcane when the target died. */
   arcaneStacks?: Record<string, number>;
+  /** The trigger when the target died, to start the next kill of a run from. */
+  trigger: TriggerState;
 }
 
 /** Discrete ticks: an amount put at a step comes due again at every tick offset after it. */
@@ -366,6 +373,10 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
 
   let ammoLeft = magazine;
   let waitLeft = 0;
+  if (options.trigger) {
+    ammoLeft = Math.min(magazine, options.trigger.ammoLeft);
+    waitLeft = options.trigger.waitLeft;
+  }
   /** Seconds spent firing in the next `span` seconds. */
   const firing = (span: number): number => {
     let seconds = 0;
@@ -708,5 +719,5 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   if (bySource[TICKING.length] > 0) damageBySource.heat = bySource[TICKING.length];
   if (bySource[TICKING.length + 1] > 0) damageBySource.blast = bySource[TICKING.length + 1];
   const arcaneStacks = buildUp.length ? Object.fromEntries(buildUp.map((source, i) => [source.name, Math.round(upStacks[i] * 100) / 100])) : undefined;
-  return { timeToKill: killedAt, shots, damageBySource, atEnd: end, timeline, step: dt, arcaneStacks };
+  return { timeToKill: killedAt, shots, damageBySource, atEnd: end, timeline, step: dt, arcaneStacks, trigger: { ammoLeft, waitLeft } };
 }

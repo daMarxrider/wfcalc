@@ -26,7 +26,7 @@ import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import type { Build, BuildMod } from './build.ts';
 import { COMPRESSION_NOT_AIMING, incarnonFormOn, needsAiming, resolveBuild, statsForMode, weaponElementBonus } from './build.ts';
-import { hitEnemy } from './damage.ts';
+import { DEFAULT_KILLS, hitEnemy } from './damage.ts';
 import type { SimulationResult } from './simulate.ts';
 import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
 import type { AttenuationProfile } from './attenuation.ts';
@@ -50,6 +50,8 @@ export interface BruteForceRequest {
   attenuation?: string | AttenuationProfile | null;
   /** `ttk` minimises time to kill the target; `dps` maximises damage per second against it. */
   objective?: 'ttk' | 'dps' | 'kpm';
+  /** Kills in the run the time to kill is averaged over (default 10, see HitOptions.kills). */
+  kills?: number;
   /** Mod capacity: 30, or 60 with an Orokin Catalyst. */
   capacity?: number;
   /** How many Forma the player is willing to spend; null means as many as needed. */
@@ -99,6 +101,8 @@ export interface BruteForceRequest {
 export interface BruteForcePlan {
   weapon: string;
   objective: 'ttk' | 'dps' | 'kpm';
+  /** Kills in the run the time to kill is averaged over (HitOptions.kills). */
+  kills: number;
   enemy: string;
   level: number;
   capacity: number;
@@ -374,7 +378,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
 
   // Rank the candidates in the company of the greedy search's best builds.
   const scaled = scaleTarget(snapshot, request, enemy, level);
-  const scoreOf = makeScorer(snapshot, weapon.name, base, scaled, objective, request.attenuation, request.simulate === false ? 'plain' : 'steady');
+  const scoreOf = makeScorer(snapshot, weapon.name, base, scaled, objective, request.attenuation, request.simulate === false ? 'plain' : 'steady', [], request.kills ?? DEFAULT_KILLS);
   const seed = search(snapshot, {
     weapon: weapon.name, objective, enemy: enemy.name, level, capacity, maxForma,
     exclude: [...excluded], mustInclude: [...fixedNames].filter((name) => name !== exilus?.name),
@@ -491,6 +495,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
     requireStatus,
     base,
     simulate: request.simulate !== false,
+    kills: request.kills ?? DEFAULT_KILLS,
     steelPath: Boolean(request.steelPath),
     eximus: Boolean(request.eximus),
     overguard: request.overguard,
@@ -548,12 +553,13 @@ export function makeScorer(
   attenuation: string | AttenuationProfile | null | undefined,
   mode: 'steady' | 'simulate' | 'plain' = 'plain',
   requireStatus: DamageType[] = [],
+  kills = 1,
 ): (mods: BuildMod[], exilus: BuildMod | null) => number {
   return (mods, exilus) => {
     try {
       const resolved = resolveBuild(snapshot, { ...base, weapon, mods: exilus ? [...mods, exilus] : mods });
       if (requireStatus.some((type) => !((resolved.damage.perProjectile[type] ?? 0) > 0))) return -Infinity;
-      const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate' });
+      const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate', kills });
       const tie = 1 - 1e-9 * tiePenalty(snapshot, mods);
       if (objective === 'dps') return hit.totalDps * tie;
       if (objective === 'kpm') return hit.killsPerMinute > 0 ? hit.killsPerMinute * tie : -Infinity;
@@ -661,7 +667,7 @@ function leafScorer(snapshot: Snapshot, plan: BruteForcePlan) {
   const weapon = snapshot.weapons[plan.weapon];
   const enemy = snapshot.enemies[plan.enemy];
   const scaled = scaleTarget(snapshot, plan, enemy, plan.level);
-  const scoreOf = makeScorer(snapshot, weapon.name, plan.base, scaled, plan.objective, plan.attenuation, plan.simulate ? 'steady' : 'plain', plan.requireStatus);
+  const scoreOf = makeScorer(snapshot, weapon.name, plan.base, scaled, plan.objective, plan.attenuation, plan.simulate ? 'steady' : 'plain', plan.requireStatus, plan.kills);
   const innate = innateElements(weapon, plan.base);
   const exilusDrain = exilusCost(snapshot, weapon, plan.exilus, plan.maxForma).drain;
 
@@ -723,7 +729,7 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
   const fixedNames = new Set(plan.fixed.map((mod) => mod.name));
   const input = { ...plan.base, weapon: weapon.name, mods: plan.exilus ? [...combination.mods, plan.exilus] : combination.mods };
   const resolved = resolveBuild(snapshot, input);
-  const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation, simulate: plan.simulate, input });
+  const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation, simulate: plan.simulate, input, kills: plan.kills });
   const rivenMod = plan.base.riven ? rivenAsMod(plan.base.riven) : null;
   const entries = [
     ...combination.mods.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? snapshot.mods[mod.name].maxRank })),
@@ -816,7 +822,7 @@ export function arcaneSetsFor(snapshot: Snapshot, request: BruteForceRequest, ke
     steelPath: request.steelPath, eximus: request.eximus, overguard: request.overguard, attenuation: request.attenuation,
     capacity: request.capacity, maxForma: request.maxForma, exclude: request.exclude,
     mustInclude: (request.fixed ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.name)),
-    simulate: request.simulate, base: request.base, limit: 1, chooseArcane: true,
+    simulate: request.simulate, kills: request.kills, base: request.base, limit: 1, chooseArcane: true,
   }).slice(0, keep).map((set) => set.arcanes);
 }
 
@@ -1033,7 +1039,7 @@ function report(
   const scaled = scaleTarget(snapshot, plan, snapshot.enemies[plan.enemy], plan.level);
   let winners = ranked;
   if (plan.simulate) {
-    const simulated = makeScorer(snapshot, plan.weapon, plan.base, scaled, plan.objective, plan.attenuation, 'simulate', plan.requireStatus);
+    const simulated = makeScorer(snapshot, plan.weapon, plan.base, scaled, plan.objective, plan.attenuation, 'simulate', plan.requireStatus, plan.kills);
     winners = winners
       .map((winner) => ({ ...winner, score: simulated(winner.mods, plan.exilus) }))
       .sort((a, b) => b.score - a.score);
