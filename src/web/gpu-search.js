@@ -76,7 +76,7 @@ const COMBINE = [
  * Per DoT type: coefficient, ticks (0: one per second of the stretched duration, dot.ts dotTicks), seconds
  * before it ticks, seconds it ticks (Blast: a short window, unscaled).
  */
-const DOT = [[T.slash, 0.35, 0, 1, 6], [T.heat, 0.5, 0, 1, 6], [T.toxin, 0.5, 0, 1, 6], [T.electricity, 0.5, 0, 0, 6], [T.gas, 0.5, 0, 0, 6], [T.blast, 0.5, 1, 1.5, 0.25]];
+const DOT = [[T.slash, 0.35, 0, 1, 6], [T.heat, 0.5, 0, 1, 6], [T.toxin, 0.5, 0, 1, 6], [T.electricity, 0.5, 0, 0, 6], [T.gas, 0.5, 0, 0, 6], [T.blast, 0.3, 1, 1.5, 0.25]];
 /** Gas stacks on a target (dot.ts GAS_CAP). */
 const GAS_CAP = 10;
 /** Beam ramp (simulate.ts): climb to full over this many seconds of fire, decay after a pause. */
@@ -448,7 +448,7 @@ function scoreState(params, A, B, order, plain, killSpacing) {
       const scale = coefficient * (1 + elemental) * (1 + S[CH.statusDamage]) * typeBonus * faction;
       // Heat and Gas stacks tick together: one +1 per tick while any is up (dot.ts MERGED_TICKS).
       const merged = t === T.heat || t === T.gas;
-      const raw = (seed * faction + (merged ? 0 : 1)) * scale;
+      const raw = (seed * faction + (merged || t === T.blast ? 0 : 1)) * scale; // Blast is one hit: no +1
       const trueDamage = t === T.slash;
       const toShield = location * (1 + (trueDamage ? 0 : params[P.healthMod + t]));
       const toHealth = (1 - (trueDamage ? 0 : dr)) * viral;
@@ -1136,7 +1136,7 @@ fn layerDps(at: f32, firing: f32, inf: bool, beam: f32) -> vec4<f32> {
     let scale = dotC[e] * (1.0 + elemental) * (1.0 + S[${CH.statusDamage}u]) * typeBonus * kFaction;
     let merged = t == ${T.heat}u || t == ${T.gas}u;
     var plusOne = 1.0;
-    if (merged) { plusOne = 0.0; }
+    if (merged || t == ${T.blast}u) { plusOne = 0.0; }
     let rawTick = (kSeed * kFaction + plusOne) * scale;
     var hm = params[${P.healthMod}u + t];
     var tdr = dr;
