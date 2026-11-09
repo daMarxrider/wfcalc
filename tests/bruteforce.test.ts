@@ -158,11 +158,11 @@ test('progress counts pruned branches, so it ends exactly at the planned total',
 
 test('aborting the signal stops the worker threads and rejects at once', async () => {
   const stop = new AbortController();
-  const started = performance.now();
-  const run = bruteForce(loadSnapshot(), { weapon: 'Lex Prime', enemy: 'Heavy Gunner', level: 100, workers: 2, signal: stop.signal, onProgress: () => stop.abort(new Error('stopped')) });
+  let aborted = 0;
+  const run = bruteForce(loadSnapshot(), { weapon: 'Lex Prime', enemy: 'Heavy Gunner', level: 100, workers: 2, signal: stop.signal, onProgress: () => { aborted ||= performance.now(); stop.abort(new Error('stopped')); } });
   await assert.rejects(run, /stopped/);
-  // A full Lex Prime run takes seconds per worker; the stop lands right after the first progress.
-  assert.ok(performance.now() - started < 8000);
+  // Timed from the abort, not the start: loading and worker start-up vary with the runner (#77). A full run takes far longer.
+  assert.ok(performance.now() - aborted < 2000, `rejected ${performance.now() - aborted} ms after the abort`);
 });
 
 test('capacity prunes: with 30 capacity and no Forma every result fits', async () => {
