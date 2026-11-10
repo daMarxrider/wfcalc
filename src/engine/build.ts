@@ -33,7 +33,7 @@ import { augmentFits, byExactName, normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
-import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, isDualPistols, type ResidualElement } from './arcanes.ts';
+import { arcaneEffectsAt, arcaneScopeMiss, energyDepletedUptime, enervateCritChance, enervateHitsPerShot, isDualPistols, type ResidualElement } from './arcanes.ts';
 import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
 import { COMBO, NEXT_SHOT, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
@@ -957,11 +957,12 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
         entry.conditions.add(effect.condition);
         conditional.set(source.name, entry);
       }
+      // Eternal Onslaught: switched on, it is up for the share of the amp's energy cycle spent depleted.
       const stacks = conditionStacks(effect, conditions, {
         mode: build.stackMode ?? 'custom',
         override: build.sourceStacks?.[source.name],
         hit: hitZoneOf(build),
-      });
+      }) * (effect.condition === 'on_energy_depleted' ? energyDepletedUptime(stats) : 1);
       if (effect.condition) {
         const entry = conditional.get(source.name)!;
         entry.stacks = Math.max(entry.stacks, effect.perStatusType ? stacks / Math.max(1, Number(conditions.statusTypes ?? 1)) : stacks);

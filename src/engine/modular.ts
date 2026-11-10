@@ -146,7 +146,7 @@ function ampMode(name: string, entry: WikiTable, brace: typeof AMP_BRACES[string
     multishot: first.Multishot ?? 1,
     magazineSize: pool / cost,
     reloadTime: rate > 0 ? delay + pool / rate : entry.Reload ?? 0,
-    ...(rate > 0 ? { reloadDelay: delay } : {}),
+    ...(rate > 0 ? { reloadDelay: delay, energyPool: pool } : {}),
   });
   const aoe = radial.reduce((total, attack) => total + sum(attack.Damage), 0);
   return { name, stats: own, trigger: first.ShotType ?? null, ...(aoe > 0 ? { aoeDamage: aoe } : {}) };
