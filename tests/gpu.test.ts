@@ -106,6 +106,7 @@ const mirrored: Array<[string, Record<string, unknown>]> = [
   ['Archon Continuity (exalted)', { weapon: 'Dex Pixia', enemy: 'Heavy Gunner', base: { frameMods: ['Archon Continuity'] }, requireStatus: ['toxin'] }],
   ['Archon Vitality (exalted)', { weapon: 'Dex Pixia', enemy: 'Bombard', base: { frameMods: ['Archon Vitality'] }, requireStatus: ['heat'] }],
   ['Madurai Phoenix Talons', { weapon: 'Hek', enemy: 'Corpus Tech', base: { buffs: ['phoenix-talons'] } }],
+  ['Focus Void Strike + Void Fuel', { weapon: 'Hek', enemy: 'Corpus Tech', base: { buffs: ['void-strike', 'void-fuel'] } }],
   ['Infinite Ammo on hit (Chamber Cascade)', { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', base: { stackMode: 'max' } }],
   ['Infinite Ammo on kill (Arcane Pistoleer)', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', arcanes: ['Arcane Pistoleer'] } }],
 ];
