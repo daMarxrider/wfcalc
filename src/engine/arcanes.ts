@@ -13,6 +13,28 @@ import type { ArcaneData, DamageType, Effect, Snapshot, WeaponData } from '../ty
 import type { Build, ResolvedBuild } from './build.ts';
 import { normalizeName } from '../data.ts';
 
+/** Operator energy at or below this counts as depleted (wiki: Eternal Onslaught). */
+const ENERGY_DEPLETED_AT = 25;
+const ENERGY_DEPLETED_SECONDS = 8;
+
+/**
+ * Share of an amp's firing cycle with Eternal Onslaught up (wiki: crit chance for 8 s after energy
+ * drops to 25, kept up while it stays below). Nonstop fire: the pool is at 25 after (pool - 25) / cost
+ * shots; from there the buff runs through the rest of the magazine, the recharge delay and the refill
+ * to 25, plus 8 s, and the next magazine refreshes it. 1 for a weapon without an energy pool.
+ * shortcut: the first magazine (full energy, no buff yet) and fire rate / regeneration arcanes are ignored.
+ */
+export function energyDepletedUptime(stats: { energyPool?: number; magazineSize?: number; fireRate?: number; reloadTime?: number; reloadDelay?: number }): number {
+  const pool = stats.energyPool ?? 0;
+  if (pool <= ENERGY_DEPLETED_AT || !(stats.magazineSize! > 0) || !(stats.fireRate! > 0)) return 1;
+  const fire = stats.magazineSize! / stats.fireRate!;
+  const reload = stats.reloadTime ?? 0;
+  const delay = stats.reloadDelay ?? 0;
+  const refill = Math.max(0, reload - delay);
+  const below = fire * (ENERGY_DEPLETED_AT / pool) + delay + refill * (ENERGY_DEPLETED_AT / pool);
+  return Math.min(1, (below + ENERGY_DEPLETED_SECONDS) / (fire + reload));
+}
+
 /** Warframe arcanes that buff one weapon class only. Absent: every weapon. */
 const WEAPON_SCOPE: Record<string, { label: string; fits: (weapon: WeaponData) => boolean }> = {
   'Arcane Acceleration': { label: 'primary weapons except shotguns', fits: (w) => w.category === 'primary' && w.type !== 'Shotgun' },
