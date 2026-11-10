@@ -747,7 +747,7 @@ export function rankArcaneSets(snapshot: Snapshot, request: SearchRequest, short
     'baseDamage', 'multishot', 'critChance', 'critDamage', 'statusChance', 'fireRate',
     'element', 'directDamage', 'factionDamage', 'headshotMultiplier', 'reloadSpeed',
     'statusDamage', 'weakPointOverride', 'weakPointCritChance', 'damageMultiplier', 'doughty', 'duplicateChance',
-    'platedRound', 'enervateResets', 'overguardDamage', 'procDamage', 'debilitate', 'encumber', 'cryogenic',
+    'elementMultiplier', 'platedRound', 'enervateResets', 'overguardDamage', 'procDamage', 'debilitate', 'encumber', 'cryogenic',
   ]);
   const givenNames = new Set(given.map((entry) => entry.name));
   const candidates = Object.values(snapshot.arcanes).filter(
@@ -756,7 +756,7 @@ export function rankArcaneSets(snapshot: Snapshot, request: SearchRequest, short
       && arcaneEffectsAt(arcane, arcane.maxRank, { heavyAttack: Boolean(request.base?.heavyAttack) }).some((effect) => relevant.has(String(effect.target))),
   );
   const tried: Array<{ arcanes: Array<{ name: string; rank?: number }>; score: number; result: SearchResult }> = [];
-  const run = (picked: Array<{ name: string; maxRank: number }>): number => {
+  const run = (picked: Array<(typeof candidates)[number]>): number => {
     const arcanes = [...given, ...picked.map((arcane) => ({ name: arcane.name, rank: arcane.maxRank }))];
     const result = searchOnce(snapshot, { ...plain, base: { ...(request.base ?? {}), arcanes } });
     tried.push({ arcanes, score: objectiveScore(result.builds[0], request.objective), result });
@@ -768,10 +768,11 @@ export function rankArcaneSets(snapshot: Snapshot, request: SearchRequest, short
   if (!candidates.length) return tried;
 
   // Every arcane alone, ranked per slot group; only those that beat the baseline go on.
+  const idle: Array<(typeof candidates)[number]> = [];
   const ranked = new Map<string, Array<{ arcane: (typeof candidates)[number]; score: number }>>();
   for (const arcane of candidates) {
     const score = run([arcane]);
-    if (score <= baseline + 1e-9) continue;
+    if (score <= baseline + 1e-9) { idle.push(arcane); continue; }
     const { group } = arcaneGroupOf(weapon, arcane.slot!);
     ranked.set(group, [...(ranked.get(group) ?? []), { arcane, score }]);
   }
@@ -787,6 +788,25 @@ export function rankArcaneSets(snapshot: Snapshot, request: SearchRequest, short
   }
   // Singles were searched above.
   for (const combo of combos.filter((combo) => combo.length > 1)) run(combo);
+  // An arcane that multiplies another's effect does nothing alone (Magus Melt needs the Heat of
+  // Virtuos Forge). Grow a set from each such arcane, adding the best arcane that fits every round.
+  // shortcut: amps only (the one weapon with a two-arcane group); on arch-guns and kitguns it costs 8x the time and found nothing.
+  const growable = arcaneSlotsOf(weapon).some((slot) => arcaneGroupOf(weapon, slot).size > 1);
+  for (const seed of growable ? idle : []) {
+    let set = [seed];
+    for (let score = baseline; ;) {
+      const used = (group: string): number => set.filter((arcane) => arcaneGroupOf(weapon, arcane.slot!).group === group).length;
+      let best: typeof set | null = null;
+      for (const arcane of candidates) {
+        const { group } = arcaneGroupOf(weapon, arcane.slot!);
+        if (set.includes(arcane) || used(group) >= free.get(group)!) continue;
+        const trial = run([...set, arcane]);
+        if (trial > score + 1e-9) { score = trial; best = [...set, arcane]; }
+      }
+      if (!best) break;
+      set = best;
+    }
+  }
   // Stable: on a tie the earlier (fewer arcanes, baseline first) stays ahead.
   return tried.sort((a, b) => (a.score === b.score || Math.abs(b.score - a.score) <= 1e-9 ? 0 : b.score - a.score));
 }

@@ -4,6 +4,7 @@ import { findWeapon, loadSnapshot } from '../src/data.ts';
 import { resolveBuild, type Build } from '../src/engine/build.ts';
 import { partSearch } from '../src/engine/part-search.ts';
 import { handleApi } from '../src/api.ts';
+import { search } from '../src/engine/search.ts';
 
 const snapshot = loadSnapshot();
 const close = (actual: number, expected: number, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
@@ -110,4 +111,10 @@ test('Eternal Onslaught is up for the share of the amp\'s energy cycle spent dep
   assert.ok(uptime > 0.5 && uptime <= 1, `uptime ${uptime}`);
   // +180% crit chance at max rank, multiplicative on the base (wiki: 36% base reaches 100%).
   close(on.critChance / plain.critChance, 1 + 1.8 * uptime, 1e-6);
+});
+
+test('amp arcane auto-pick finds Virtuos Forge with Magus Melt, which does nothing alone (#25)', () => {
+  const amp = 'Raplak Prism / Propa Scaffold / Certus Brace';
+  const picked = search(snapshot, { weapon: amp, enemy: 'Bombard', level: 150, objective: 'dps', chooseArcane: true, base: { stackMode: 'max' } }).builds[0].arcanes!.map((arcane) => arcane.name);
+  assert.ok(picked.includes('Virtuos Forge') && picked.includes('Magus Melt'), picked.join(', '));
 });
