@@ -135,6 +135,6 @@ test('arcane auto fills the weapon and the modular slot: a Residual arcane for T
 });
 
 test('a Residual arcane on the weapon sets the Theorem Demulcent element', () => {
-  const total = (arcane: string) => resolve('Catchmoon / Gibber / Bashrack', { arcanes: [arcane], warframeArcanes: ['Theorem Demulcent'], conditions: { inResidualZone: 15 } }).averageShotDamage;
-  assert.notEqual(total('Residual Boils'), total('Residual Shock'));
+  const total = (arcane: string) => resolve('Catchmoon / Gibber / Bashrack', { mods: [{ name: 'Cryo Rounds' }], arcanes: [arcane], warframeArcanes: ['Theorem Demulcent'], conditions: { inResidualZone: 15 } }).damage.perProjectile;
+  assert.ok(total('Residual Boils').blast && total('Residual Shock').magnetic && total('Residual Viremia').viral);
 });
