@@ -44,8 +44,8 @@
  * and hits start at 0 and drop all at once when their timer runs out; on-kill stacks only decay,
  * one per timer. The build is resolved again whenever the stacks move (in 1/40ths of the cap).
  *
- * Electricity's chain to nearby enemies, Gas's cloud on others and Blast's detonation on others are
- * not modelled: this is the single target's time to kill.
+ * This is the single target's time to kill. What Electricity (Tesla Chain, 3 m), Gas (cloud, 3-6 m)
+ * and Blast (AoE on death, 5 m) deal to other enemies is returned as `spreadDamage`, not applied.
  */
 import { DAMAGE_TYPES, type DamageType, type Snapshot } from '../types.ts';
 import type { ResolvedBuild } from './build.ts';
@@ -158,6 +158,12 @@ export interface SimulationResult {
   arcaneStacks?: Record<string, number>;
   /** The trigger when the target died, to start the next kill of a run from. */
   trigger: TriggerState;
+  /**
+   * Health damage each other enemy in range took meanwhile: every Electricity and Gas tick (wiki:
+   * all enemies in the radius) plus, on death, the pending Blast stacks at 300% instead of 30%.
+   * shortcut: same-profile neighbours, none beyond 3 m; the Blast burst at 10 stacks is not counted.
+   */
+  spreadDamage: number;
 }
 
 /** Discrete ticks: an amount put at a step comes due again at every tick offset after it. */
@@ -719,5 +725,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   if (bySource[TICKING.length] > 0) damageBySource.heat = bySource[TICKING.length];
   if (bySource[TICKING.length + 1] > 0) damageBySource.blast = bySource[TICKING.length + 1];
   const arcaneStacks = buildUp.length ? Object.fromEntries(buildUp.map((source, i) => [source.name, Math.round(upStacks[i] * 100) / 100])) : undefined;
-  return { timeToKill: killedAt, shots, damageBySource, atEnd: end, timeline, step: dt, arcaneStacks, trigger: { ammoLeft, waitLeft } };
+  const spreadDamage = (damageBySource.electricity ?? 0) + (damageBySource.gas ?? 0)
+    + (killedAt === null ? 0 : blastLine.total * blastMod * 10);
+  return { timeToKill: killedAt, shots, damageBySource, atEnd: end, timeline, step: dt, arcaneStacks, trigger: { ammoLeft, waitLeft }, spreadDamage };
 }

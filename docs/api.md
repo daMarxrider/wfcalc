@@ -294,7 +294,7 @@ Response (abridged):
   "arcanes": [{ "name": "Primary Merciless", "rank": 5 }],
   "elements": [{ "type": "blast", "share": 0.935 }],
   "overguard": 0, "overguardDps": 0, "attenuation": null,
-  "multiTargetDps": null, "multiTargetFactor": 1,
+  "multiTargetDps": null, "multiTargetFactor": 1, "groupTimeToKill": null,
   "capacityUsed": 59, "capacity": 60, "formaNeeded": 3, "fits": true, "arcanes": [],
   "target": {
     "name": "Bombard", "level": 150, "health": 118480.2, "armor": 2700,
