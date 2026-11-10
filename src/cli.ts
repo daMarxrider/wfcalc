@@ -807,7 +807,7 @@ async function main(): Promise<void> {
         const definition = BUFFS.find((b) => b.id === buff.id)!;
         const ability = snapshot.abilities[definition.ability];
         console.log(
-          `${buff.id.padEnd(18)} ${buff.frame.padEnd(10)} ${String(ability.value ?? '-').padStart(5)}  ` +
+          `${buff.id.padEnd(18)} ${buff.frame.padEnd(10)} ${String(ability?.value ?? definition.fixed?.value ?? '-').padStart(5)}  ` +
             `${definition.kind.padEnd(18)}${buff.augments ? '(augment)' : buff.subsumable ? '(subsumable)' : ''}  ${definition.note ?? ''}`,
         );
       }

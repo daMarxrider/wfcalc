@@ -1590,6 +1590,15 @@ test('Madurai Phoenix Talons: 30% of the whole base as physical, by physical wei
   close(damage.toxin ?? 0, 47);
 });
 
+test('Focus: Void Strike and Lethal Levitation add to the base damage bonus, Void Fuel to ammo efficiency (wiki: Focus)', () => {
+  const snap = snapshot([weapon({ impact: 100 })], []);
+  const plain = resolveBuild(snap, { weapon: 'Test Weapon', mods: [] });
+  const strike = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], buffs: ['void-strike', 'lethal-levitation'] });
+  close(strike.damage.perProjectile.impact ?? 0, 100 * (1 + 10 + 2));
+  const fuel = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], buffs: ['void-fuel'] });
+  close(fuel.ammo.cost, plain.ammo.cost * 0.6);
+});
+
 // ------------------------------------------------------------------ Archon Shards
 
 test('Violet shard: +30% Primary Electricity, +10% per Crimson/Azure/Violet shard, combined last like innate', () => {
