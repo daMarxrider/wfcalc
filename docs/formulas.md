@@ -416,6 +416,14 @@ the GPU proxy takes the pulls the first kill needed, N times over, through the m
 | Blast | 30% of the hit's base damage, 1.5 s after the proc | — |
 | Slash, Toxin, Electricity, Gas | one tick per second; Slash/Toxin from 1 s, Electricity/Gas at once; Gas at most 10 stacks | 6 s |
 
+**Spread to a group** (`targets` > 1, simulation on; wiki: Electricity, Gas, Blast Damage): every
+Electricity tick (3 m) and Gas tick (3-6 m) also hits each neighbour, and Blast stacks still pending
+at the kill detonate at 300% instead of 30% (5 m). `SimulationResult.spreadDamage` is that health
+damage per neighbour. Each kill leaves the others with a share c = spread / health gone, so enemy j
+needs 1 - j c of a kill and `groupTimeToKill` = time to kill x sum of those. Neighbours are taken
+as identical and in range; the Blast burst at 10 stacks and ranking by group time are not modelled
+(search and the GPU proxy still rank single-target time to kill).
+
 A tick is seeded when it procs (crit, location, faction, status damage of that hit) and lands
 through the target's state at that moment. Heat on expected values: a chain is alive with
 probability `1 − e^−W` (W = expected procs in the window). Continuous weapons ramp from 20% (Phage
