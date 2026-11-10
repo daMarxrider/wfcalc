@@ -109,6 +109,8 @@ export interface EnemyHit {
   multiTargetFactor: number;
   /** Targets requested for the multi-target report (1 when single). */
   multiTargetTargets: number;
+  /** Seconds to clear `multiTargetTargets` enemies in range of each other, with Electricity/Gas/Blast spreading; null for one target. */
+  groupTimeToKill: number | null;
   /** Trigger pulls needed to remove shields, then health. */
   shotsToKill: number;
   /** Seconds to kill, accounting for reloads. */
@@ -735,6 +737,20 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
       warnings.push(`Secondary Irradiate: ${requestedTargets - 1} nearby target(s) take ${(build.irradiateShare * 100).toFixed(0)}% of the direct hit, ${(up * 100).toFixed(0)}% of hits on 10 Radiation stacks`);
     }
   }
+  // Electricity chain, Gas cloud and Blast burst (simulation.spreadDamage): each kill leaves the
+  // others with a share c of their health gone, so enemy j needs only (1 - j c) of a full kill.
+  // shortcut: kill time scales with the health left (status ramp-up ignored); a kill inside a
+  // reload or a spread past one pool's health is not refined.
+  let groupTimeToKill: number | null = null;
+  if (requestedTargets > 1 && simulation?.timeToKill && timeToKill !== null && simulation.spreadDamage > 0 && scaled.health > 0) {
+    const carried = Math.min(1, simulation.spreadDamage / scaled.health);
+    let work = 0;
+    for (let enemy = 0; enemy < requestedTargets; enemy++) work += Math.max(0, 1 - enemy * carried);
+    groupTimeToKill = timeToKill * work;
+    multiTargetDps = (multiTargetDps ?? totalDps) + (requestedTargets - 1) * simulation.spreadDamage / simulation.timeToKill;
+    multiTargetFactor = multiTargetDps / totalDps;
+    warnings.push(`Spread: Electricity/Gas/Blast take ${(carried * 100).toFixed(0)}% of each neighbour's health per kill; ${requestedTargets} enemies cleared in ${groupTimeToKill.toFixed(1)} s`);
+  }
   const num = (value: number): string => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
   if (scaled.overguard > 0) {
     warnings.push('Overguard: direct damage only, status DoT not applied; Magnetic amplification not modelled');
@@ -771,6 +787,7 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
     multiTargetDps,
     multiTargetFactor,
     multiTargetTargets: requestedTargets,
+    groupTimeToKill,
     shotsToKill,
     timeToKill,
     killsPerMinute: runKills > 1 && timeToKill ? 60 / timeToKill : killRate(build, shotsToKill),
