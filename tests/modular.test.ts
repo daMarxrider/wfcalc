@@ -140,3 +140,23 @@ test('kitgun explosions: Tombfinger quick/charged AoE modes with falloff, Gaze f
   close(gaze.modes[1].stats.radiation, 29);
   assert.equal(snapshot.weapons['Sporelacer / Brash / Zip'].modes.length, 1);
 });
+
+test('arcane auto fills the weapon and the modular slot: a Residual arcane for Theorem Demulcent, Exodia Force for a group (#26)', () => {
+  const kitgun = 'Catchmoon / Gibber / Bashrack';
+  const withTheorem = search(snapshot, {
+    weapon: kitgun, objective: 'dps', enemy: 'Bombard', level: 100, limit: 1, chooseArcane: true,
+    base: { warframeArcanes: ['Theorem Demulcent'], conditions: { inResidualZone: 15 } },
+  }).builds[0];
+  assert.deepEqual(withTheorem.arcanes.map((arcane) => snapshot.arcanes[arcane.name].slot).sort(), ['kitgun', 'secondary']);
+  // Without Theorem a Residual arcane does no damage, so it is not picked.
+  const plain = search(snapshot, { weapon: kitgun, objective: 'dps', enemy: 'Bombard', level: 100, limit: 1, chooseArcane: true }).builds[0];
+  assert.deepEqual(plain.arcanes.map((arcane) => snapshot.arcanes[arcane.name].slot), ['secondary']);
+
+  const zaw = search(snapshot, { weapon: 'Balla / Kroostra / Vargeet Jai II', objective: 'group', enemy: 'Bombard', level: 100, limit: 1, chooseArcane: true }).builds[0];
+  assert.ok(zaw.arcanes.some((arcane) => arcane.name === 'Exodia Force'));
+});
+
+test('a Residual arcane on the weapon sets the Theorem Demulcent element', () => {
+  const total = (arcane: string) => resolve('Catchmoon / Gibber / Bashrack', { mods: [{ name: 'Cryo Rounds' }], arcanes: [arcane], warframeArcanes: ['Theorem Demulcent'], conditions: { inResidualZone: 15 } }).damage.perProjectile;
+  assert.ok(total('Residual Boils').blast && total('Residual Shock').magnetic && total('Residual Viremia').viral);
+});
