@@ -647,7 +647,7 @@ function searchOptionsFromArgs(snapshot: Snapshot, args: Args): Omit<SearchReque
   const commaList = (name: string): string[] =>
     flagAll(args, name).flatMap((entry) => entry.split(',')).map((entry) => entry.trim()).filter(Boolean);
   return {
-    objective: (flag(args, 'objective') as 'ttk' | 'dps' | 'kpm' | undefined) ?? 'ttk',
+    objective: (flag(args, 'objective') as 'ttk' | 'dps' | 'kpm' | 'group' | undefined) ?? 'ttk',
     enemy: flag(args, 'enemy') ?? 'Bombard',
     level: flag(args, 'level') ? Number(flag(args, 'level')) : 150,
     capacity: flag(args, 'capacity') ? Number(flag(args, 'capacity')) : 60,
@@ -919,7 +919,7 @@ async function main(): Promise<void> {
         return value;
       };
       const objective = flag(args, 'objective') ?? 'ttk';
-      if (objective !== 'ttk' && objective !== 'dps' && objective !== 'kpm') throw new CliError('--objective must be ttk, dps or kpm', 'invalid_argument');
+      if (objective !== 'ttk' && objective !== 'dps' && objective !== 'kpm' && objective !== 'group') throw new CliError('--objective must be ttk, dps, kpm or group', 'invalid_argument');
       if (commaList('incarnon').includes('auto')) {
         throw new CliError('bruteforce takes the Incarnon evolutions as input: --incarnon "EVO2:0,EVO4:1" (see `wfcalc incarnon`)', 'invalid_argument');
       }
@@ -1296,7 +1296,7 @@ Ability options:
 
 Search options:
          --kills N                (kills the time to kill is averaged over, one target after another: default 10, 1 = a single kill)
-         --objective ttk|dps|kpm  (default ttk: kill the target fastest; kpm: most kills per minute, one target after another)
+         --objective ttk|dps|kpm|group  (default ttk: kill the target fastest; kpm: most kills per minute, one target after another; group: fastest clear of 5 enemies in range, Electricity/Gas/Blast spreading)
          --capacity 30|60      (default 60, i.e. with an Orokin Catalyst)
          --forma N             maximum Forma the search may spend
          --must "A,B"          mods that must be in the build

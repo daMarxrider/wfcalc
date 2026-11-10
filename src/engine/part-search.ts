@@ -28,7 +28,7 @@ export interface PartSearchRequest extends Omit<SearchRequest, 'weapon' | 'limit
 
 export interface PartSearchResult {
   kind: ModularKind;
-  objective: 'ttk' | 'dps' | 'kpm';
+  objective: 'ttk' | 'dps' | 'kpm' | 'group';
   enemy: string;
   level: number;
   /** Combinations scored in step 1 (amps: prism x brace, the scaffold is picked afterwards). */
@@ -42,6 +42,7 @@ export interface PartSearchResult {
 export function buildScore(build: SearchBuild | undefined, objective: PartSearchResult['objective']): number {
   if (!build) return -Infinity;
   if (objective === 'kpm') return build.killsPerMinute || -Infinity;
+  if (objective === 'group') return build.groupTimeToKill ? -build.groupTimeToKill : -Infinity;
   if (objective === 'dps') return build.totalDps;
   return build.timeToKill === null ? -Infinity : -build.timeToKill;
 }

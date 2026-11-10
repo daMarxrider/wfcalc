@@ -26,7 +26,7 @@ import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import type { Build, BuildMod } from './build.ts';
 import { COMPRESSION_NOT_AIMING, incarnonFormOn, needsAiming, resolveBuild, statsForMode, weaponElementBonus } from './build.ts';
-import { DEFAULT_KILLS, hitEnemy } from './damage.ts';
+import { DEFAULT_KILLS, GROUP_SIZE, hitEnemy } from './damage.ts';
 import type { SimulationResult } from './simulate.ts';
 import { scaleEnemy, type ScaledEnemy } from './enemy.ts';
 import type { AttenuationProfile } from './attenuation.ts';
@@ -49,7 +49,7 @@ export interface BruteForceRequest {
   overguard?: number;
   attenuation?: string | AttenuationProfile | null;
   /** `ttk` minimises time to kill the target; `dps` maximises damage per second against it. */
-  objective?: 'ttk' | 'dps' | 'kpm';
+  objective?: 'ttk' | 'dps' | 'kpm' | 'group';
   /** Kills in the run the time to kill is averaged over (default 10, see HitOptions.kills). */
   kills?: number;
   /** Mod capacity: 30, or 60 with an Orokin Catalyst. */
@@ -100,7 +100,7 @@ export interface BruteForceRequest {
 /** Everything a shard needs to walk the tree; plain data so it can cross into a worker. */
 export interface BruteForcePlan {
   weapon: string;
-  objective: 'ttk' | 'dps' | 'kpm';
+  objective: 'ttk' | 'dps' | 'kpm' | 'group';
   /** Kills in the run the time to kill is averaged over (HitOptions.kills). */
   kills: number;
   enemy: string;
@@ -160,6 +160,8 @@ export interface BruteForceBuild {
   shotsToKill: number | null;
   /** Kills per minute against a stream of these targets (EnemyHit.killsPerMinute). */
   killsPerMinute: number;
+  /** Seconds to clear GROUP_SIZE enemies in range (only for the group objective). */
+  groupTimeToKill: number | null;
   critChance: number;
   critMultiplier: number;
   statusChance: number;
@@ -178,7 +180,7 @@ export interface BruteForceBuild {
 
 export interface BruteForceResult {
   weapon: string;
-  objective: 'ttk' | 'dps' | 'kpm';
+  objective: 'ttk' | 'dps' | 'kpm' | 'group';
   enemy: string;
   level: number;
   steelPath: boolean;
@@ -457,6 +459,7 @@ export function planBruteForce(snapshot: Snapshot, request: BruteForceRequest): 
   assumptions.push({
     ttk: `Objective: kill ${enemy.name} at level ${level} as fast as possible`,
     dps: `Objective: highest damage per second against ${enemy.name} at level ${level}, status damage included`,
+    group: `Objective: fastest clear of ${GROUP_SIZE} ${enemy.name} at level ${level} in range of each other (Electricity, Gas and Blast spread to the others)`,
     kpm: `Objective: most kills per minute of ${enemy.name} at level ${level}, one after the other (reloads between kills count)`,
   }[objective]);
   if (request.steelPath) assumptions.push('Steel Path: target health and shields x2.5 (armour unchanged)');
@@ -549,7 +552,7 @@ export function makeScorer(
   weapon: string,
   base: Partial<Build>,
   scaled: ScaledEnemy,
-  objective: 'ttk' | 'dps' | 'kpm',
+  objective: 'ttk' | 'dps' | 'kpm' | 'group',
   attenuation: string | AttenuationProfile | null | undefined,
   mode: 'steady' | 'simulate' | 'plain' = 'plain',
   requireStatus: DamageType[] = [],
@@ -559,10 +562,11 @@ export function makeScorer(
     try {
       const resolved = resolveBuild(snapshot, { ...base, weapon, mods: exilus ? [...mods, exilus] : mods });
       if (requireStatus.some((type) => !((resolved.damage.perProjectile[type] ?? 0) > 0))) return -Infinity;
-      const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate', kills });
+      const hit = hitEnemy(snapshot, resolved, scaled, { attenuation, steadyStatus: mode === 'steady', simulate: mode === 'simulate', kills, targets: objective === 'group' ? GROUP_SIZE : undefined });
       const tie = 1 - 1e-9 * tiePenalty(snapshot, mods);
       if (objective === 'dps') return hit.totalDps * tie;
       if (objective === 'kpm') return hit.killsPerMinute > 0 ? hit.killsPerMinute * tie : -Infinity;
+      if (objective === 'group') return hit.groupTimeToKill ? tie / hit.groupTimeToKill : -Infinity;
       if (hit.timeToKill === null) return -Infinity;
       // Builds that one-shot all share a kill time; the harder hit wins the tie (at most a 1e-4
       // relative nudge, so it never reorders builds whose times really differ).
@@ -729,7 +733,7 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
   const fixedNames = new Set(plan.fixed.map((mod) => mod.name));
   const input = { ...plan.base, weapon: weapon.name, mods: plan.exilus ? [...combination.mods, plan.exilus] : combination.mods };
   const resolved = resolveBuild(snapshot, input);
-  const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation, simulate: plan.simulate, input, kills: plan.kills });
+  const hit = hitEnemy(snapshot, resolved, scaled, { attenuation: plan.attenuation, simulate: plan.simulate, input, kills: plan.kills, targets: plan.objective === 'group' ? GROUP_SIZE : undefined });
   const rivenMod = plan.base.riven ? rivenAsMod(plan.base.riven) : null;
   const entries = [
     ...combination.mods.map((mod) => ({ mod: snapshot.mods[mod.name], rank: mod.rank ?? snapshot.mods[mod.name].maxRank })),
@@ -753,6 +757,7 @@ function describe(snapshot: Snapshot, plan: BruteForcePlan, scaled: ScaledEnemy,
     timeToKill: hit.timeToKill,
     shotsToKill: Number.isFinite(hit.shotsToKill) ? hit.shotsToKill : null,
     killsPerMinute: hit.killsPerMinute,
+    groupTimeToKill: hit.groupTimeToKill,
     critChance: resolved.critChance,
     critMultiplier: resolved.critMultiplier,
     statusChance: resolved.statusChance,
