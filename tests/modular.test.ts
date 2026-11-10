@@ -119,6 +119,28 @@ test('amp arcane auto-pick finds Virtuos Forge with Magus Melt, which does nothi
   assert.ok(picked.includes('Virtuos Forge') && picked.includes('Magus Melt'), picked.join(', '));
 });
 
+test('kitgun explosions: Tombfinger quick/charged AoE modes with falloff, Gaze field as a second hit (#22)', () => {
+  const tomb = snapshot.weapons['Tombfinger / Brash / Zip'];
+  const [direct, quick, charged] = tomb.modes;
+  assert.equal(direct.name, 'Normal Attack');
+  close(quick.stats.radiation, 30);
+  close(charged.stats.radiation, 412);
+  close(charged.stats.fireRate, 2);
+  assert.deepEqual(quick.falloff, { start: 0, end: 1.7, reduction: 0.25 });
+  assert.deepEqual(charged.falloff, { start: 0, end: 6.2, reduction: 0.7 });
+  close(tomb.stats.radiation, 8); // the arsenal block stays the chamber's table
+  const atEdge = resolveBuild(snapshot, { weapon: tomb.name, mods: [], mode: 'Charged Explosion', aoeDistance: 6.2 });
+  const atCentre = resolveBuild(snapshot, { weapon: tomb.name, mods: [], mode: 'Charged Explosion', aoeDistance: 0 });
+  close(atEdge.shotDamage / atCentre.shotDamage, 0.3);
+
+  const gaze = snapshot.weapons['Gaze / Brash / Zip'];
+  close(gaze.stats.radiation, 58);
+  assert.equal(gaze.modes[0].stats.radiation, 29);
+  assert.equal(gaze.modes[1].trigger, 'AoE');
+  close(gaze.modes[1].stats.radiation, 29);
+  assert.equal(snapshot.weapons['Sporelacer / Brash / Zip'].modes.length, 1);
+});
+
 test('arcane auto fills the weapon and the modular slot: a Residual arcane for Theorem Demulcent, Exodia Force for a group (#26)', () => {
   const kitgun = 'Catchmoon / Gibber / Bashrack';
   const withTheorem = search(snapshot, {

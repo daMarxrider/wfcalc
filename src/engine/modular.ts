@@ -17,7 +17,10 @@
  *           The Slide Attack mode is the total damage x the strike's Slide multiplier for the grip's
  *           hand type (the wiki's SlideDamage), with the same crit, status and speed.
  *
- * Not modelled: kitgun explosions and tendrils (the wiki has no numbers for them), zaw slam, heavy
+ * Kitgun explosions are modelled where the wiki gives numbers: Tombfinger's quick and charged
+ * explosions as extra AoE modes, Gaze's 3 m field as a second hit of the beam's damage.
+ * Not modelled: Sporelacer and Tombfinger secondary explosions (no damage numbers; the chamber's
+ * elemental part may already be the explosion, unconfirmed), chain tendrils (#9), zaw slam, heavy
  * slam and heavy attacks and their wind-up (the wiki lists none for zaws, and no melee weapon
  * has a heavy wind-up in the data), the Leap and Wall multipliers in Module:Modular/data (the
  * wiki never uses them), amp energy regeneration while firing.
@@ -37,6 +40,18 @@ export const AMP_BRACES: Record<string, { pool?: number; delay?: number; rate?: 
 
 /** Primary kitgun classes (wiki Module:Modular/generator); every secondary kitgun is a Pistol. */
 const PRIMARY_KITGUN_TYPE: Record<string, string> = { Catchmoon: 'Shotgun', Sporelacer: 'Shotgun', Tombfinger: 'Launcher' };
+
+/**
+ * Tombfinger primary explosions per grip (wiki Tombfinger, Notes): [quick, charged] Radiation.
+ * Radius 1.7 m falling to 75% (quick), 6.2 m to 30% (charged); the explosion's headshot multiplier
+ * is 1x (not modelled). The wiki table is quick-shot data; the charged column is its own note.
+ */
+const TOMBFINGER_AOE: Record<string, [number, number]> = {
+  Brash: [30, 412], Palmaris: [35, 417], Shrewd: [40, 422], Steadyslam: [79, 461], Tremor: [108, 490],
+};
+const TOMBFINGER_RADIUS = { quick: { radius: 1.7, reduction: 0.25 }, charged: { radius: 6.2, reduction: 0.7 } };
+/** Gaze primary: a 3 m field at the impact point deals the beam's damage again, unaffected by multishot (wiki Gaze). */
+const GAZE_FIELD_RADIUS = 3;
 
 const DAMAGE_KEYS: DamageType[] = ['impact', 'puncture', 'slash', 'heat', 'cold', 'electricity', 'toxin', 'blast', 'corrosive', 'gas', 'magnetic', 'radiation', 'viral', 'true', 'void', 'tau'];
 
@@ -120,6 +135,29 @@ export function assembleKitgun(source: ModularSource, slot: 'primary' | 'seconda
     reloadTime: loader.Reload,
   });
   const falloff = chamber.Falloff ? { start: chamber.Falloff.StartRange, end: chamber.Falloff.EndRange, reduction: chamber.Falloff.Reduction } : undefined;
+  const rest = Object.fromEntries(Object.entries(own).filter(([key]) => !DAMAGE_KEYS.includes(key as DamageType))) as Omit<WeaponStats, DamageType>;
+  const direct: WeaponMode = { name: 'Normal Attack', stats: own, trigger: chamber.ShotType ?? null, ...(falloff ? { falloff } : {}) };
+  const modes: WeaponMode[] = [direct];
+  let total = own;
+  if (slot === 'primary' && chamberName === 'Tombfinger' && TOMBFINGER_AOE[gripName]) {
+    const [quick, charged] = TOMBFINGER_AOE[gripName];
+    // Crit and status are the chamber's (assumed for the explosion). A charged shot fires once per
+    // charge time (assumed); the direct hit and explosion roll status separately.
+    const explosion = (name: string, radiation: number, { radius, reduction }: { radius: number; reduction: number }, fireRate: number): WeaponMode => ({
+      name, stats: stats({ radiation }, { ...rest, fireRate }), trigger: 'AoE', aoeRadius: radius, aoeDamage: radiation,
+      falloff: { start: 0, end: radius, reduction },
+    });
+    modes.push(
+      explosion('Quick-shot Explosion', quick, TOMBFINGER_RADIUS.quick, own.fireRate),
+      explosion('Charged Explosion', charged, TOMBFINGER_RADIUS.charged, 1 / (chamber.ChargeTime?.[gripName] ?? 1)),
+    );
+  } else if (slot === 'primary' && chamberName === 'Gaze') {
+    const field = { ...own };
+    total = { ...own };
+    for (const key of DAMAGE_KEYS) total[key] = own[key] * 2;
+    // Full damage inside the field, none outside.
+    modes.push({ name: 'Radial Field', stats: field, trigger: 'AoE', aoeRadius: GAZE_FIELD_RADIUS, aoeDamage: sum(chamber.Damage[gripName] ?? chamber.Damage.Base), falloff: { start: GAZE_FIELD_RADIUS, end: GAZE_FIELD_RADIUS + 0.001, reduction: 1 } });
+  }
   const type = slot === 'secondary' ? 'Pistol' : PRIMARY_KITGUN_TYPE[chamberName] ?? 'Rifle';
   const name = `${chamberName} / ${gripName} / ${loaderName}`;
   return weapon(name, `kitgun-${slot}`, [chamberName, gripName, loaderName], {
@@ -129,8 +167,8 @@ export function assembleKitgun(source: ModularSource, slot: 'primary' | 'seconda
     exilusPolarity: 'madurai',
     trigger: chamber.Trigger,
     description: `${slot === 'primary' ? 'Primary' : 'Secondary'} kitgun.`,
-    stats: own,
-    modes: [{ name: 'Normal Attack', stats: own, trigger: chamber.ShotType ?? null, ...(falloff ? { falloff } : {}) }],
+    stats: total,
+    modes,
   });
 }
 
