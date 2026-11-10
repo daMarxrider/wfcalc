@@ -73,6 +73,10 @@ const effect = (target: string, value: number, raw: string, extra: Partial<Effec
 /** Elements a Residual Arcane's zone carries, for the Theorem arcanes (wiki: Residual Arcanes). */
 export const RESIDUAL_ELEMENTS = ['heat', 'cold', 'electricity', 'toxin'] as const;
 export type ResidualElement = typeof RESIDUAL_ELEMENTS[number];
+/** The element each kitgun Residual Arcane's zone applies to the Theorem arcanes. */
+export const RESIDUAL_ARCANE_ELEMENT: Record<string, ResidualElement> = {
+  'Residual Boils': 'heat', 'Residual Malodor': 'cold', 'Residual Shock': 'electricity', 'Residual Viremia': 'toxin',
+};
 export interface ArcaneContext {
   heavyAttack: boolean;
   /** The Residual zone the player stands in (Theorem Demulcent); Toxin (Residual Viremia) when unset. */
@@ -126,6 +130,8 @@ const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> =
   // Added to the elemental mods of the zone's element and combined like them (wiki example:
   // Cryo Rounds + Residual Viremia = Viral).
   'Theorem Demulcent': (r, { residualElement = 'toxin' }) => [effect('element', 0.02 * (r + 1), `In a Residual ${residualElement} zone: +${pct(0.02 * (r + 1))} ${residualElement} damage per second, up to 15x`, { condition: 'inResidualZone', maxStacks: 15, element: residualElement as DamageType })],
+  // Value = share of the weapon's damage a status event deals to enemies within 6m, at 50% chance (damage.ts: group objective).
+  'Exodia Force': (r) => [effect('exodiaForce', 0.5 * (r + 1), `On Status Effect: 50% chance to deal ${pct(0.5 * (r + 1))} Weapon Damage to enemies within 6m`)],
   'Secondary Encumber': (r) => [effect('encumber', 0.04 * (r + 1), `On Status Effect: +${pct(0.04 * (r + 1))} chance for a second random status`)],
   'Secondary Cryogenic': (r) => [effect('cryogenic', [1, 1, 2, 2, 3, 3][r], `On Puncture: ${[1, 1, 2, 2, 3, 3][r]} Cold stacks on the target and enemies nearby`)],
   // Value = share of the hit dealt to nearby enemies; damage.ts adds it to the multi-target figure.
