@@ -57,7 +57,7 @@ export const P = (() => {
   field('fixedStatusTypes'); field('extraStatusTypes'); field('requireMask'); field('fixedElementMask');
   field('vigilante', 8); field('gladiator', 8); field('capacityHalf'); field('steady');
   field('timedSeconds'); field('timedFireRate'); field('kpm');
-  field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
+  field('reloadFixed'); field('reloadPerShell'); field('shellMagazine'); field('cryogenic'); field('madurai');
   field('ammoEfficiency'); field('ammoScale'); field('plainAmmoScale'); field('killBuffs');
   field('ammoBuffs', AMMO_SLOTS * AMMO_FIELDS); field('beamStart'); field('encumber'); field('debilitate'); field('boss'); field('continuity'); field('vitality');
   field('quantize'); field('spoolSum'); field('shieldTakes', 16); field('kills');
@@ -326,7 +326,7 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   const fireRate = S[CH.fireRateLock] > 0 ? params[P.fireRate] : params[P.fireRate] * (1 + S[CH.fireRate] - (plain ? params[P.timedFireRate] : 0));
   // Shell-by-shell reloads load the real capacity, not the Ammo Efficiency stretched magazine.
   const shells = Math.max(1, Math.round(params[P.shellMagazine] * (1 + S[CH.magazine])));
-  const reload = (params[P.reloadTime] + params[P.reloadPerShell] * shells) / (1 + S[CH.reloadSpeed]);
+  const reload = params[P.reloadFixed] + (params[P.reloadTime] + params[P.reloadPerShell] * shells) / (1 + S[CH.reloadSpeed]);
   // Ammo Efficiency stretches the magazine: shots per reload.
   // Spool-up (traits.ts) restarts with every magazine: a pause of its own, like the reload.
   const pause = reload + params[P.spoolSum] / Math.max(0.01, fireRate);
@@ -825,7 +825,7 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   kFireRate = params[${P.fireRate}u] * (1.0 + S[${CH.fireRate}u] - timedFireRate);
   if (S[${CH.fireRateLock}u] > 0.0) { kFireRate = params[${P.fireRate}u]; }
   let shells = max(1.0, round(params[${P.shellMagazine}u] * (1.0 + S[${CH.magazine}u])));
-  let reload = (params[${P.reloadTime}u] + params[${P.reloadPerShell}u] * shells) / (1.0 + S[${CH.reloadSpeed}u]);
+  let reload = params[${P.reloadFixed}u] + (params[${P.reloadTime}u] + params[${P.reloadPerShell}u] * shells) / (1.0 + S[${CH.reloadSpeed}u]);
   // Spool-up restarts with every magazine (JS pause).
   let pause = reload + params[${P.spoolSum}u] / max(0.01, kFireRate);
   let magazine = shells / max(1e-6, ammoCost(plain, shells, kFireRate, pause, kMultishot, killSpacing));

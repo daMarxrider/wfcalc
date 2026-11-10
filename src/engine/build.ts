@@ -33,7 +33,7 @@ import { augmentFits, byExactName, normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
-import { arcaneEffectsAt, arcaneScopeMiss, enervateCritChance, enervateHitsPerShot, isDualPistols, type ResidualElement } from './arcanes.ts';
+import { arcaneEffectsAt, arcaneScopeMiss, energyDepletedUptime, enervateCritChance, enervateHitsPerShot, isDualPistols, type ResidualElement } from './arcanes.ts';
 import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
 import { COMBO, NEXT_SHOT, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
@@ -957,11 +957,12 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
         entry.conditions.add(effect.condition);
         conditional.set(source.name, entry);
       }
+      // Eternal Onslaught: switched on, it is up for the share of the amp's energy cycle spent depleted.
       const stacks = conditionStacks(effect, conditions, {
         mode: build.stackMode ?? 'custom',
         override: build.sourceStacks?.[source.name],
         hit: hitZoneOf(build),
-      });
+      }) * (effect.condition === 'on_energy_depleted' ? energyDepletedUptime(stats) : 1);
       if (effect.condition) {
         const entry = conditional.get(source.name)!;
         entry.stacks = Math.max(entry.stacks, effect.perStatusType ? stacks / Math.max(1, Number(conditions.statusTypes ?? 1)) : stacks);
@@ -1133,7 +1134,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   const magazineSize = Math.max(1, Math.round((stats.magazineSize ?? 1) * (1 + bonus('magazine'))));
   // The Incarnon forms fire from their own charges, not the shell tube.
   const shells = incarnonFormActive ? null : shellReload(weapon.name, stats.reloadTime ?? 0, stats.magazineSize ?? 1);
-  const reloadTime = (shells ? shells.delay + shells.perShell * magazineSize : stats.reloadTime ?? 0) / (1 + bonus('reloadSpeed'));
+  const reloadDelay = shells ? 0 : stats.reloadDelay ?? 0;
+  const reloadTime = reloadDelay + ((shells ? shells.delay + shells.perShell * magazineSize : stats.reloadTime ?? 0) - reloadDelay) / (1 + bonus('reloadSpeed'));
   // Primary Plated Round (wiki): a full reload adds 15 x sqrt(5 x magazine) % base damage for the
   // buff's duration; averaged over the shots, only those fired before it runs out get it.
   const platedDuration = weapon.type === 'Bow' ? 0 : bonus('platedRound');

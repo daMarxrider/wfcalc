@@ -119,6 +119,10 @@ export interface WeaponStats {
   multishot: number;
   magazineSize: number;
   reloadTime: number;
+  /** Part of reloadTime that Reload Speed does not shorten: an amp's recharge delay (Virtuos Null raises the rate only). */
+  reloadDelay?: number;
+  /** An amp's energy pool, for the share of the cycle spent below the energy-depleted threshold (energyDepletedUptime). */
+  energyPool?: number;
   /** Melee only: heavy attack wind-up in seconds. */
   heavyAttackSpeed?: number;
 }
