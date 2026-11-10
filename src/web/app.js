@@ -1359,38 +1359,52 @@ const isArchgun = (name) => weaponData.get(name)?.category === 'archgun';
  * Weapons with a second arcane field: arch-guns, zaws and kitguns (their own Exodia/Pax/Residual
  * slot next to the weapon arcane) and amps (two amp arcanes, or one plus an Operator arcane).
  */
+const modularKind = (name) => weaponData.get(name)?.modular?.kind ?? (weaponData.get(name)?.category === 'amp' ? 'amp' : null);
 const secondArcaneLabel = (name) => {
   if (isArchgun(name)) return 'Secondary arcane (Archgun Arcane Adapter)';
-  const kind = weaponData.get(name)?.modular?.kind ?? (weaponData.get(name)?.category === 'amp' ? 'amp' : null);
+  const kind = modularKind(name);
   if (kind === 'zaw') return 'Zaw arcane (Exodia)';
   if (kind?.startsWith('kitgun')) return 'Kitgun arcane (Pax, Residual)';
-  return kind === 'amp' ? 'Second amp or Operator arcane' : null;
+  return kind === 'amp' ? 'Second amp arcane (Amp Arcane Adapter)' : null;
 };
 
-/** Writes the arcane fields of both tabs from state, and shows the second slot on arch-guns. */
+const BUILD_ARCANE_IDS = ['arcane-input', 'arcane2-input', 'arcane3-input', 'arcane4-input'];
+const FIND_ARCANE_IDS = ['find-arcane', 'find-arcane2', 'find-arcane3', 'find-arcane4'];
+/** Fields a weapon shows: one, a second for arch-guns, modular weapons and amps, and the two Operator arcanes on amps. */
+const arcaneFieldCount = (name) => (modularKind(name) === 'amp' ? 4 : secondArcaneLabel(name) ? 2 : 1);
+
+/** Slot of every arcane by name, to tell an amp's arcanes from the Operator's. */
+const arcaneSlot = new Map();
+/** The arcane in field `index`: on an amp the first two fields hold amp arcanes, the last two Operator ones. */
+function arcaneInField(name, index) {
+  const picked = state.arcanes ?? [];
+  if (modularKind(name) !== 'amp') return picked[index]?.name ?? '';
+  const mine = picked.filter((arcane) => (arcaneSlot.get(arcane.name) === 'operator') === (index >= 2));
+  return mine[index % 2]?.name ?? '';
+}
+
+/** Writes the arcane fields of both tabs from state, and shows the extra slots a weapon has. */
 function renderArcaneFields() {
-  const [first, second] = [state.arcanes?.[0]?.name ?? '', state.arcanes?.[1]?.name ?? ''];
   const buildArch = isArchgun(state.weapon);
-  const buildSecond = secondArcaneLabel(state.weapon);
-  $('arcane-input').value = first;
-  $('arcane2-input').value = second;
-  $('arcane2-field').hidden = !buildSecond;
-  if (buildSecond) $('arcane2-label').textContent = buildSecond;
-  $('arcane-label').textContent = buildArch ? 'Primary arcane (Archgun Arcane Adapter)' : 'Weapon arcane';
   const findName = $('find-weapon').value.trim() || state.weapon;
   const findArch = isArchgun(findName);
+  for (const [ids, name] of [[BUILD_ARCANE_IDS, state.weapon], [FIND_ARCANE_IDS, findName]]) {
+    ids.forEach((id, index) => {
+      $(id).value = arcaneInField(name, index);
+      if (index > 0) $(id).closest('label').hidden = index >= arcaneFieldCount(name);
+    });
+  }
+  const buildSecond = secondArcaneLabel(state.weapon);
+  if (buildSecond) $('arcane2-label').textContent = buildSecond;
+  $('arcane-label').textContent = buildArch ? 'Primary arcane (Archgun Arcane Adapter)' : 'Weapon arcane';
   const findSecond = secondArcaneLabel(findName);
-  $('find-arcane').value = first;
-  $('find-arcane2').value = second;
-  $('find-arcane2-field').hidden = !findSecond;
   if (findSecond) $('find-arcane2-label').textContent = findSecond;
   $('find-arcane-label').textContent = findArch ? 'Primary arcane (arch-gun)' : 'Weapon arcane';
 }
 
-/** Arcanes from a pair of fields: the second only counts on an arch-gun. */
-function setArcanes(first, second, weapon) {
-  const names = secondArcaneLabel(weapon) ? [first, second] : [first];
-  state.arcanes = names.map((name) => name.trim()).filter(Boolean).map((name) => ({ name }));
+/** Arcanes from a tab's fields: only the fields the weapon shows count. */
+function setArcanes(values, weapon) {
+  state.arcanes = values.slice(0, arcaneFieldCount(weapon)).map((name) => name.trim()).filter(Boolean).map((name) => ({ name }));
   renderArcaneFields();
   recalc();
 }
@@ -1402,6 +1416,7 @@ async function refreshFindArcanes() {
   try {
     const arcanes = await getJson(`/api/arcanes?weapon=${encodeURIComponent(weapon)}`);
     $('find-arcane-list').innerHTML = arcanes.map((arcane) => listOption(arcane.name, arcaneHint(arcane))).join('');
+    for (const arcane of arcanes) arcaneSlot.set(arcane.name, arcane.slot);
   } catch {
     /* the list is a convenience; typing a name still works */
   }
@@ -2258,6 +2273,8 @@ const TIPS = {
   'catalyst': 'Orokin Catalyst: 60 mod capacity instead of 30.',
   'arcane-input': 'Weapon arcane. Arch-guns hold a Primary and a Secondary one.',
   'arcane2-input': 'Arch-guns only: the Secondary arcane (needs an Archgun Arcane Adapter).',
+  'arcane3-input': 'Amps only: an Operator arcane (Magus Melt...).',
+  'arcane4-input': 'Amps only: the Operator\'s second arcane.',
   'mod-filter': 'Search the mods that fit this weapon.',
   'filter-polarity': 'Show only mods of this polarity.',
   'filter-type': 'Show only mods of this class (Rifle, Primary...).',
@@ -2319,6 +2336,8 @@ const TIPS = {
   'find-arcane-auto': 'Also choose the arcanes: every empty arcane slot is filled (arch-guns get a primary and a secondary arcane), arcanes typed above stay. The best 3 arcane sets each get a full brute force, so it takes about 3x as long.',
   'find-arcane': 'Weapon arcane, used as given (arch-guns: the Primary one).',
   'find-arcane2': 'Arch-guns only: the Secondary arcane.',
+  'find-arcane3': 'Amps only: an Operator arcane.',
+  'find-arcane4': 'Amps only: the Operator\'s second arcane.',
   'find-strength': 'Ability Strength for the buffs below.',
   'ability-select': 'Warframe ability to price.',
   'ability-strength': 'Ability Strength in percent.',
@@ -2639,11 +2658,11 @@ function bindEvents() {
     state.frame = event.target.value.trim();
     recalc();
   });
-  for (const id of ['arcane-input', 'arcane2-input']) {
-    $(id).addEventListener('change', () => setArcanes($('arcane-input').value, $('arcane2-input').value, state.weapon));
+  for (const id of BUILD_ARCANE_IDS) {
+    $(id).addEventListener('change', () => setArcanes(BUILD_ARCANE_IDS.map((field) => $(field).value), state.weapon));
   }
-  for (const id of ['find-arcane', 'find-arcane2']) {
-    $(id).addEventListener('change', () => setArcanes($('find-arcane').value, $('find-arcane2').value, $('find-weapon').value.trim() || state.weapon));
+  for (const id of FIND_ARCANE_IDS) {
+    $(id).addEventListener('change', () => setArcanes(FIND_ARCANE_IDS.map((field) => $(field).value), $('find-weapon').value.trim() || state.weapon));
   }
   $('find-weapon').addEventListener('change', refreshFindArcanes);
   $('zoom-select').addEventListener('change', (event) => {
@@ -2801,6 +2820,7 @@ async function loadStaticLists() {
   $('weapon-list').innerHTML = weapons.map((weapon) => listOption(weapon.name, weapon.exalted ? `exalted · ${weapon.exalted.frame}` : weapon.type)).join('');
   $('enemy-list').innerHTML = enemies.map((enemy) => listOption(enemy.name, `${enemy.faction ?? ''} hp${enemy.health}`.trim())).join('');
   $('arcane-list').innerHTML = arcanes.map((arcane) => listOption(arcane.name, arcaneHint(arcane))).join('');
+  for (const arcane of arcanes) arcaneSlot.set(arcane.name, arcane.slot);
   allBuffs = buffs;
   allAbilities = abilities;
   renderBuffList();
@@ -2841,6 +2861,7 @@ async function loadModsForWeapon() {
   $('filter-type').innerHTML = '<option value="">All types</option>' + types.map((type) => `<option value="${type.toLowerCase()}">${type}</option>`).join('');
   renderModList('');
   $('arcane-list').innerHTML = arcanes.map((arcane) => listOption(arcane.name, arcaneHint(arcane))).join('');
+  for (const arcane of arcanes) arcaneSlot.set(arcane.name, arcane.slot);
   renderSniperFields();
   // A non-arch-gun keeps only its first arcane.
   if (!secondArcaneLabel(state.weapon) && (state.arcanes?.length ?? 0) > 1) state.arcanes = state.arcanes.slice(0, 1);
