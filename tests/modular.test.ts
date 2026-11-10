@@ -131,7 +131,7 @@ test('kitgun explosions: Tombfinger quick/charged AoE modes with falloff, Gaze f
   close(tomb.stats.radiation, 8); // the arsenal block stays the chamber's table
   const atEdge = resolveBuild(snapshot, { weapon: tomb.name, mods: [], mode: 'Charged Explosion', aoeDistance: 6.2 });
   const atCentre = resolveBuild(snapshot, { weapon: tomb.name, mods: [], mode: 'Charged Explosion', aoeDistance: 0 });
-  close(atEdge.stats.radiation / atCentre.stats.radiation, 0.3);
+  close(atEdge.shotDamage / atCentre.shotDamage, 0.3);
 
   const gaze = snapshot.weapons['Gaze / Brash / Zip'];
   close(gaze.stats.radiation, 58);

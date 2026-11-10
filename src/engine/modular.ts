@@ -125,6 +125,7 @@ export function assembleKitgun(source: ModularSource, slot: 'primary' | 'seconda
     reloadTime: loader.Reload,
   });
   const falloff = chamber.Falloff ? { start: chamber.Falloff.StartRange, end: chamber.Falloff.EndRange, reduction: chamber.Falloff.Reduction } : undefined;
+  const rest = Object.fromEntries(Object.entries(own).filter(([key]) => !DAMAGE_KEYS.includes(key as DamageType))) as Omit<WeaponStats, DamageType>;
   const direct: WeaponMode = { name: 'Normal Attack', stats: own, trigger: chamber.ShotType ?? null, ...(falloff ? { falloff } : {}) };
   const modes: WeaponMode[] = [direct];
   let total = own;
@@ -133,7 +134,7 @@ export function assembleKitgun(source: ModularSource, slot: 'primary' | 'seconda
     // Crit and status are the chamber's (assumed for the explosion). A charged shot fires once per
     // charge time (assumed); the direct hit and explosion roll status separately.
     const explosion = (name: string, radiation: number, { radius, reduction }: { radius: number; reduction: number }, fireRate: number): WeaponMode => ({
-      name, stats: { ...stats({ radiation }, { ...own }), fireRate }, trigger: 'AoE', aoeRadius: radius, aoeDamage: radiation,
+      name, stats: stats({ radiation }, { ...rest, fireRate }), trigger: 'AoE', aoeRadius: radius, aoeDamage: radiation,
       falloff: { start: 0, end: radius, reduction },
     });
     modes.push(
@@ -141,9 +142,8 @@ export function assembleKitgun(source: ModularSource, slot: 'primary' | 'seconda
       explosion('Charged Explosion', charged, TOMBFINGER_RADIUS.charged, 1 / (chamber.ChargeTime?.[gripName] ?? 1)),
     );
   } else if (slot === 'primary' && chamberName === 'Gaze') {
-    const field = stats({}, { ...own });
-    for (const key of DAMAGE_KEYS) field[key] = own[key];
-    total = stats({}, { ...own });
+    const field = { ...own };
+    total = { ...own };
     for (const key of DAMAGE_KEYS) total[key] = own[key] * 2;
     // Full damage inside the field, none outside.
     modes.push({ name: 'Radial Field', stats: field, trigger: 'AoE', aoeRadius: GAZE_FIELD_RADIUS, aoeDamage: sum(chamber.Damage[gripName] ?? chamber.Damage.Base), falloff: { start: GAZE_FIELD_RADIUS, end: GAZE_FIELD_RADIUS + 0.001, reduction: 1 } });
