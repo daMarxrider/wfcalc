@@ -44,7 +44,7 @@ const reply = (status: number, body: unknown): ApiReply => ({ status, body });
 /** The caller stopped the request: nothing to send. */
 const GONE: ApiReply = { status: 0, body: null };
 
-const objectiveOf = (value: unknown): 'ttk' | 'dps' | 'kpm' => (value === 'dps' || value === 'kpm' ? value : 'ttk');
+const objectiveOf = (value: unknown): 'ttk' | 'dps' | 'kpm' | 'group' => (value === 'dps' || value === 'kpm' || value === 'group' ? value : 'ttk');
 
 /** A brute-force request from a JSON body (the Find tab's shape), or the weapon-not-found reply. */
 function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; suggestions: string[] } {

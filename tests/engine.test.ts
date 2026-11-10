@@ -13,6 +13,7 @@ import { armorDamageReduction, eximusBaseHealth, overguardForLevel, scaleEnemy }
 import { elementalOrders } from '../src/engine/bruteforce.ts';
 import { hitProfile, weakPointBase } from '../src/engine/hit.ts';
 import { hitEnemy } from '../src/engine/damage.ts';
+import { objectiveScore } from '../src/engine/search.ts';
 import { simulateKill } from '../src/engine/simulate.ts';
 import { parseModEffects } from '../src/mods/parse.ts';
 import { byExactName } from '../src/data.ts';
@@ -1787,4 +1788,15 @@ test('Electricity ticks spread to the other enemies of a group and shorten the c
   // Neighbours lose health while the first dies: faster than three separate kills.
   assert.ok(group.groupTimeToKill! < 3 * group.timeToKill!);
   assert.ok(group.multiTargetDps! > group.totalDps);
+});
+
+test('the steady estimate spreads Electricity too, and the group objective ranks by the clear time (#9)', () => {
+  const snap = snapshot([weapon({ electricity: 100, statusChance: 0.5, fireRate: 5 })], [], [dummy]);
+  const scaled = scaleEnemy(snap, dummy, 1);
+  const group = hitEnemy(snap, build(snap, []), scaled, { targets: 3 });
+  assert.ok(group.groupTimeToKill! < 3 * group.timeToKill!);
+  const plain = snapshot([weapon({ impact: 100, statusChance: 0, fireRate: 5 })], [], [dummy]);
+  const flat = hitEnemy(plain, build(plain, []), scaleEnemy(plain, dummy, 1), { targets: 3 });
+  close(flat.groupTimeToKill!, 3 * flat.timeToKill!, 1e-9);
+  assert.equal(objectiveScore({ ...group, killsPerMinute: 0 }, 'group'), -group.groupTimeToKill!);
 });

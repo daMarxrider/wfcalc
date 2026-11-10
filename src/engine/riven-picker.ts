@@ -39,7 +39,7 @@ export interface RivenPickerRequest {
   level?: number;
   steelPath?: boolean;
   eximus?: boolean;
-  objective?: 'ttk' | 'dps' | 'kpm';
+  objective?: 'ttk' | 'dps' | 'kpm' | 'group';
   /** Kills in the run the time to kill is averaged over (default 10, see HitOptions.kills). */
   kills?: number;
   /** How many of the best riven groups to report (default 200). */
@@ -76,7 +76,7 @@ export interface RivenPickerResult {
   weapon: string;
   enemy: string;
   level: number;
-  objective: 'ttk' | 'dps' | 'kpm';
+  objective: 'ttk' | 'dps' | 'kpm' | 'group';
   baseline: { score: number; timeToKill: number | null };
   /** Rivens enumerated, effect groups scored, builds evaluated. */
   rivens: number;
