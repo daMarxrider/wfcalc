@@ -33,7 +33,7 @@ import { augmentFits, byExactName, normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
-import { arcaneEffectsAt, arcaneScopeMiss, energyDepletedUptime, enervateCritChance, enervateHitsPerShot, isDualPistols, type ResidualElement } from './arcanes.ts';
+import { arcaneEffectsAt, arcaneScopeMiss, energyDepletedUptime, enervateCritChance, enervateHitsPerShot, isDualPistols, RESIDUAL_ARCANE_ELEMENT, type ResidualElement } from './arcanes.ts';
 import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
 import { COMBO, NEXT_SHOT, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
@@ -250,6 +250,8 @@ export interface ResolvedBuild {
   archonVitality: boolean;
   /** Secondary Irradiate's share of a hit dealt to nearby enemies (on 10 Radiation stacks), 0 when none. */
   irradiateShare: number;
+  /** Exodia Force's share of the weapon's damage a status event deals to enemies within 6m (50% chance), 0 when none. */
+  exodiaForceShare: number;
   /**
    * Ammo (engine/ammo.ts): the always-on Ammo Efficiency (summed, uncapped), the multiplicative
    * sources (Energized Munitions), the timed buffs, and the ammo per shot from the always-on part.
@@ -873,6 +875,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     else sources.push({ name: `Zoom ${level.zoom}x`, maxRank: 0, effects: level.effects, partial: false, incompatible: [], kind: 'zoom' });
   }
 
+  // The Residual arcane on the weapon decides the zone's element unless one is given.
+  const residualZone = (build.arcanes ?? []).map((entry) => RESIDUAL_ARCANE_ELEMENT[typeof entry === 'string' ? entry : entry.name]).find(Boolean);
   // Warframe arcanes also buff the weapon directly (Arcane Avenger: +45% crit chance).
   for (const entry of build.warframeArcanes ?? []) {
     const wanted = typeof entry === 'string' ? entry : entry.name;
@@ -895,7 +899,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       name: arcane.name,
       maxRank: 0,
       // Ability Strength is already handled by the strength calculation above.
-      effects: arcaneEffectsAt(arcane, rank, { heavyAttack: Boolean(build.heavyAttack), residualElement: build.residualElement }).filter((effect) => effect.target !== 'abilityStrength'),
+      effects: arcaneEffectsAt(arcane, rank, { heavyAttack: Boolean(build.heavyAttack), residualElement: build.residualElement ?? residualZone }).filter((effect) => effect.target !== 'abilityStrength'),
       partial: false,
       incompatible: [],
       kind: 'warframeArcane',
@@ -1433,6 +1437,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     archonContinuity: exalted?.continuity ?? false,
     archonVitality: exalted?.vitality ?? false,
     irradiateShare: bonus('irradiate'),
+    exodiaForceShare: bonus('exodiaForce'),
     ammo,
     timedBuff: collected.timed ?? undefined,
     critTierBonus: vigilante,

@@ -118,3 +118,23 @@ test('amp arcane auto-pick finds Virtuos Forge with Magus Melt, which does nothi
   const picked = search(snapshot, { weapon: amp, enemy: 'Bombard', level: 150, objective: 'dps', chooseArcane: true, base: { stackMode: 'max' } }).builds[0].arcanes!.map((arcane) => arcane.name);
   assert.ok(picked.includes('Virtuos Forge') && picked.includes('Magus Melt'), picked.join(', '));
 });
+
+test('arcane auto fills the weapon and the modular slot: a Residual arcane for Theorem Demulcent, Exodia Force for a group (#26)', () => {
+  const kitgun = 'Catchmoon / Gibber / Bashrack';
+  const withTheorem = search(snapshot, {
+    weapon: kitgun, objective: 'dps', enemy: 'Bombard', level: 100, limit: 1, chooseArcane: true,
+    base: { warframeArcanes: ['Theorem Demulcent'], conditions: { inResidualZone: 15 } },
+  }).builds[0];
+  assert.deepEqual(withTheorem.arcanes.map((arcane) => snapshot.arcanes[arcane.name].slot).sort(), ['kitgun', 'secondary']);
+  // Without Theorem a Residual arcane does no damage, so it is not picked.
+  const plain = search(snapshot, { weapon: kitgun, objective: 'dps', enemy: 'Bombard', level: 100, limit: 1, chooseArcane: true }).builds[0];
+  assert.deepEqual(plain.arcanes.map((arcane) => snapshot.arcanes[arcane.name].slot), ['secondary']);
+
+  const zaw = search(snapshot, { weapon: 'Balla / Kroostra / Vargeet Jai II', objective: 'group', enemy: 'Bombard', level: 100, limit: 1, chooseArcane: true }).builds[0];
+  assert.ok(zaw.arcanes.some((arcane) => arcane.name === 'Exodia Force'));
+});
+
+test('a Residual arcane on the weapon sets the Theorem Demulcent element', () => {
+  const total = (arcane: string) => resolve('Catchmoon / Gibber / Bashrack', { arcanes: [arcane], warframeArcanes: ['Theorem Demulcent'], conditions: { inResidualZone: 15 } }).averageShotDamage;
+  assert.notEqual(total('Residual Boils'), total('Residual Shock'));
+});
