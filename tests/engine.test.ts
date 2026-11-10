@@ -1776,3 +1776,15 @@ test('build lookups take the exact or normalised name, never a partial one', () 
   assert.equal(byExactName(items, 'Primary'), undefined);
   assert.equal(byExactName(items, ''), undefined);
 });
+
+test('Electricity ticks spread to the other enemies of a group and shorten the clear time (#9)', () => {
+  const snap = snapshot([weapon({ electricity: 100, statusChance: 0.5, fireRate: 5 })], [], [dummy]);
+  const scaled = scaleEnemy(snap, dummy, 1);
+  const alone = hitEnemy(snap, build(snap, []), scaled, { simulate: true });
+  const group = hitEnemy(snap, build(snap, []), scaled, { simulate: true, targets: 3 });
+  assert.equal(alone.groupTimeToKill, null);
+  assert.ok(group.simulation!.spreadDamage > 0);
+  // Neighbours lose health while the first dies: faster than three separate kills.
+  assert.ok(group.groupTimeToKill! < 3 * group.timeToKill!);
+  assert.ok(group.multiTargetDps! > group.totalDps);
+});

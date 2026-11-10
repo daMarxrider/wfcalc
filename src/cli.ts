@@ -555,6 +555,9 @@ function report(snapshot: Snapshot, args: Args, mods: BuildMod[], label: string)
   if (hit.multiTargetDps !== null) {
     console.log(`  multi-target  ${num(hit.multiTargetFactor, 2)}x across the chain -> ${num(hit.multiTargetDps)} dps`);
   }
+  if (hit.groupTimeToKill !== null) {
+    console.log(`  group clear   ${num(hit.groupTimeToKill, 2)} s for ${hit.multiTargetTargets} enemies (${num(hit.groupTimeToKill / hit.multiTargetTargets, 2)} s each, spread counted)`);
+  }
   if (hit.attenuation) {
     console.log(`  attenuation  ${hit.attenuation.id}  caps ${num(hit.attenuation.mdpi)}/hit · ${num(hit.attenuation.mdps)}/s`
       + `${hit.attenuation.flatDr ? ` · ${(hit.attenuation.flatDr * 100).toFixed(0)}% DR` : ''}`);
@@ -1199,6 +1202,7 @@ async function main(): Promise<void> {
               attenuation: hit.attenuation ? { id: hit.attenuation.id, mdpi: round(hit.attenuation.mdpi, 0), mdps: round(hit.attenuation.mdps, 0) } : null,
               multiTargetDps: hit.multiTargetDps === null ? null : round(hit.multiTargetDps, 1),
               multiTargetFactor: round(hit.multiTargetFactor, 3),
+              groupTimeToKill: hit.groupTimeToKill === null ? null : round(hit.groupTimeToKill, 2),
               capacityUsed: fit.capacityUsed, capacity: fit.capacity,
               formaNeeded: fit.formaNeeded, fits: fit.fits,
               warnings: [...resolved.warnings, ...hit.warnings], unsupportedMods: resolved.unsupportedMods,
