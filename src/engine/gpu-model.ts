@@ -154,7 +154,8 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   params[P.multishot] = stats.multishot ?? 1;
   params[P.fireRate] = stats.fireRate ?? 1;
   // Shell-by-shell reloads (traits.ts): the delay here, the per-shell part scales with the capacity.
-  params[P.reloadTime] = zero.shellReload ? zero.shellReload.delay : stats.reloadTime ?? 0;
+  params[P.reloadFixed] = zero.shellReload ? 0 : stats.reloadDelay ?? 0;
+  params[P.reloadTime] = (zero.shellReload ? zero.shellReload.delay : stats.reloadTime ?? 0) - params[P.reloadFixed];
   params[P.reloadPerShell] = zero.shellReload?.perShell ?? 0;
   params[P.shellMagazine] = stats.magazineSize ?? 1;
   // A timed trait buff (Athodai's Overdrive) is in the fixed part: the shader blends it by uptime.

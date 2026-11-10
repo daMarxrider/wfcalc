@@ -88,3 +88,12 @@ test('GET /api/modular and POST /api/part-search', async () => {
   const bad = (await handleApi('POST', new URL('http://x/api/part-search'), { kind: 'sword' }))!;
   assert.equal(bad.status, 400);
 });
+
+test('Virtuos Null raises the amp\'s energy regeneration only: the recharge delay stays (#23)', () => {
+  const name = 'Raplak Prism / Propa Scaffold / Certus Brace';
+  const arcane = resolve(name, { arcanes: ['Virtuos Null'], conditions: { onKill: 1 } } as Partial<Build>);
+  const refill = arcane.reloadTime - 2;
+  // The 2 s delay is untouched; only the 100 / 30 s refill shrinks (it used to shrink with the delay: reload / (1 + bonus)).
+  assert.ok(refill < 100 / 30 - 0.1 && refill > 0, `refill ${refill}`);
+  assert.ok(arcane.reloadTime > 2 + (100 / 30) / 1.5);
+});

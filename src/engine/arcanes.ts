@@ -133,7 +133,7 @@ const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> =
   ])),
   'Eternal Eradicate': (r) => [effect('baseDamage', 0.1 * (r + 1), `On Operator Ability: +${pct(0.1 * (r + 1))} Damage to Amps for 8s`, { condition: 'onAbilityCast' })],
   'Eternal Logistics': (r) => [effect('ammoEfficiency', 0.125 * (r + 1), `On Void Sling: +${pct(0.125 * (r + 1))} Amp Ammo Efficiency for 8s`, { condition: 'onVoidSling' })],
-  // shortcut: energy regeneration as reload speed, so it shortens the recharge delay too.
+  // Energy regeneration is reload speed on the refill only: the amp's recharge delay is fixed (reloadDelay).
   'Virtuos Null': (r) => [effect('reloadSpeed', 0.05 * (r + 1), `On Kill: +${pct(0.05 * (r + 1))} Amp Energy Regeneration for 4s`, { condition: 'onKill' })],
   // Multiplies the Heat the amp deals (a Virtuos Forge conversion), like Accelerant does.
   'Magus Melt': (r) => [effect('elementMultiplier', 0.3, `On Void Sling: +30% Heat Damage in Operator Mode for 15s, up to ${r + 2}x`, { op: 'mult', element: 'heat', condition: 'onVoidSling', maxStacks: r + 2 })],
