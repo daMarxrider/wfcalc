@@ -118,3 +118,25 @@ test('amp arcane auto-pick finds Virtuos Forge with Magus Melt, which does nothi
   const picked = search(snapshot, { weapon: amp, enemy: 'Bombard', level: 150, objective: 'dps', chooseArcane: true, base: { stackMode: 'max' } }).builds[0].arcanes!.map((arcane) => arcane.name);
   assert.ok(picked.includes('Virtuos Forge') && picked.includes('Magus Melt'), picked.join(', '));
 });
+
+test('kitgun explosions: Tombfinger quick/charged AoE modes with falloff, Gaze field as a second hit (#22)', () => {
+  const tomb = snapshot.weapons['Tombfinger / Brash / Zip'];
+  const [direct, quick, charged] = tomb.modes;
+  assert.equal(direct.name, 'Normal Attack');
+  close(quick.stats.radiation, 30);
+  close(charged.stats.radiation, 412);
+  close(charged.stats.fireRate, 2);
+  assert.deepEqual(quick.falloff, { start: 0, end: 1.7, reduction: 0.25 });
+  assert.deepEqual(charged.falloff, { start: 0, end: 6.2, reduction: 0.7 });
+  close(tomb.stats.radiation, 8); // the arsenal block stays the chamber's table
+  const atEdge = resolveBuild(snapshot, { weapon: tomb.name, mods: [], mode: 'Charged Explosion', aoeDistance: 6.2 });
+  const atCentre = resolveBuild(snapshot, { weapon: tomb.name, mods: [], mode: 'Charged Explosion', aoeDistance: 0 });
+  close(atEdge.stats.radiation / atCentre.stats.radiation, 0.3);
+
+  const gaze = snapshot.weapons['Gaze / Brash / Zip'];
+  close(gaze.stats.radiation, 58);
+  assert.equal(gaze.modes[0].stats.radiation, 29);
+  assert.equal(gaze.modes[1].trigger, 'AoE');
+  close(gaze.modes[1].stats.radiation, 29);
+  assert.equal(snapshot.weapons['Sporelacer / Brash / Zip'].modes.length, 1);
+});
