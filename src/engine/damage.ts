@@ -311,6 +311,8 @@ function singleFight(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEne
     const coldBonus = settledColdBonus(build, cycle);
     return coldBonus === null ? full.layerDps : hitOnce(snapshot, build, scaled, { ...options, at: Infinity, coldBonus }).layerDps;
   };
+  // While the statuses still build up, stacks rise to their caps within a few seconds: a longer step prices that kink at its midpoint (Viral, #73).
+  const buildUp = settled / 12;
   let settledRates: LayerDps | null = null;
   let step = first;
   let skipped = false;
@@ -329,7 +331,7 @@ function singleFight(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEne
       }
     }
     // No step longer than the fight so far: a midpoint far ahead would see a Heat chain that big.
-    let next = Math.min(t < settled ? settled : Infinity, t + Math.min(step, Math.max(first, t), longest), breaks.find((x) => x > t + 1e-9) ?? Infinity);
+    let next = Math.min(t < settled ? settled : Infinity, t + Math.min(step, Math.max(first, t), t < settled ? Math.min(longest, buildUp) : longest), breaks.find((x) => x > t + 1e-9) ?? Infinity);
     let kill = progress(t, next);
     // The kill falls inside this step: shrink it onto the kill (the pulls depend on where it ends).
     for (let k = 0; k < 4 && kill !== null && kill < (next - t) * (1 - 1e-3); k++) {
