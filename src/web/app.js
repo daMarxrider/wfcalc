@@ -2006,6 +2006,7 @@ function bestArcaneSet(results, elapsedMs) {
     const build = result.builds?.[0];
     if (!build) return -Infinity;
     if (result.objective === 'kpm') return build.killsPerMinute || -Infinity;
+    if (result.objective === 'group') return build.groupTimeToKill ? -build.groupTimeToKill : -Infinity;
     return result.objective === 'dps' ? build.totalDps : (build.timeToKill === null ? -Infinity : -build.timeToKill);
   };
   const best = results.reduce((a, b) => (score(b) > score(a) + 1e-9 ? b : a));

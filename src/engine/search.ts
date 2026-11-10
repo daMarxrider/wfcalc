@@ -13,7 +13,7 @@
 import type { Build, BuildMod } from './build.ts';
 import { arcaneGroupOf, arcaneSlotsOf, COMPRESSION_NOT_AIMING, needsAiming, resolveBuild } from './build.ts';
 import { arcaneEffectsAt } from './arcanes.ts';
-import { DEFAULT_KILLS, hitEnemy } from './damage.ts';
+import { DEFAULT_KILLS, GROUP_SIZE, hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
 import type { ModData, Snapshot, WeaponData } from '../types.ts';
@@ -66,7 +66,7 @@ const SEARCH_SLOTS = 8;
 export interface SearchRequest {
   weapon: string;
   /** `ttk` minimises time to kill the target; `dps` maximises sustained damage. */
-  objective?: 'ttk' | 'dps' | 'kpm';
+  objective?: 'ttk' | 'dps' | 'kpm' | 'group';
   /** Kills in the run the time to kill is averaged over (default 10, see HitOptions.kills). */
   kills?: number;
   enemy?: string;
@@ -124,6 +124,8 @@ export interface SearchBuild {
   shotsToKill: number | null;
   /** Kills per minute against a stream of these targets (EnemyHit.killsPerMinute). */
   killsPerMinute: number;
+  /** Seconds to clear GROUP_SIZE enemies in range (only for the group objective). */
+  groupTimeToKill: number | null;
   critChance: number;
   critMultiplier: number;
   statusChance: number;
@@ -143,7 +145,7 @@ export interface SearchBuild {
 
 export interface SearchResult {
   weapon: string;
-  objective: 'ttk' | 'dps' | 'kpm';
+  objective: 'ttk' | 'dps' | 'kpm' | 'group';
   enemy: string;
   level: number;
   capacity: number;
@@ -353,8 +355,9 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     let hit: ReturnType<typeof hitEnemy>;
     try {
       resolved = resolveBuild(snapshot, build);
-      hit = hitEnemy(snapshot, resolved, scaled, { attenuation: request.attenuation, steadyStatus: request.simulate, kills: request.kills ?? DEFAULT_KILLS });
-      score = objective === 'kpm' ? hit.killsPerMinute || -1
+      hit = hitEnemy(snapshot, resolved, scaled, { attenuation: request.attenuation, steadyStatus: request.simulate, kills: request.kills ?? DEFAULT_KILLS, targets: objective === 'group' ? GROUP_SIZE : undefined });
+      score = objective === 'group' ? (hit.groupTimeToKill ? 1 / hit.groupTimeToKill : -1)
+        : objective === 'kpm' ? hit.killsPerMinute || -1
         : objective === 'ttk'
         ? (hit.timeToKill === null ? -1 : (1 / Math.max(hit.timeToKill, 1e-6)) * (1 + 1e-4 * Math.min(1, Math.log10(1 + hit.damagePerShotHealth) / 10)))
         // totalDps is the damage against this target including status procs. sustainedDps
@@ -558,7 +561,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     // What is reported comes from the fight simulation when asked for; the search itself ran on
     // the fast build-up estimate.
     const scored = request.simulate
-      ? { ...cached, hit: hitEnemy(snapshot, cached.resolved, scaled, { attenuation: request.attenuation, simulate: true, input: cached.build, kills: request.kills ?? DEFAULT_KILLS }) }
+      ? { ...cached, hit: hitEnemy(snapshot, cached.resolved, scaled, { attenuation: request.attenuation, simulate: true, input: cached.build, kills: request.kills ?? DEFAULT_KILLS, targets: objective === 'group' ? GROUP_SIZE : undefined }) }
       : cached;
     const fit = fits(names);
     return {
@@ -574,6 +577,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
       timeToKill: scored.hit.timeToKill,
       shotsToKill: scored.hit.shotsToKill,
       killsPerMinute: scored.hit.killsPerMinute,
+      groupTimeToKill: scored.hit.groupTimeToKill,
       critChance: scored.resolved.critChance,
       critMultiplier: scored.resolved.critMultiplier,
       statusChance: scored.resolved.statusChance,
@@ -630,6 +634,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
 
   builds.sort((a, b) => (objective === 'ttk'
     ? (a.timeToKill ?? Infinity) - (b.timeToKill ?? Infinity)
+    : objective === 'group' ? (a.groupTimeToKill ?? Infinity) - (b.groupTimeToKill ?? Infinity)
     : objective === 'kpm' ? b.killsPerMinute - a.killsPerMinute : b.totalDps - a.totalDps));
 
   const assumptions: string[] = [
@@ -637,6 +642,7 @@ function searchOnce(snapshot: Snapshot, request: SearchRequest): SearchResult {
     {
       ttk: `Objective: kill ${enemy.name} at level ${level} in the fewest shots`,
       dps: `Objective: highest damage per second against ${enemy.name} at level ${level}, status damage included`,
+      group: `Objective: fastest clear of ${GROUP_SIZE} ${enemy.name} at level ${level} in range of each other (Electricity, Gas and Blast spread to the others)`,
       kpm: `Objective: most kills per minute of ${enemy.name} at level ${level}, one after the other (reloads between kills count)`,
     }[objective],
   ];
@@ -713,9 +719,10 @@ export function search(snapshot: Snapshot, request: SearchRequest, shortlist = 3
 }
 
 /** How a build scores on the objective, higher is better (search and brute-force builds alike). */
-export function objectiveScore(build: { totalDps: number; timeToKill: number | null; killsPerMinute: number } | undefined, objective?: string): number {
+export function objectiveScore(build: { totalDps: number; timeToKill: number | null; killsPerMinute: number; groupTimeToKill?: number | null } | undefined, objective?: string): number {
   if (!build) return -Infinity;
   if (objective === 'kpm') return build.killsPerMinute || -Infinity;
+  if (objective === 'group') return build.groupTimeToKill ? -build.groupTimeToKill : -Infinity;
   return objective === 'dps' ? build.totalDps : (build.timeToKill === null ? -Infinity : -build.timeToKill);
 }
 

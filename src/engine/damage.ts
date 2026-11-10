@@ -20,6 +20,8 @@ import { AMMO_EFFICIENCY_CAP, ammoBuffUptime, expectedAmmoCost } from './ammo.ts
 import { BEAM_DECAY_DELAY, BEAM_DECAY_TIME, BEAM_RAMP_TIME, beamStart, simulateKill, type SimulationResult } from './simulate.ts';
 
 /** Targets in the run the entry points (search, brute force, calc) score a kill time over unless asked otherwise. */
+/** Enemies in range of each other for the `group` objective. */
+export const GROUP_SIZE = 5;
 export const DEFAULT_KILLS = 10;
 /** The longest run: each kill costs a fight's worth of work. */
 export const MAX_KILLS = 100;
@@ -737,19 +739,28 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
       warnings.push(`Secondary Irradiate: ${requestedTargets - 1} nearby target(s) take ${(build.irradiateShare * 100).toFixed(0)}% of the direct hit, ${(up * 100).toFixed(0)}% of hits on 10 Radiation stacks`);
     }
   }
-  // Electricity chain, Gas cloud and Blast burst (simulation.spreadDamage): each kill leaves the
-  // others with a share c of their health gone, so enemy j needs only (1 - j c) of a full kill.
+  // Electricity chain, Gas cloud and Blast burst: each kill leaves the others with a share c of
+  // their health gone, so enemy j needs only (1 - j c) of a full kill. The simulation counts the
+  // spread it saw; the steady estimate takes the Electricity and Gas dps over the kill plus the
+  // Blast stacks pending at death (1.5 s of procs, 300% instead of 30%).
   // shortcut: kill time scales with the health left (status ramp-up ignored); a kill inside a
   // reload or a spread past one pool's health is not refined.
   let groupTimeToKill: number | null = null;
-  if (requestedTargets > 1 && simulation?.timeToKill && timeToKill !== null && simulation.spreadDamage > 0 && scaled.health > 0) {
-    const carried = Math.min(1, simulation.spreadDamage / scaled.health);
+  if (requestedTargets > 1 && timeToKill !== null && scaled.health > 0) {
+    const blastEntry = dot.find((entry) => entry.type === 'blast');
+    const blastPending = blastEntry ? 10 * blastEntry.damagePerProc * blastEntry.procsPerSecond * 1.5 * (1 + Math.max(-0.9, build.statusDurationBonus ?? 0)) : 0;
+    const steadySpread = beam * dot.filter((entry) => entry.type === 'electricity' || entry.type === 'gas').reduce((sum, entry) => sum + entry.dps, 0) * timeToKill + blastPending;
+    const spread = simulation?.timeToKill ? simulation.spreadDamage : steadySpread;
+    const spreadSeconds = simulation?.timeToKill ?? timeToKill;
+    const carried = Math.min(1, spread / scaled.health);
     let work = 0;
     for (let enemy = 0; enemy < requestedTargets; enemy++) work += Math.max(0, 1 - enemy * carried);
     groupTimeToKill = timeToKill * work;
-    multiTargetDps = (multiTargetDps ?? totalDps) + (requestedTargets - 1) * simulation.spreadDamage / simulation.timeToKill;
-    multiTargetFactor = multiTargetDps / totalDps;
-    warnings.push(`Spread: Electricity/Gas/Blast take ${(carried * 100).toFixed(0)}% of each neighbour's health per kill; ${requestedTargets} enemies cleared in ${groupTimeToKill.toFixed(1)} s`);
+    if (spread > 0) {
+      multiTargetDps = (multiTargetDps ?? totalDps) + (requestedTargets - 1) * spread / spreadSeconds;
+      multiTargetFactor = multiTargetDps / totalDps;
+      warnings.push(`Spread: Electricity/Gas/Blast take ${(carried * 100).toFixed(0)}% of each neighbour's health per kill; ${requestedTargets} enemies cleared in ${groupTimeToKill.toFixed(1)} s`);
+    }
   }
   const num = (value: number): string => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
   if (scaled.overguard > 0) {

@@ -421,8 +421,11 @@ Electricity tick (3 m) and Gas tick (3-6 m) also hits each neighbour, and Blast 
 at the kill detonate at 300% instead of 30% (5 m). `SimulationResult.spreadDamage` is that health
 damage per neighbour. Each kill leaves the others with a share c = spread / health gone, so enemy j
 needs 1 - j c of a kill and `groupTimeToKill` = time to kill x sum of those. Neighbours are taken
-as identical and in range; the Blast burst at 10 stacks and ranking by group time are not modelled
-(search and the GPU proxy still rank single-target time to kill).
+as identical and in range; the Blast burst at 10 stacks is not modelled. Without the simulation
+the steady estimate uses the Electricity and Gas dps over the kill plus 1.5 s of pending Blast.
+Objective `group` (search, brute force, Find tab, CLI/API `--objective group`) ranks by
+`groupTimeToKill` for 5 enemies (`GROUP_SIZE`); the GPU pre-filter still ranks by single-target
+time to kill, and the exact pass on its shortlist re-ranks by group time.
 
 A tick is seeded when it procs (crit, location, faction, status damage of that hit) and lands
 through the target's state at that moment. Heat on expected values: a chain is alive with
