@@ -161,7 +161,7 @@ export interface SimulationResult {
   /**
    * Health damage each other enemy in range took meanwhile: every Electricity and Gas tick (wiki:
    * all enemies in the radius) plus, on death, the pending Blast stacks at 300% instead of 30%.
-   * shortcut: same-profile neighbours, none beyond 3 m; the Blast burst at 10 stacks is not counted.
+   * shortcut: same-profile neighbours, none beyond 3 m; the 10-stack Blast burst empties the stacks but the holder still takes their 30%.
    */
   spreadDamage: number;
 }
@@ -282,6 +282,11 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   let blastSeed = 0;
   const blastMod = modOf('blast');
   const blastLine = new Window(Math.round(BLAST_DELAY / dt));
+  // Blast stacks on the target and their damage at 30%, emptied by a 10-stack burst; `blastBurst`
+  // is what those bursts (300% per stack) dealt to the neighbours.
+  const blastStacks = new Window(Math.round(BLAST_DELAY / dt));
+  const blastFresh = new Window(Math.round(BLAST_DELAY / dt));
+  let blastBurst = 0;
   const heatWindow = new Window(slots(HEAT_DURATION));
   // Primary Debilitate: procs of each combined status still on the target, as a stack count.
   const debilitate = Math.min(1, build.debilitateChance ?? 0);
@@ -516,6 +521,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
     let heatWeight = 0;
     let toxinProcs = 0;
     let blastWeight = 0;
+    let blastProcs = 0;
     // Cascadia Empowered: flat damage of the proc's type, no crit, through resistances and armour.
     let procHealth = 0;
     let procShield = 0;
@@ -537,7 +543,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
         if (target.tick === gasTick) gasProcs += procs;
         if (target.heat) { heatProcs += procs; heatWeight += procs * crit; }
         if (target.type === 'toxin') toxinProcs += procs;
-        if (target.blast) blastWeight += procs * crit;
+        if (target.blast) { blastWeight += procs * crit; blastProcs += procs; }
       };
       // A proc's ticks scale with its hit's damage, so a ramping beam's early procs are weaker.
       for (let i = 0; i < types.length; i++) {
@@ -674,6 +680,13 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
     for (let i = 0; i < tickLines.length; i++) tickLines[i].put(next, tickWeight[i] * tickSeeds[i] + (i === iElectricity ? breakRate : 0));
     gasWindow.put(next, gasProcs);
     blastLine.put(step, blastWeight * blastSeed);
+    blastStacks.put(step, blastProcs);
+    blastFresh.put(step, blastWeight * blastSeed);
+    if (blastStacks.total >= 10 - 1e-9) {
+      blastBurst += blastFresh.total * blastMod * 10;
+      blastStacks.clear();
+      blastFresh.clear();
+    }
     heatWindow.put(next, heatProcs);
     combinedWindows.forEach((window, c) => window.put(next, combinedProcs[c]));
     heatSeedWindow.put(next, heatWeight * heatSeed);
@@ -726,6 +739,6 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
   if (bySource[TICKING.length + 1] > 0) damageBySource.blast = bySource[TICKING.length + 1];
   const arcaneStacks = buildUp.length ? Object.fromEntries(buildUp.map((source, i) => [source.name, Math.round(upStacks[i] * 100) / 100])) : undefined;
   const spreadDamage = (damageBySource.electricity ?? 0) + (damageBySource.gas ?? 0)
-    + (killedAt === null ? 0 : blastLine.total * blastMod * 10);
+    + (killedAt === null ? 0 : blastBurst + blastFresh.total * blastMod * 10);
   return { timeToKill: killedAt, shots, damageBySource, atEnd: end, timeline, step: dt, arcaneStacks, trigger: { ammoLeft, waitLeft }, spreadDamage };
 }
