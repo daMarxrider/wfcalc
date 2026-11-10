@@ -1800,3 +1800,13 @@ test('the steady estimate spreads Electricity too, and the group objective ranks
   close(flat.groupTimeToKill!, 3 * flat.timeToKill!, 1e-9);
   assert.equal(objectiveScore({ ...group, killsPerMinute: 0 }, 'group'), -group.groupTimeToKill!);
 });
+
+test('10 Blast stacks burst at 300% on the neighbours, in the simulation and the steady estimate (#84)', () => {
+  const snap = snapshot([weapon({ blast: 100, statusChance: 1, fireRate: 20 })], [], [dummy]);
+  const scaled = scaleEnemy(snap, dummy, 1);
+  const sim = hitEnemy(snap, build(snap, []), scaled, { simulate: true, targets: 3 });
+  // Almost every stack leaves in a burst: about ten times what the holder takes from them.
+  assert.ok(sim.simulation!.spreadDamage > 5 * sim.simulation!.damageBySource.blast);
+  const steady = hitEnemy(snap, build(snap, []), scaled, { targets: 3 });
+  assert.ok(steady.groupTimeToKill! < 3 * steady.timeToKill!);
+});
