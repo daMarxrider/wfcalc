@@ -31,6 +31,7 @@ export type BuffKind =
   | 'speed' // attack / fire rate
   | 'weakPoint' // multiplies weak-point damage
   | 'flatCrit' // flat critical chance added after mods
+  | 'ammoEfficiencyAdd' // adds to the ammo efficiency sources, capped with them (Void Fuel)
   | 'ammoEfficiency' // multiplies the ammo per shot (Energized Munitions)
   | 'maduraiPhysical'; // Phoenix Talons: physical damage worth N% of the whole base damage
 
@@ -102,6 +103,9 @@ const byIndex =
  * | Resupply | +25% weapon damage | Cyte-09/Resupply |
  * | Energized Munitions | 75% Ammo Efficiency, multiplicative with other sources | Helminth/Energized_Munitions |
  * | Phoenix Talons | physical damage worth 30% of the whole base, after physical mods | Focus/Madurai |
+ * | Void Strike | +1000% weapon damage at full energy, additive with the base damage bonuses | Focus/Madurai |
+ * | Void Fuel | +40% Ammo Efficiency while Void Strike is active, adds to the other sources | Focus/Madurai |
+ * | Lethal Levitation | +50% weapon damage per Lifted enemy, 4 stacks (+200%) | Focus/Naramon |
  */
 export const BUFFS: BuffDefinition[] = [
   { id: 'roar', ability: 'Roar', kind: 'faction' },
@@ -124,6 +128,9 @@ export const BUFFS: BuffDefinition[] = [
   { id: 'covenant', ability: 'Covenant', kind: 'flatCrit', pick: byLabel('base', 'critical'), note: 'Retaliation: needs the damage prevented' },
   { id: 'phoenix-talons', ability: 'Phoenix Talons', kind: 'maduraiPhysical', fixed: { value: 0.3, frame: 'Madurai Focus' }, note: 'passive, max rank' },
   { id: 'energized-munitions', ability: 'Energized Munitions', kind: 'ammoEfficiency', fixed: { value: 0.75, frame: 'Helminth' }, note: 'recast every 3-5 s' },
+  { id: 'void-strike', ability: 'Void Strike', kind: 'damage', fixed: { value: 10, frame: 'Madurai Focus' }, note: 'max rank, full energy, 8 s every 40 s' },
+  { id: 'void-fuel', ability: 'Void Fuel', kind: 'ammoEfficiencyAdd', fixed: { value: 0.4, frame: 'Madurai Focus' }, note: 'max rank, only while Void Strike is active' },
+  { id: 'lethal-levitation', ability: 'Lethal Levitation', kind: 'damage', fixed: { value: 2, frame: 'Naramon Focus' }, note: 'max rank, 4 stacks of 50%, 60 s' },
 ];
 
 export const buffById = (id: string): BuffDefinition | undefined =>
@@ -141,6 +148,12 @@ export function buffEffects(
 ): Effect[] {
   if (definition.fixed && definition.kind === 'ammoEfficiency') {
     return [{ target: 'ammoEfficiencyMult', op: 'add', value: definition.fixed.value, raw: `${definition.ability}: ${definition.fixed.value * 100}% Ammo Efficiency, multiplicative` }];
+  }
+  if (definition.fixed && definition.kind === 'ammoEfficiencyAdd') {
+    return [{ target: 'ammoEfficiency', op: 'add', value: definition.fixed.value, raw: `${definition.ability}: +${definition.fixed.value * 100}% Ammo Efficiency` }];
+  }
+  if (definition.fixed && definition.kind === 'damage') {
+    return [{ target: 'baseDamage', op: 'add', value: definition.fixed.value, raw: `${definition.ability}: +${definition.fixed.value * 100}% weapon damage` }];
   }
   if (definition.fixed && definition.kind === 'maduraiPhysical') {
     return [{ target: 'maduraiPhysical', op: 'add', value: definition.fixed.value, raw: `${definition.ability}: +${definition.fixed.value * 100}% of base damage as physical` }];
