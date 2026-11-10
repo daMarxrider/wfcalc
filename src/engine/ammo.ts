@@ -14,7 +14,7 @@
  *
  * The card texts give none of it in a form the parser reads (several are outdated), so the
  * sources are written out here: mods, Incarnon evolutions and weapon traits. Arcanes are in
- * arcanes.ts, Energized Munitions in buffs.ts, rivens in riven.ts.
+ * arcanes.ts, Energized Munitions and Void Fuel (Focus) in buffs.ts, rivens in riven.ts.
  */
 import type { AmmoBuffSpec, Effect, WeaponData } from '../types.ts';
 
