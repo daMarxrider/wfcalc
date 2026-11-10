@@ -119,7 +119,7 @@ Finds the best eight-slot build for a target. Same options as the CLI's `wfcalc 
 }
 ```
 
-- `objective`: `ttk` (default) minimises time to kill; `dps` maximises damage on the target; `kpm` maximises kills per minute against a stream of these targets, the next one shot as soon as the last dies (reloads between kills count).
+- `objective`: `ttk` (default) minimises time to kill; `dps` maximises damage on the target; `kpm` maximises kills per minute against a stream of these targets, the next one shot as soon as the last dies (reloads between kills count). `group` minimises the time to clear 5 enemies in range of each other, with Electricity, Gas and Blast spreading to the others.
 - `kills` (default 10, at most 100): the time to kill is the mean over a run of this many identical targets shot one after the other. The magazine and the reload carry over from one kill to the next, statuses start fresh on each. One kill alone jumps by a whole reload whenever it lands at a magazine's end (the reload cliff); over a run that is a tenth of it. `1` gives the single kill. Applies to `/api/calc`, `/api/search`, `/api/bruteforce`, `/api/part-search` and `/api/riven-picker`; `timeToKill`, `shotsToKill` and `killsPerMinute` are then per kill over the run.
 - `mustInclude` / `exclude` are mod names; a comma-separated string is also accepted.
 - `maxForma: null` means "as many as needed" (that is the default when omitted).
