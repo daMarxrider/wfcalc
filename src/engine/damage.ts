@@ -754,9 +754,11 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
     const blastPending = !blastEntry ? 0
       : blastStacks < 10 ? 10 * blastEntry.damagePerProc * blastStacks
       : 10 * blastEntry.damagePerProc * blastEntry.procsPerSecond * timeToKill;
-    const steadySpread = beam * dot.filter((entry) => entry.type === 'electricity' || entry.type === 'gas').reduce((sum, entry) => sum + entry.dps, 0) * timeToKill + blastPending;
-    const spread = simulation?.timeToKill ? simulation.spreadDamage : steadySpread;
+    // Exodia Force (zaw arcane): half of the status events hit every enemy within 6m for its share of the weapon's damage.
+    const exodiaDps = 0.5 * build.exodiaForceShare * Math.min(1, build.statusChance) * directHealthDps;
+    const steadySpread = exodiaDps * timeToKill + beam * dot.filter((entry) => entry.type === 'electricity' || entry.type === 'gas').reduce((sum, entry) => sum + entry.dps, 0) * timeToKill + blastPending;
     const spreadSeconds = simulation?.timeToKill ?? timeToKill;
+    const spread = simulation?.timeToKill ? simulation.spreadDamage + exodiaDps * spreadSeconds : steadySpread;
     const carried = Math.min(1, spread / scaled.health);
     let work = 0;
     for (let enemy = 0; enemy < requestedTargets; enemy++) work += Math.max(0, 1 - enemy * carried);

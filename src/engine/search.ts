@@ -12,7 +12,7 @@
  */
 import type { Build, BuildMod } from './build.ts';
 import { arcaneGroupOf, arcaneSlotsOf, COMPRESSION_NOT_AIMING, needsAiming, resolveBuild } from './build.ts';
-import { arcaneEffectsAt } from './arcanes.ts';
+import { arcaneEffectsAt, RESIDUAL_ARCANE_ELEMENT } from './arcanes.ts';
 import { DEFAULT_KILLS, GROUP_SIZE, hitEnemy } from './damage.ts';
 import { scaleEnemy } from './enemy.ts';
 import { automaticAttenuation, resolveAttenuation, type AttenuationProfile, type ResolvedAttenuation } from './attenuation.ts';
@@ -754,13 +754,17 @@ export function rankArcaneSets(snapshot: Snapshot, request: SearchRequest, short
     'baseDamage', 'multishot', 'critChance', 'critDamage', 'statusChance', 'fireRate',
     'element', 'directDamage', 'factionDamage', 'headshotMultiplier', 'reloadSpeed',
     'statusDamage', 'weakPointOverride', 'weakPointCritChance', 'damageMultiplier', 'doughty', 'duplicateChance',
-    'elementMultiplier', 'platedRound', 'enervateResets', 'overguardDamage', 'procDamage', 'debilitate', 'encumber', 'cryogenic',
+    'elementMultiplier', 'platedRound', 'enervateResets', 'overguardDamage', 'procDamage', 'debilitate', 'encumber', 'cryogenic', 'exodiaForce',
   ]);
+  // A Residual arcane only matters through the Theorem Demulcent it feeds; its zone sets the element.
+  const theorem = (request.base?.warframeArcanes ?? []).some((entry) => (typeof entry === 'string' ? entry : entry.name) === 'Theorem Demulcent')
+    && request.base?.residualElement === undefined;
   const givenNames = new Set(given.map((entry) => entry.name));
   const candidates = Object.values(snapshot.arcanes).filter(
     (arcane) => arcane.slot && allowed.includes(arcane.slot) && !givenNames.has(arcane.name)
       && (free.get(arcaneGroupOf(weapon, arcane.slot).group) ?? 0) > 0
-      && arcaneEffectsAt(arcane, arcane.maxRank, { heavyAttack: Boolean(request.base?.heavyAttack) }).some((effect) => relevant.has(String(effect.target))),
+      && (arcane.name in RESIDUAL_ARCANE_ELEMENT ? theorem
+        : arcaneEffectsAt(arcane, arcane.maxRank, { heavyAttack: Boolean(request.base?.heavyAttack) }).some((effect) => relevant.has(String(effect.target)))),
   );
   const tried: Array<{ arcanes: Array<{ name: string; rank?: number }>; score: number; result: SearchResult }> = [];
   const run = (picked: Array<(typeof candidates)[number]>): number => {
