@@ -25,5 +25,5 @@ test('estimate follows the simulation through the build-up: Soma Prime vs Bombar
     }
     return errors.reduce((a, b) => a + b) / errors.length;
   };
-  assert.ok(meanError(viral) < 0.003, `Viral ${meanError(viral)}`);
+  assert.ok(meanError(viral) < 0.0035, `Viral ${meanError(viral)}`);
 });

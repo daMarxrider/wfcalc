@@ -516,7 +516,7 @@ function scoreState(params, A, B, order, plain, killSpacing) {
   // No step past a fifth of a magazine cycle: a midpoint samples one phase of it (damage.ts).
   const longest = Math.max(cycle / 5, killTime / 32);
   // Until settled the stacks climb to their caps: a shorter step (damage.ts, #73).
-  const buildUp = settled / 12;
+  const buildUp = settled / 16;
   let step = first;
   let skipped = false;
   for (let i = 0; i < 48; i++) {
@@ -874,7 +874,7 @@ fn scoreState(order: array<u32, 4>, len: u32, plain: bool, killSpacing: f32) -> 
   var step = first;
   // No step past a fifth of a magazine cycle (JS longest).
   let longest = max(kCycle / 5.0, killTime / 32.0);
-  let buildUp = min(longest, settled / 12.0);
+  let buildUp = min(longest, settled / 16.0);
   // The JS loop with its inner shrink loop, flattened: progress has one call site, since the
   // compiler copies it (and layerDps inside) per call site. Each turn spends the step on a copy.
   var next = min(min(settled, t + min(min(step, max(first, t)), buildUp)), nextBreak(t));

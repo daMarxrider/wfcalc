@@ -312,7 +312,7 @@ function singleFight(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEne
     return coldBonus === null ? full.layerDps : hitOnce(snapshot, build, scaled, { ...options, at: Infinity, coldBonus }).layerDps;
   };
   // While the statuses still build up, stacks rise to their caps within a few seconds: a longer step prices that kink at its midpoint (Viral, #73).
-  const buildUp = settled / 12;
+  const buildUp = settled / 16;
   let settledRates: LayerDps | null = null;
   let step = first;
   let skipped = false;
