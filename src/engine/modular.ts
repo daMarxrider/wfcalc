@@ -14,8 +14,13 @@
  *           attack is a second fire mode. Energy works as a magazine: pool / energy per shot
  *           shots, refilled after the recharge delay at the recharge rate.
  *
- * Not modelled: kitgun explosions and tendrils (the wiki has no numbers for them), zaw slide and
- * slam attacks, amp energy regeneration while firing.
+ *           The Slide Attack mode is the total damage x the strike's Slide multiplier for the grip's
+ *           hand type (the wiki's SlideDamage), with the same crit, status and speed.
+ *
+ * Not modelled: kitgun explosions and tendrils (the wiki has no numbers for them), zaw slam, heavy
+ * slam and heavy attacks and their wind-up (the wiki lists none for zaws, and no melee weapon
+ * has a heavy wind-up in the data), the Leap and Wall multipliers in Module:Modular/data (the
+ * wiki never uses them), amp energy regeneration while firing.
  */
 import type { DamageType, ModularKind, ModularSource, Snapshot, WeaponData, WeaponMode, WeaponStats, WikiTable } from '../types.ts';
 
@@ -71,11 +76,11 @@ export function assembleZaw(source: ModularSource, strikeName: string, gripName:
   const base = sum(strike.Damage);
   const total = (base + grip.Damage + link.Damage) * strike.Multi[grip.Type].Base;
   const plague = /^Plague /.test(strikeName);
-  const damage = Object.fromEntries(Object.entries<number>(strike.Damage).map(([type, value]) => [
+  const split = (amount: number): Record<string, number> => Object.fromEntries(Object.entries<number>(strike.Damage).map(([type, value]) => [
     type,
-    plague ? value + (total - base) / 4 : (value * total) / base,
+    plague ? value + (amount - base) / 4 : (value * amount) / base,
   ]));
-  const own = stats(damage, {
+  const rest = {
     critChance: strike.CritChance + (link.CritChance ?? 0),
     critMultiplier: strike.CritMultiplier + (link.CritMultiplier ?? 0),
     statusChance: strike.StatusChance + (link.StatusChance ?? 0),
@@ -83,7 +88,9 @@ export function assembleZaw(source: ModularSource, strikeName: string, gripName:
     multishot: 1,
     magazineSize: 0,
     reloadTime: 0,
-  });
+  };
+  const own = stats(split(total), rest);
+  const slide = stats(split(total * strike.Multi[grip.Type].Slide), rest);
   const name = `${strikeName} / ${gripName} / ${linkName}`;
   return weapon(name, 'zaw', [strikeName, gripName, linkName], {
     category: 'melee',
@@ -92,7 +99,10 @@ export function assembleZaw(source: ModularSource, strikeName: string, gripName:
     trigger: '',
     description: `Zaw: ${strike.Type[grip.Type]} (${grip.Type === 'TwoHanded' ? 'two' : 'one'}-handed).`,
     stats: own,
-    modes: [{ name: 'Normal Attack', stats: own, trigger: null }],
+    modes: [
+      { name: 'Normal Attack', stats: own, trigger: null },
+      { name: 'Slide Attack', stats: slide, trigger: null },
+    ],
   });
 }
 
