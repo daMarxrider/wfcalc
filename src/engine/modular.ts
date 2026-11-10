@@ -137,6 +137,7 @@ function ampMode(name: string, entry: WikiTable, brace: typeof AMP_BRACES[string
   const pool = (entry.Magazine ?? 100) + (brace.pool ?? 0);
   const rate = (entry.ReloadRate ?? 0) + (brace.rate ?? 0);
   const cost = first.AmmoCost ?? radial[0]?.AmmoCost ?? 1;
+  const delay = Math.max(0, (entry.ReloadDelay ?? 0) + (brace.delay ?? 0));
   const own = stats(damage, {
     critChance: first.CritChance + (brace.crit ?? 0),
     critMultiplier: first.CritMultiplier,
@@ -144,7 +145,8 @@ function ampMode(name: string, entry: WikiTable, brace: typeof AMP_BRACES[string
     fireRate: first.FireRate,
     multishot: first.Multishot ?? 1,
     magazineSize: pool / cost,
-    reloadTime: rate > 0 ? Math.max(0, (entry.ReloadDelay ?? 0) + (brace.delay ?? 0)) + pool / rate : entry.Reload ?? 0,
+    reloadTime: rate > 0 ? delay + pool / rate : entry.Reload ?? 0,
+    ...(rate > 0 ? { reloadDelay: delay, energyPool: pool } : {}),
   });
   const aoe = radial.reduce((total, attack) => total + sum(attack.Damage), 0);
   return { name, stats: own, trigger: first.ShotType ?? null, ...(aoe > 0 ? { aoeDamage: aoe } : {}) };

@@ -88,3 +88,26 @@ test('GET /api/modular and POST /api/part-search', async () => {
   const bad = (await handleApi('POST', new URL('http://x/api/part-search'), { kind: 'sword' }))!;
   assert.equal(bad.status, 400);
 });
+
+test('Virtuos Null raises the amp\'s energy regeneration only: the recharge delay stays (#23)', () => {
+  const name = 'Raplak Prism / Propa Scaffold / Certus Brace';
+  const arcane = resolve(name, { arcanes: ['Virtuos Null'], conditions: { onKill: 1 } } as Partial<Build>);
+  const refill = arcane.reloadTime - 2;
+  // The 2 s delay is untouched; only the 100 / 30 s refill shrinks (it used to shrink with the delay: reload / (1 + bonus)).
+  assert.ok(refill < 100 / 30 - 0.1 && refill > 0, `refill ${refill}`);
+  assert.ok(arcane.reloadTime > 2 + (100 / 30) / 1.5);
+});
+
+test('Eternal Onslaught is up for the share of the amp\'s energy cycle spent depleted (#23)', () => {
+  const name = 'Raplak Prism / Propa Scaffold / Certus Brace';
+  const stats = snapshot.weapons[name].stats;
+  const plain = resolve(name);
+  const on = resolve(name, { arcanes: ['Eternal Onslaught'], conditions: { on_energy_depleted: true } } as Partial<Build>);
+  // 100 energy, 10 per shot: shots 8-10 start at or below 25; the buff then runs through the 2 s delay and the refill to 25, plus 8 s.
+  const fire = stats.magazineSize! / stats.fireRate!;
+  const below = fire * 0.25 + 2 + (100 / 30) * 0.25;
+  const uptime = Math.min(1, (below + 8) / (fire + 2 + 100 / 30));
+  assert.ok(uptime > 0.5 && uptime <= 1, `uptime ${uptime}`);
+  // +180% crit chance at max rank, multiplicative on the base (wiki: 36% base reaches 100%).
+  close(on.critChance / plain.critChance, 1 + 1.8 * uptime, 1e-6);
+});
