@@ -748,7 +748,12 @@ function hitOnce(snapshot: Snapshot, build: ResolvedBuild, scaled: ScaledEnemy, 
   let groupTimeToKill: number | null = null;
   if (requestedTargets > 1 && timeToKill !== null && scaled.health > 0) {
     const blastEntry = dot.find((entry) => entry.type === 'blast');
-    const blastPending = blastEntry ? 10 * blastEntry.damagePerProc * blastEntry.procsPerSecond * 1.5 * (1 + Math.max(-0.9, build.statusDurationBonus ?? 0)) : 0;
+    // Fewer than 10 stacks in the delay: those pending at death (300% each). Otherwise every
+    // 10 procs burst at 300% each.
+    const blastStacks = blastEntry ? blastEntry.procsPerSecond * 1.5 * (1 + Math.max(-0.9, build.statusDurationBonus ?? 0)) : 0;
+    const blastPending = !blastEntry ? 0
+      : blastStacks < 10 ? 10 * blastEntry.damagePerProc * blastStacks
+      : 10 * blastEntry.damagePerProc * blastEntry.procsPerSecond * timeToKill;
     const steadySpread = beam * dot.filter((entry) => entry.type === 'electricity' || entry.type === 'gas').reduce((sum, entry) => sum + entry.dps, 0) * timeToKill + blastPending;
     const spread = simulation?.timeToKill ? simulation.spreadDamage : steadySpread;
     const spreadSeconds = simulation?.timeToKill ?? timeToKill;
