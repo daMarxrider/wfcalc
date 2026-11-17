@@ -219,9 +219,10 @@
     </aside>
   </div>
 
-  <section class="panel stack-panel">
-    <details id="exalted-box" open hidden>
-      <summary>Exalted weapon &amp; augments</summary>
+  <section class="card stages stack-panel">
+    <details class="stage" id="exalted-box" open hidden>
+      <summary><span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span><span class="txt"><span class="tt">Exalted weapon &amp; augments</span><span class="vv" data-sum="exalted-strength:Strength "></span></span></summary>
+      <div class="fields col">
       <p id="exalted-info" class="hint"></p>
       <div class="row">
         <label class="field"><span>Ability strength <b id="exalted-strength-value">100%</b></span>
@@ -235,9 +236,11 @@
           </select></label>
       </div>
       <div id="exalted-augments" class="toggles"></div>
+    </div>
     </details>
-    <details>
-      <summary>Conditions &amp; stacks</summary>
+    <details class="stage">
+      <summary><span class="ic"><svg class="i"><use href="#i-flask"/></svg></span><span class="txt"><span class="tt">Conditions &amp; stacks</span><span class="vv" data-sum="aiming:Aiming,sliding:Sliding,airborne:Airborne,sprinting:Sprint reload,onkill:On-kill ,status-types:Status types ,viral:Viral ,corrosive:Corrosive ,cp-input:Projections ,strip-input:Strip ,shattering-input:Shattering "></span></span></summary>
+      <div class="fields col">
       <div class="toggles">
         <label><input type="checkbox" id="aiming" /> aiming</label>
         <label><input type="checkbox" id="sliding" /> sliding / aim gliding</label>
@@ -266,10 +269,12 @@
       </div>
       <p class="hint">Percentage strips add up (Terrify 60% + one Corrosive Projection leaves 22%).
         “strip from ability” uses the Ability Strength above.</p>
+    </div>
     </details>
 
-    <details>
-      <summary>Frame &amp; buffs <span id="buff-count" class="badge"></span></summary>
+    <details class="stage">
+      <summary><span class="ic"><svg class="i"><use href="#i-sliders"/></svg></span><span class="txt"><span class="tt">Frame &amp; buffs <span id="buff-count" class="badge"></span></span><span class="vv" data-sum="frame-input,strength-input:Strength "></span></span></summary>
+      <div class="fields col">
       <div class="row">
         <label class="field"><span>Warframe</span>
           <input id="frame-input" list="frame-list" placeholder="Rhino" autocomplete="off" /></label>
@@ -295,10 +300,12 @@
       <div id="buff-list" class="buffs"></div>
       <span class="field-label">Archon Shards <span id="shard-count" class="badge"></span></span>
       <div id="shard-slots" class="shard-slots"></div>
+    </div>
     </details>
 
-    <details>
-      <summary>Riven, Incarnon &amp; combo</summary>
+    <details class="stage">
+      <summary><span class="ic"><svg class="i"><use href="#i-gem"/></svg></span><span class="txt"><span class="tt">Riven, Incarnon &amp; combo</span><span class="vv" data-sum="riven-input,combo-input:Combo ,heavy:Heavy attack"></span></span></summary>
+      <div class="fields col">
       <label class="field"><span>Riven stats: card values, − marks the malus</span>
         <input id="riven-input" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
       <p class="hint">Faction stats as the multiplier (faction-grineer=1.24); ids: wfcalc rivens. A stat without “=value” is estimated from
@@ -324,6 +331,7 @@
         <label class="field"><span>AoE distance <b id="aoe-value">centre</b></span>
           <input id="aoe-input" type="range" min="0" max="12" step="0.5" value="0" /></label>
       </div>
+    </div>
     </details>
 
     <div class="actions">
@@ -527,44 +535,68 @@
 
 <!-- ─────────────────────────── ABILITIES ─────────────────────────── -->
 <main id="tab-abilities" class="tab-panel">
-  <section class="panel wide">
-    <div class="panel-head">
-      <h2>Ability damage</h2>
-      <button id="ability-run" class="primary">cast</button>
-    </div>
+  <section class="panel wide find-panel">
+    <div class="panel-head"><h2>Ability damage</h2></div>
     <p class="hint">Flat damage: no crit, no multishot, no status. It shares the weapon's target maths.</p>
-    <div class="compare-grid">
-      <label class="field"><span>Ability</span>
-        <select id="ability-select"></select></label>
-      <label class="field"><span>Ability strength <b id="ability-strength-value">100%</b></span>
-        <input id="ability-strength" type="range" min="40" max="500" step="5" value="100" /></label>
-      <label class="field"><span>Enemy</span>
-        <input id="ability-enemy" list="enemy-list" placeholder="Bombard" autocomplete="off" /></label>
-      <label class="field"><span>Level (actual enemy level)</span>
-        <input id="ability-level" type="number" min="1" max="9999" value="150" /></label>
+    <div class="card stages">
+      <details class="stage " open>
+        <summary><span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span><span class="txt"><span class="tt">Ability</span><span class="vv" data-sum="ability-select,ability-strength:Strength "></span></span></summary>
+        <div class="fields">
+          <label class="field"><span>Ability</span>
+            <select id="ability-select"></select></label>
+          <label class="field"><span>Ability strength <b id="ability-strength-value">100%</b></span>
+            <input id="ability-strength" type="range" min="40" max="500" step="5" value="100" /></label>
+        </div>
+      </details>
+      <details class="stage " open>
+        <summary><span class="ic"><svg class="i"><use href="#i-target"/></svg></span><span class="txt"><span class="tt">Target</span><span class="vv" data-sum="ability-enemy,ability-level:L,ability-sp:Steel Path"></span></span></summary>
+        <div class="fields">
+          <label class="field"><span>Enemy</span>
+            <input id="ability-enemy" list="enemy-list" placeholder="Bombard" autocomplete="off" /></label>
+          <label class="field"><span>Level (actual enemy level)</span>
+            <input id="ability-level" type="number" min="1" max="9999" value="150" /></label>
+          <label class="switch full"><input type="checkbox" id="ability-sp" /> Steel Path <small>health &amp; shields ×2.5</small></label>
+        </div>
+      </details>
     </div>
-    <label class="switch"><input type="checkbox" id="ability-sp" /> Steel Path <small>health &amp; shields ×2.5</small></label>
+    <div class="dock">
+      <div class="sum" id="ability-sum"></div>
+      <button id="ability-run" class="primary go">cast</button>
+    </div>
     <div id="ability-out" class="ability-out"></div>
   </section>
 </main>
 
 <!-- ──────────────────────────── COMPARE ──────────────────────────── -->
 <main id="tab-compare" class="tab-panel">
-  <section class="panel wide">
-    <div class="panel-head">
-      <h2>Compare</h2>
-      <button id="compare-run" class="primary">compare</button>
-    </div>
+  <section class="panel wide find-panel">
+    <div class="panel-head"><h2>Compare</h2></div>
     <p class="hint">A is the current build. Leave a field empty in B to reuse A's value.</p>
-    <div class="compare-grid">
-      <label class="field"><span>B: weapon</span>
-        <input id="b-weapon" placeholder="same as A" autocomplete="off" list="weapon-list" /></label>
-      <label class="field"><span>B: mods (slot order)</span>
-        <input id="b-mods" placeholder="Serration, Split Chamber, Vital Sense" autocomplete="off" /></label>
-      <label class="field"><span>B: element bonus</span>
-        <input id="b-element" placeholder="heat:60" autocomplete="off" /></label>
-      <label class="field"><span>B: arcane</span>
-        <input id="b-arcane" placeholder="same as A" autocomplete="off" list="arcane-list" /></label>
+    <div class="card stages">
+      <details class="stage ">
+        <summary><span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span class="txt"><span class="tt">A · Current build</span><span class="vv" id="cmp-a-sum"></span></span></summary>
+        <div class="fields">
+          <p class="hint full">Taken from the Build tab. Change it there.</p>
+          <div class="full"><button type="button" class="ghost" data-go="build">Edit in Build</button></div>
+        </div>
+      </details>
+      <details class="stage " open>
+        <summary><span class="ic"><svg class="i"><use href="#i-swap"/></svg></span><span class="txt"><span class="tt">B · Alternative</span><span class="vv" data-sum="b-weapon,b-mods,b-element,b-arcane"></span></span></summary>
+        <div class="fields">
+          <label class="field"><span>Weapon</span>
+            <input id="b-weapon" placeholder="same as A" autocomplete="off" list="weapon-list" /></label>
+          <label class="field"><span>Arcane</span>
+            <input id="b-arcane" placeholder="same as A" autocomplete="off" list="arcane-list" /></label>
+          <label class="field full"><span>Mods (slot order)</span>
+            <input id="b-mods" placeholder="Serration, Split Chamber, Vital Sense" autocomplete="off" /></label>
+          <label class="field"><span>Element bonus</span>
+            <input id="b-element" placeholder="heat:60" autocomplete="off" /></label>
+        </div>
+      </details>
+    </div>
+    <div class="dock">
+      <div class="sum" id="compare-sum"></div>
+      <button id="compare-run" class="primary go">compare</button>
     </div>
     <div id="compare-out" class="compare-out"></div>
   </section>
@@ -579,37 +611,55 @@
 </main>
 
 <main id="tab-riven" class="tab-panel">
-  <section class="panel wide">
+  <section class="panel wide find-panel">
     <div class="panel-head"><h2>Riven picker</h2></div>
     <p class="hint">Every riven your weapon can roll (three positive stats, one negative, every stat at its best value;
       the negative at its worst) against the build on the Build tab: which mod it should replace, and for a combined
       element (Viral…) which of its element mods could go too. Everything else comes from the Build tab: target, loadout,
       arcanes, Incarnon perks, headshots and the Conditions &amp; stacks panel (tick “aiming” for Primary Compression).
       The riven never takes the Exilus or stance slot.</p>
-    <div id="riven-build" class="build-mods"></div>
-    <div id="riven-form-box" class="stack-row" hidden>
-      <span class="field-label">Weapon form <span class="hint">· choose before searching</span></span>
-      <div class="segmented small" role="radiogroup" aria-label="Weapon form for the riven picker">
-        <label><input type="radio" name="riven-form" value="normal" /><span>normal</span></label>
-        <label><input type="radio" name="riven-form" value="incarnon" /><span>Incarnon form</span></label>
-      </div>
+    <div class="card stages">
+      <details class="stage " open>
+        <summary><span class="ic"><svg class="i"><use href="#i-target"/></svg></span><span class="txt"><span class="tt">Your build</span><span class="vv" id="riven-build-sum"></span></span></summary>
+        <div class="fields">
+          <div id="riven-build" class="build-mods full"></div>
+          <div id="riven-form-box" class="stack-row full" hidden>
+            <span class="field-label">Weapon form <span class="hint">· choose before searching</span></span>
+            <div class="segmented small" role="radiogroup" aria-label="Weapon form for the riven picker">
+              <label><input type="radio" name="riven-form" value="normal" /><span>normal</span></label>
+              <label><input type="radio" name="riven-form" value="incarnon" /><span>Incarnon form</span></label>
+            </div>
+          </div>
+        </div>
+      </details>
+      <details class="stage " open>
+        <summary><span class="ic"><svg class="i"><use href="#i-flame"/></svg></span><span class="txt"><span class="tt">Goal</span><span class="vv" data-sum="riven-objective"></span></span></summary>
+        <div class="fields">
+          <label class="field"><span>Goal</span>
+            <select id="riven-objective"><option value="ttk">fastest kill</option><option value="dps">most damage per second</option><option value="kpm">most kills per minute</option></select></label>
+        </div>
+      </details>
+      <details class="stage opt">
+        <summary><span class="ic"><svg class="i"><use href="#i-gem"/></svg></span><span class="txt"><span class="tt">My riven</span><span class="vv" data-sum="riven-stat-1,riven-stat-2,riven-stat-3"></span></span></summary>
+        <div class="fields">
+          <label class="field full"><span>My riven has (optional)</span>
+            <span class="riven-filter"><select id="riven-stat-1"></select><select id="riven-stat-2"></select><select id="riven-stat-3"></select></span></label>
+          <label class="field"><span>Negative stat (optional)</span><select id="riven-malus"></select></label>
+        </div>
+      </details>
     </div>
-    <div class="compare-grid">
-      <label class="field"><span>Goal</span>
-        <select id="riven-objective"><option value="ttk">fastest kill</option><option value="dps">most damage per second</option><option value="kpm">most kills per minute</option></select></label>
-      <label class="field"><span>My riven has (optional)</span>
-        <span class="riven-filter"><select id="riven-stat-1"></select><select id="riven-stat-2"></select><select id="riven-stat-3"></select></span></label>
-      <label class="field"><span>Negative stat (optional)</span><select id="riven-malus"></select></label>
+    <div class="dock">
+      <div class="sum" id="riven-sum"></div>
+      <button id="riven-run" class="primary go" type="button">find the riven slot</button>
     </div>
-    <button id="riven-run" class="primary" type="button">find the riven slot</button>
     <div id="riven-out"></div>
   </section>
 </main>
 
 <main id="tab-settings" class="tab-panel">
-  <section class="panel wide">
+  <section class="panel wide find-panel settings-panel">
     <div class="panel-head"><h2>Settings</h2></div>
-    <h3>Theme</h3>
+    <div class="card pad"><h3>Theme</h3>
     <div class="themes" role="radiogroup" aria-label="Theme">
       <label class="theme-opt"><input type="radio" name="theme" value="dark" /><span class="swatch"><i style="background:#09090b"></i><i style="background:#1b1b1f"></i><i style="background:#e8b25e"></i></span><b>Dark</b></label>
       <label class="theme-opt"><input type="radio" name="theme" value="light" /><span class="swatch"><i style="background:#f3efe6"></i><i style="background:#ffffff"></i><i style="background:#8a560f"></i></span><b>Light</b></label>
@@ -618,16 +668,21 @@
       <label class="theme-opt"><input type="radio" name="theme" value="hacker" /><span class="swatch"><i style="background:#000000"></i><i style="background:#04100a"></i><i style="background:#00ff41"></i></span><b>Hacker</b></label>
     </div>
     <p class="hint">Saved in this browser only.</p>
+    </div>
+    <div class="card pad"><h3>Brute force</h3>
     <label class="switch"><input type="checkbox" id="setting-gpu" /> Brute force on the GPU (WebGPU)</label>
     <p class="hint" id="setting-gpu-status">Looking for a GPU…</p>
     <p class="hint">The GPU scores every combination of up to 64 candidate mods with a reduced damage model and
       scores the best 20,000 with the full engine. Much faster on big searches;
       a build the reduced model badly underrates can be missed. Works on AMD, Nvidia, Intel and Apple GPUs.
       Saved in this browser only.</p>
+    </div>
+    <div class="card pad"><h3>Data &amp; credits</h3>
     <p class="hint">Data: <a href="https://github.com/WFCD/warframe-items">WFCD/warframe-items</a> (MIT) and
       <a href="https://wiki.warframe.com">wiki.warframe.com</a> (<a href="https://creativecommons.org/licenses/by-nc-sa/3.0/">CC BY-NC-SA 3.0</a>).
       Warframe and its artwork belong to Digital Extremes; this is an unofficial fan tool.
       Source: <a href="https://github.com/daMarxrider/wfcalc">github.com/daMarxrider/wfcalc</a> (GPL-3.0).</p>
+    </div>
   </section>
 </main>
 

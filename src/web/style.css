@@ -886,9 +886,14 @@ label[title] > span:first-child, label.stack[title], .toggles label[title] { tex
 .chip { font-size: 12.5px; padding: 3px 10px; }
 .build-mods .chip, .meta .chip { min-height: 0; }
 .saved-item { border-radius: 12px; padding: 12px 14px; }
-.stack-panel { padding: 8px 20px; }
-.stack-panel > details > summary { padding: 14px 2px; }
-.stack-panel .actions { padding: 12px 0 8px; }
+.stack-panel .actions { padding: 16px 20px; margin: 0; border-top: 1px solid var(--border); }
+.stage .fields.col { display: flex; flex-direction: column; gap: 14px; }
+.stage .fields.col .row { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.stage .fields.col > details { border-top: 0; }
+.settings-panel { max-width: 820px; }
+.settings-panel .card h3 { margin-top: 0; }
+.pad { padding: 18px 20px; }
+.ghost { background: transparent; }
 .actions button, .saved-actions button { min-height: 44px; }
 .progress-fill, .cap-bar i { border-radius: inherit; }
 

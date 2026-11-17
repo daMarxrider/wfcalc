@@ -574,7 +574,7 @@ function renderContext() {
   $('ctx-mods').textContent = `${mods} mod${mods === 1 ? '' : 's'}`;
 }
 
-/** A stage row shows its current value: data-sum="id[:prefix],…" lists the inputs it reads. */
+/** A stage row shows its current value: data-sum="id[:prefix],…" lists the inputs it reads (0 and empty are skipped). */
 function renderStageSums() {
   for (const el of document.querySelectorAll('[data-sum]')) {
     el.textContent = el.dataset.sum.split(',').filter(Boolean).map((entry) => {
@@ -582,19 +582,32 @@ function renderStageSums() {
       const input = $(id);
       if (!input) return '';
       if (input.type === 'checkbox') return input.checked ? prefix : '';
-      const text = input.tagName === 'SELECT' ? input.selectedOptions[0]?.textContent : input.value.trim();
-      return text ? prefix + text : '';
-    }).filter(Boolean).join(' · ') || 'default';
+      const text = input.tagName === 'SELECT' ? input.selectedOptions[0]?.textContent : (input.value ?? input.textContent).trim();
+      return text && !(input.type === 'number' && Number(text) === 0) ? prefix + text : '';
+    }).filter(Boolean).join(' · ') || 'Default';
   }
   const text = (id) => $(id).tagName === 'SELECT' ? $(id).selectedOptions[0]?.textContent : $(id).value.trim();
+  const mods = state.mods.filter((mod) => mod?.name).length;
+  const build = `${state.weapon || 'No weapon'} · ${mods} mod${mods === 1 ? '' : 's'} · ${state.enemy || 'No enemy'} L${state.level}`;
+  $('cmp-a-sum').textContent = build;
+  $('riven-build-sum').textContent = build;
+  const dock = (id, rows) => { $(id).innerHTML = rows.map(([k, v]) => `<div>${k}<b>${escapeHtml(v)}</b></div>`).join(''); };
   const method = { search: 'Quick search', bruteforce: 'Brute force', parts: 'Modular parts' }[findMethod()];
-  const sp = $('find-sp').checked ? ' · SP' : '';
-  const rows = [
-    ['Target', `${findMethod() === 'parts' ? text('parts-kind') : $('find-weapon').value.trim() || state.weapon || '—'} · L${$('find-level').value}${sp}`],
+  dock('find-sum', [
+    ['Target', `${findMethod() === 'parts' ? text('parts-kind') : $('find-weapon').value.trim() || state.weapon || '—'} · L${$('find-level').value}${$('find-sp').checked ? ' · SP' : ''}`],
     ['Goal', `${text('find-objective')} ×${$('find-kills').value}`],
     ['Search', method],
-  ];
-  $('find-sum').innerHTML = rows.map(([k, v]) => `<div>${k}<b>${escapeHtml(v)}</b></div>`).join('');
+  ]);
+  dock('ability-sum', [
+    ['Ability', text('ability-select') || '—'],
+    ['Target', `${$('ability-enemy').value.trim() || $('ability-enemy').placeholder} · L${$('ability-level').value}${$('ability-sp').checked ? ' · SP' : ''}`],
+  ]);
+  const bMods = $('b-mods').value.split(',').filter((name) => name.trim()).length;
+  dock('compare-sum', [
+    ['A', `${state.weapon || '—'} · current`],
+    ['B', `${$('b-weapon').value.trim() || 'same weapon'} · ${bMods ? `${bMods} mod${bMods === 1 ? '' : 's'}` : 'A\'s mods'}`],
+  ]);
+  dock('riven-sum', [['Weapon', state.weapon || '—'], ['Goal', text('riven-objective')]]);
 }
 
 /** ---------- Incarnon evolutions ---------- */
@@ -1819,6 +1832,7 @@ async function postCalc(payload) {
 async function recalc() {
   saveToUrl();
   renderContext();
+  renderStageSums();
   if (!state.weapon) {
     $('stats').innerHTML = '<p class="hint">Pick a weapon to start.</p>';
     for (const id of ['weapon-summary', 'damage-bars', 'contributions', 'target-report', 'notes']) $(id).innerHTML = '';
@@ -2582,8 +2596,7 @@ function bindEvents() {
   for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => showTab(tab.dataset.tab);
   void initSettings();
   initTheme();
-  $('tab-find').addEventListener('input', renderStageSums);
-  $('tab-find').addEventListener('change', renderStageSums);
+  for (const tab of document.querySelectorAll('.tab-panel')) for (const type of ['input', 'change']) tab.addEventListener(type, renderStageSums);
   for (const chip of document.querySelectorAll('[data-go]')) chip.onclick = () => showTab(chip.dataset.go);
   $('riven-run').addEventListener('click', () => void runRivenPicker());
   // Picking a datalist entry fires only `input` in Firefox and mobile browsers; blurring commits it as `change`.
