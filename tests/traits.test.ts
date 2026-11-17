@@ -102,6 +102,10 @@ test('Necrophagic Vigor: +20% crit chance and damage per 20 Health drained (half
   // Vitality (+100% Health): 910 health, 22 chunks x 20% = +440%, capped at 360%.
   const withVitality = resolveBuild(snap, { weapon: 'Coda Hema', frame: 'Ash', frameMods: ['Vitality'], mods: vigor });
   assert.ok(Math.abs(withVitality.critChance / build('Ash', []).critChance - 4.6) < 1e-9);
+  // Max stacks: the full 360% on any frame, even one with little health.
+  const maxed = (frame: string) => resolveBuild(snap, { weapon: 'Coda Hema', frame, mods: vigor, stackMode: 'max' }).critChance;
+  assert.ok(Math.abs(maxed('Ash') / build('Ash', []).critChance - 4.6) < 1e-9);
+  assert.ok(Math.abs(maxed('Ash') - maxed('Excalibur')) < 1e-9);
   // 1000 health would be 25 chunks = 500%: capped at 360%.
   assert.ok(Math.abs(necrophagicVigor(5, 1000)[0].value - 3.6) < 1e-9);
 });

@@ -756,7 +756,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     const vigor = mod.name === 'Necrophagic Vigor';
     const health = vigor ? maxHealth(snapshot, build) : 0;
     sources.push({
-      name: mod.name, maxRank: vigor ? 0 : mod.maxRank, rank, effects: vigor ? necrophagicVigor(rank ?? mod.maxRank, health) : mod.effects,
+      name: mod.name, maxRank: vigor ? 0 : mod.maxRank, rank, effects: vigor ? necrophagicVigor(rank ?? mod.maxRank, health, build.stackMode === 'max') : mod.effects,
       partial: mod.partial, incompatible: mod.incompatible, set: mod.set, kind: 'mod',
     });
     // Ammo lines the card text does not give (ammo.ts), already at the equipped rank.
