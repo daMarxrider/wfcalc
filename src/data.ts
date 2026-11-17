@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { addModularWeapons } from './engine/modular.ts';
+import { necrophagicVigor } from './engine/traits.ts';
 import type { EnemyData, ModData, Snapshot, WarframeData, WeaponData } from './types.ts';
 
 const DEFAULT_PATH = new URL('../data/snapshot.json', import.meta.url).pathname;
@@ -18,6 +19,11 @@ export function loadSnapshot(path: string = DEFAULT_PATH): Snapshot {
   if (cached && path === DEFAULT_PATH) return cached;
   const snapshot = JSON.parse(readFileSync(path, 'utf8')) as Snapshot;
   addModularWeapons(snapshot);
+  // The card text has no flat stat, so the parser finds none (engine/traits.ts). Search and the GPU
+  // path read mod.effects: give them the max-rank bonus for a 300 Health frame; resolveBuild
+  // swaps in the equipped rank and the real frame's health.
+  const vigor = snapshot.mods['Necrophagic Vigor'];
+  if (vigor) { vigor.effects = necrophagicVigor(vigor.maxRank, 300); vigor.partial = false; }
   if (path === DEFAULT_PATH) cached = snapshot;
   return snapshot;
 }

@@ -28,6 +28,9 @@ const REQUESTS = [
   { weapon: 'Acceltra', enemy: 'Bombard', level: 150, pool: 14, simulate: true, kills: 1, limit: 1, objective: 'kpm' as const, base: { arcanes: ['Primary Compression'] } },
   // Timed ammo buffs on hit (Chamber Cascade) and on kill (Pistoleer), Madurai, Encumber.
   { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', level: 150, pool: 14, simulate: true, kills: 1, limit: 1, base: { hit: 'head' as const, stackMode: 'max' as const, arcanes: ['Arcane Pistoleer', 'Secondary Encumber'], buffs: ['phoenix-talons'] } },
+  // Necrophagic Vigor: a flat 360% at max stacks, and from the frame's health (Ash + Vitality) otherwise.
+  { weapon: 'Coda Hema', enemy: 'Heavy Gunner', level: 150, pool: 14, simulate: false, kills: 1, limit: 1, base: { stackMode: 'max' as const } },
+  { weapon: 'Coda Hema', enemy: 'Heavy Gunner', level: 150, pool: 14, simulate: false, kills: 1, limit: 1, base: { frame: 'Ash', frameMods: ['Vitality'] } },
 ];
 
 /** Starts a process and resolves once a stdout line matches. */

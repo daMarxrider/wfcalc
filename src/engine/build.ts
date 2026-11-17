@@ -29,13 +29,13 @@ import {
   type WeaponMode,
   type WeaponStats,
 } from '../types.ts';
-import { augmentFits, byExactName, normalizeName } from '../data.ts';
+import { augmentFits, byExactName, findWarframe, normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
 import { arcaneEffectsAt, arcaneScopeMiss, energyDepletedUptime, enervateCritChance, enervateHitsPerShot, isDualPistols, RESIDUAL_ARCANE_ELEMENT, type ResidualElement } from './arcanes.ts';
 import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
-import { COMBO, NEXT_SHOT, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
+import { COMBO, NEXT_SHOT, necrophagicVigor, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
 import { hitProfile } from './hit.ts';
 import { InputError } from '../errors.ts';
@@ -351,6 +351,23 @@ function conditionStacks(effect: Effect, conditions: Conditions, context: StackC
   stacks = Math.min(stacks, cap);
   if (effect.perStatusType) stacks *= Math.max(1, Number(conditions.statusTypes ?? 1));
   return Number.isFinite(stacks) ? stacks : 1;
+}
+
+/**
+ * The frame's maximum Health: its rank 30 Health plus the "+N% Health" of equipped frame mods
+ * (Vitality and its variants add to the base). 300 with no frame.
+ * shortcut: percent mods only, no flat Health, Health Conversion or arcanes.
+ */
+export function maxHealth(snapshot: Snapshot, build: Pick<Build, 'frame' | 'frameMods'>): number {
+  const base = (build.frame && findWarframe(snapshot, build.frame).item?.health) || 300;
+  let percent = 0;
+  for (const entry of build.frameMods ?? []) {
+    const mod = byExactName(snapshot.mods, typeof entry === 'string' ? entry : entry.name);
+    if (!mod) continue;
+    const rank = Math.min(mod.maxRank, typeof entry === 'string' ? mod.maxRank : (entry.rank ?? mod.maxRank));
+    percent += Number(/^\+(\d+(?:\.\d+)?)% Health$/.exec(mod.levels?.[rank] ?? '')?.[1] ?? 0) / 100;
+  }
+  return base * (1 + percent);
 }
 
 /**
@@ -735,8 +752,11 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`${mod.name} cannot be equipped with ${mod.incompatible.filter((o) => equipped.includes(o)).join(', ')}`);
     }
     equipped.push(mod.name);
+    // Necrophagic Vigor does not scale linearly with rank and depends on the frame's health.
+    const vigor = mod.name === 'Necrophagic Vigor';
+    const health = vigor ? maxHealth(snapshot, build) : 0;
     sources.push({
-      name: mod.name, maxRank: mod.maxRank, rank, effects: mod.effects,
+      name: mod.name, maxRank: vigor ? 0 : mod.maxRank, rank, effects: vigor ? necrophagicVigor(rank ?? mod.maxRank, health, build.stackMode === 'max') : mod.effects,
       partial: mod.partial, incompatible: mod.incompatible, set: mod.set, kind: 'mod',
     });
     // Ammo lines the card text does not give (ammo.ts), already at the equipped rank.
