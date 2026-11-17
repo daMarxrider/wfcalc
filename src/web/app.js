@@ -1901,7 +1901,7 @@ async function runCompare() {
     return;
   }
   const bState = compareB?.state ?? state;
-  const bMods = parseNameList($('b-mods').value);
+  const bMods = parseFixed($('b-mods').value);
   const bWeapon = $('b-weapon').value.trim() || bState.weapon;
   const bElement = parseElementBonus($('b-element').value);
   const bArcane = $('b-arcane').value.trim();
@@ -2435,6 +2435,7 @@ const TIPS = {
   'setting-gpu': 'Run the brute force on this device\'s GPU through WebGPU. Off: the server\'s CPU threads do it.',
   'ability-run': 'Price one cast of the ability against the target.',
   'compare-run': 'Compare build A (the Build tab) with B.',
+  'copy-mods': 'Copy the mod names (with :R ranks) to paste into the B: mods field on the Compare tab.',
   'set-as-b': 'Use this build as slot B on the Compare tab.',
   'compare-swap': 'Make B the current build and the current build B.',
   'compare-clear': 'Forget B: it is the current build again, plus the fields below.',
@@ -2928,6 +2929,16 @@ function bindEvents() {
   });
 
   $('compare-run').onclick = runCompare;
+  $('copy-mods').onclick = async () => {
+    const list = state.mods.filter((mod) => mod.name && mod.name !== RIVEN).map((mod) => (mod.rank !== undefined ? `${mod.name}:R${mod.rank}` : mod.name)).join(', ');
+    try {
+      await navigator.clipboard.writeText(list);
+      $('copy-mods').textContent = 'copied';
+      setTimeout(() => ($('copy-mods').textContent = 'copy mods'), 1200);
+    } catch {
+      prompt('Copy these mods', list);
+    }
+  };
   $('set-as-b').onclick = () => {
     setCompareB('current build', state);
     $('set-as-b').textContent = 'set';
