@@ -44,6 +44,17 @@ const overdrive = (seconds: number) => {
     add('ammoEfficiencyMult', 1, `Overdrive (weak point kill): Infinite Ammo for ${seconds}s`, extra),
   ]);
 };
+/**
+ * Necrophagic Vigor (Hema): a reload drains up to half the user's Health, +X% Critical Chance and
+ * Critical Damage per 20 Health drained, capped at 360%. Assumes the full half is drained (an
+ * empty magazine); the bonus holds until the next reload, so it counts as always on.
+ * shortcut: Warframe health from the snapshot, no Vitality or Health Conversion mods.
+ */
+export function necrophagicVigor(rank: number, health: number): Effect[] {
+  const bonus = Math.min(3.6, Math.floor(health / 2 / 20) * (0.1 + 0.02 * rank));
+  const raw = `Necrophagic Vigor (reload drains ${Math.round(health / 2)} Health): +${Math.round(bonus * 100)}% Critical Chance and Critical Damage`;
+  return [add('critChance', bonus, raw), add('critDamage', bonus, raw)];
+}
 /** The same traits on several variants. */
 const variants = (names: string[], trait: (context: TraitContext) => Effect[]) => Object.fromEntries(names.map((name) => [name, trait]));
 

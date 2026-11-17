@@ -29,13 +29,13 @@ import {
   type WeaponMode,
   type WeaponStats,
 } from '../types.ts';
-import { augmentFits, byExactName, normalizeName } from '../data.ts';
+import { augmentFits, byExactName, findWarframe, normalizeName } from '../data.ts';
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
 import { arcaneEffectsAt, arcaneScopeMiss, energyDepletedUptime, enervateCritChance, enervateHitsPerShot, isDualPistols, RESIDUAL_ARCANE_ELEMENT, type ResidualElement } from './arcanes.ts';
 import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
-import { COMBO, NEXT_SHOT, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
+import { COMBO, NEXT_SHOT, necrophagicVigor, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
 import { hitProfile } from './hit.ts';
 import { InputError } from '../errors.ts';
@@ -735,8 +735,11 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`${mod.name} cannot be equipped with ${mod.incompatible.filter((o) => equipped.includes(o)).join(', ')}`);
     }
     equipped.push(mod.name);
+    // Necrophagic Vigor does not scale linearly with rank and depends on the frame's health.
+    const vigor = mod.name === 'Necrophagic Vigor';
+    const health = (build.frame && findWarframe(snapshot, build.frame).item?.health) || 300;
     sources.push({
-      name: mod.name, maxRank: mod.maxRank, rank, effects: mod.effects,
+      name: mod.name, maxRank: vigor ? 0 : mod.maxRank, rank, effects: vigor ? necrophagicVigor(rank ?? mod.maxRank, health) : mod.effects,
       partial: mod.partial, incompatible: mod.incompatible, set: mod.set, kind: 'mod',
     });
     // Ammo lines the card text does not give (ammo.ts), already at the equipped rank.

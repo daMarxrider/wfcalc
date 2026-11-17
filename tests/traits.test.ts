@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { loadSnapshot } from '../src/data.ts';
 import { resolveBuild, type Build } from '../src/engine/build.ts';
-import { COMBO, NEXT_SHOT, spoolSeconds } from '../src/engine/traits.ts';
+import { COMBO, NEXT_SHOT, necrophagicVigor, spoolSeconds } from '../src/engine/traits.ts';
 
 const snapshot = loadSnapshot();
 const close = (actual: number, expected: number, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
@@ -88,4 +88,17 @@ test('Coda Motovore: physical mods x6, the strongest picks the wheel', () => {
   // Buzz Kill: +120% Slash, x6 = +720%.
   assert.ok((slash.damage.perProjectile.slash ?? 0) > base * 7, `${slash.damage.perProjectile.slash} vs ${base}`);
   close(slash.statusChance - plain.statusChance, snapshot.weapons['Coda Motovore'].stats.statusChance, 1e-6);
+});
+
+test('Necrophagic Vigor: +20% crit chance and damage per 20 Health drained (half the health), capped at 360%', async () => {
+  const { resolveBuild } = await import('../src/engine/build.ts');
+  const { loadSnapshot } = await import('../src/data.ts');
+  const snap = loadSnapshot();
+  const build = (frame: string, mods: Array<{ name: string; rank: number }>) => resolveBuild(snap, { weapon: 'Coda Hema', frame, mods });
+  const vigor = [{ name: 'Necrophagic Vigor', rank: 5 }];
+  // Ash 455 health: floor(227.5 / 20) = 11 chunks x 20% = +220%.
+  assert.ok(Math.abs(build('Ash', vigor).critChance / build('Ash', []).critChance - 3.2) < 1e-9);
+  assert.ok(Math.abs(build('Ash', vigor).critMultiplier / build('Ash', []).critMultiplier - 3.2) < 1e-9);
+  // 1000 health would be 25 chunks = 500%: capped at 360%.
+  assert.ok(Math.abs(necrophagicVigor(5, 1000)[0].value - 3.6) < 1e-9);
 });
