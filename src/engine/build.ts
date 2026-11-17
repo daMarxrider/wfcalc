@@ -354,6 +354,23 @@ function conditionStacks(effect: Effect, conditions: Conditions, context: StackC
 }
 
 /**
+ * The frame's maximum Health: its rank 30 Health plus the "+N% Health" of equipped frame mods
+ * (Vitality and its variants add to the base). 300 with no frame.
+ * shortcut: percent mods only, no flat Health, Health Conversion or arcanes.
+ */
+export function maxHealth(snapshot: Snapshot, build: Pick<Build, 'frame' | 'frameMods'>): number {
+  const base = (build.frame && findWarframe(snapshot, build.frame).item?.health) || 300;
+  let percent = 0;
+  for (const entry of build.frameMods ?? []) {
+    const mod = byExactName(snapshot.mods, typeof entry === 'string' ? entry : entry.name);
+    if (!mod) continue;
+    const rank = Math.min(mod.maxRank, typeof entry === 'string' ? mod.maxRank : (entry.rank ?? mod.maxRank));
+    percent += Number(/^\+(\d+(?:\.\d+)?)% Health$/.exec(mod.levels?.[rank] ?? '')?.[1] ?? 0) / 100;
+  }
+  return base * (1 + percent);
+}
+
+/**
  * Scales an effect value from max rank down to the equipped rank.
  * Mods have `maxRank + 1` steps of equal size, so rank 0 is already 1/(maxRank+1)
  * of the max value: Serration R0 is +15%, R9 is +150%, R10 is +165%.
@@ -737,7 +754,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     equipped.push(mod.name);
     // Necrophagic Vigor does not scale linearly with rank and depends on the frame's health.
     const vigor = mod.name === 'Necrophagic Vigor';
-    const health = (build.frame && findWarframe(snapshot, build.frame).item?.health) || 300;
+    const health = vigor ? maxHealth(snapshot, build) : 0;
     sources.push({
       name: mod.name, maxRank: vigor ? 0 : mod.maxRank, rank, effects: vigor ? necrophagicVigor(rank ?? mod.maxRank, health) : mod.effects,
       partial: mod.partial, incompatible: mod.incompatible, set: mod.set, kind: 'mod',

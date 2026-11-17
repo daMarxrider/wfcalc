@@ -99,6 +99,9 @@ test('Necrophagic Vigor: +20% crit chance and damage per 20 Health drained (half
   // Ash 455 health: floor(227.5 / 20) = 11 chunks x 20% = +220%.
   assert.ok(Math.abs(build('Ash', vigor).critChance / build('Ash', []).critChance - 3.2) < 1e-9);
   assert.ok(Math.abs(build('Ash', vigor).critMultiplier / build('Ash', []).critMultiplier - 3.2) < 1e-9);
+  // Vitality (+100% Health): 910 health, 22 chunks x 20% = +440%, capped at 360%.
+  const withVitality = resolveBuild(snap, { weapon: 'Coda Hema', frame: 'Ash', frameMods: ['Vitality'], mods: vigor });
+  assert.ok(Math.abs(withVitality.critChance / build('Ash', []).critChance - 4.6) < 1e-9);
   // 1000 health would be 25 chunks = 500%: capped at 360%.
   assert.ok(Math.abs(necrophagicVigor(5, 1000)[0].value - 3.6) < 1e-9);
 });
