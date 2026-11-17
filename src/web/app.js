@@ -521,6 +521,19 @@ function showTab(name) {
   if (name === 'riven') renderRivenTab();
 }
 
+/** Theme: the inline script in index.html sets it before first paint; this wires the Settings picker. */
+function initTheme() {
+  const current = document.documentElement.dataset.theme || 'dark';
+  for (const radio of document.querySelectorAll('input[name="theme"]')) {
+    radio.checked = radio.value === current;
+    radio.addEventListener('change', () => {
+      document.documentElement.dataset.theme = radio.value;
+      try { localStorage.setItem('wfcalc-theme', radio.value); } catch { /* private mode: the choice lasts for this visit */ }
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(document.body).backgroundColor);
+    });
+  }
+}
+
 /** Context strip: what Build holds, shown on every tab. */
 function renderContext() {
   const mods = state.mods.filter((mod) => mod?.name).length;
@@ -2536,6 +2549,7 @@ function bindEvents() {
   eventsBound = true;
   for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => showTab(tab.dataset.tab);
   void initSettings();
+  initTheme();
   $('tab-find').addEventListener('input', renderStageSums);
   $('tab-find').addEventListener('change', renderStageSums);
   for (const chip of document.querySelectorAll('[data-go]')) chip.onclick = () => showTab(chip.dataset.go);
