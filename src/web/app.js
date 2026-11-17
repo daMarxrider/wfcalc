@@ -516,7 +516,40 @@ function showTab(name) {
   }
   for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.toggle('active', panel.id === `tab-${name}`);
   if (name === 'find') renderFindForm();
+  renderContext();
+  renderStageSums();
   if (name === 'riven') renderRivenTab();
+}
+
+/** Context strip: what Build holds, shown on every tab. */
+function renderContext() {
+  const mods = state.mods.filter((mod) => mod?.name).length;
+  $('ctx-weapon').textContent = state.weapon || 'No weapon';
+  $('ctx-target').textContent = `${state.enemy || 'No enemy'} L${state.level}${state.steelPath ? ' · SP' : ''}`;
+  $('ctx-mods').textContent = `${mods} mod${mods === 1 ? '' : 's'}`;
+}
+
+/** A stage row shows its current value: data-sum="id[:prefix],…" lists the inputs it reads. */
+function renderStageSums() {
+  for (const el of document.querySelectorAll('[data-sum]')) {
+    el.textContent = el.dataset.sum.split(',').filter(Boolean).map((entry) => {
+      const [id, prefix = ''] = entry.split(':');
+      const input = $(id);
+      if (!input) return '';
+      if (input.type === 'checkbox') return input.checked ? prefix : '';
+      const text = input.tagName === 'SELECT' ? input.selectedOptions[0]?.textContent : input.value.trim();
+      return text ? prefix + text : '';
+    }).filter(Boolean).join(' · ') || 'default';
+  }
+  const text = (id) => $(id).tagName === 'SELECT' ? $(id).selectedOptions[0]?.textContent : $(id).value.trim();
+  const method = { search: 'Quick search', bruteforce: 'Brute force', parts: 'Modular parts' }[findMethod()];
+  const sp = $('find-sp').checked ? ' · SP' : '';
+  const rows = [
+    ['Target', `${findMethod() === 'parts' ? text('parts-kind') : $('find-weapon').value.trim() || state.weapon || '—'} · L${$('find-level').value}${sp}`],
+    ['Goal', `${text('find-objective')} ×${$('find-kills').value}`],
+    ['Search', method],
+  ];
+  $('find-sum').innerHTML = rows.map(([k, v]) => `<div>${k}<b>${escapeHtml(v)}</b></div>`).join('');
 }
 
 /** ---------- Incarnon evolutions ---------- */
@@ -1740,6 +1773,7 @@ async function postCalc(payload) {
 
 async function recalc() {
   saveToUrl();
+  renderContext();
   if (!state.weapon) {
     $('stats').innerHTML = '<p class="hint">Pick a weapon to start.</p>';
     for (const id of ['weapon-summary', 'damage-bars', 'contributions', 'target-report', 'notes']) $(id).innerHTML = '';
@@ -1817,6 +1851,7 @@ function renderFindMethod() {
   $('find-must-label').textContent = brute ? 'Fixed mods (always kept, :R3 for a rank)' : 'Must include';
   $('find-run').textContent = brute ? 'brute force' : parts ? 'find parts' : 'search';
   $('find-sp-box').classList.toggle('on', $('find-sp').checked);
+  renderStageSums();
 }
 
 /** "Serration, Hunter Munitions:R3" -> [{ name, rank? }] */
@@ -2501,6 +2536,9 @@ function bindEvents() {
   eventsBound = true;
   for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => showTab(tab.dataset.tab);
   void initSettings();
+  $('tab-find').addEventListener('input', renderStageSums);
+  $('tab-find').addEventListener('change', renderStageSums);
+  for (const chip of document.querySelectorAll('[data-go]')) chip.onclick = () => showTab(chip.dataset.go);
   $('riven-run').addEventListener('click', () => void runRivenPicker());
   // Picking a datalist entry fires only `input` in Firefox and mobile browsers; blurring commits it as `change`.
   document.addEventListener('input', (event) => {

@@ -9,18 +9,51 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-<header>
-  <div class="brand">wfcalc</div>
-  <nav class="tabs" role="tablist">
-    <button class="tab active" data-tab="build" role="tab">Build</button>
-    <button class="tab" data-tab="find" role="tab">Find</button>
-    <button class="tab" data-tab="abilities" role="tab">Abilities</button>
-    <button class="tab" data-tab="compare" role="tab">Compare</button>
-    <button class="tab" data-tab="saved" role="tab">Saved</button>
-    <button class="tab" data-tab="riven" role="tab">Riven</button>
-    <button class="tab" data-tab="settings" role="tab">Settings</button>
-  </nav>
-</header>
+<svg width="0" height="0" class="sprite" aria-hidden="true">
+  <defs>
+    <symbol id="i-build" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/></symbol>
+    <symbol id="i-find" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 22c4 0 7-2.8 7-6.6 0-3-1.8-4.7-3.2-6.4C14.6 7.600 14 6 14 4c-3 1.600-5 4.600-5 7.600-1-.4-1.600-1.200-2-2.200C5.600 11 5 12.800 5 15.400 5 19.200 8 22 12 22Z"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"/></symbol>
+    <symbol id="i-gem" viewBox="0 0 24 24"><path d="m6 3-4 6 10 12L22 9l-4-6Z"/><path d="M2 9h20M10 3l-2 6 4 12 4-12-2-6"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.400 15a1.700 1.700 0 0 0 .3 1.800l.1.1a2 2 0 1 1-2.800 2.800l-.1-.1a1.700 1.700 0 0 0-1.800-.3 1.700 1.700 0 0 0-1 1.500V21a2 2 0 1 1-4 0v-.1a1.700 1.700 0 0 0-1.100-1.500 1.700 1.700 0 0 0-1.800.3l-.1.1a2 2 0 1 1-2.800-2.800l.1-.1a1.700 1.700 0 0 0 .3-1.800 1.700 1.700 0 0 0-1.500-1H3a2 2 0 1 1 0-4h.1a1.700 1.700 0 0 0 1.500-1.100 1.700 1.700 0 0 0-.3-1.800l-.1-.1a2 2 0 1 1 2.800-2.800l.1.1a1.700 1.700 0 0 0 1.800.3H9a1.700 1.700 0 0 0 1-1.500V3a2 2 0 1 1 4 0v.1a1.700 1.700 0 0 0 1 1.500 1.700 1.700 0 0 0 1.800-.3l.1-.1a2 2 0 1 1 2.800 2.800l-.1.100a1.700 1.700 0 0 0-.3 1.800V9a1.700 1.700 0 0 0 1.500 1H21a2 2 0 1 1 0 4h-.1a1.700 1.700 0 0 0-1.500 1Z"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.500 4.500 4.500L19 7.500"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h0"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h0"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.700 6.300a4 4 0 0 0-5 5L3 18l3 3 6.700-6.700a4 4 0 0 0 5-5l-2.700 2.700-2.500-.5-.5-2.500Z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.300"/><circle cx="12" cy="12" r="1.300"/><circle cx="19" cy="12" r="1.300"/></symbol>
+    <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5.500 9.500A2 2 0 0 0 6.200 21h11.600a2 2 0 0 0 1.700-2.500L14 9V3"/><path d="M7.500 15h9"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7z"/><path d="m3 7 9 5 9-5M12 12v10"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  </defs>
+</svg>
+<div class="app">
+<nav class="sidenav tabs" role="tablist" aria-label="Sections">
+    <div class="brand">wfcalc</div>
+    <button class="tab active" data-tab="build" role="tab"><svg class="i"><use href="#i-build"/></svg>Build</button>
+    <button class="tab" data-tab="find" role="tab"><svg class="i"><use href="#i-find"/></svg>Find</button>
+    <button class="tab" data-tab="abilities" role="tab"><svg class="i"><use href="#i-bolt"/></svg>Abilities</button>
+    <button class="tab" data-tab="compare" role="tab"><svg class="i"><use href="#i-swap"/></svg>Compare</button>
+    <button class="tab" data-tab="saved" role="tab"><svg class="i"><use href="#i-save"/></svg>Saved</button>
+    <button class="tab" data-tab="riven" role="tab"><svg class="i"><use href="#i-gem"/></svg>Riven</button>
+    <span class="sp"></span>
+    <button class="tab" data-tab="settings" role="tab"><svg class="i"><use href="#i-gear"/></svg>Settings</button>
+</nav>
+
+<div class="main">
+<!-- the shared context: what Build holds, every tab uses. A chip jumps to Build. -->
+<div class="ctx" id="ctx">
+  <button type="button" class="cx" data-go="build" id="ctx-weapon"></button>
+  <button type="button" class="cx" data-go="build" id="ctx-target"></button>
+  <button type="button" class="cx" data-go="build" id="ctx-mods"></button>
+</div>
 
 <!-- ───────────────────────────── BUILD ───────────────────────────── -->
 <main id="tab-build" class="tab-panel active">
@@ -303,165 +336,190 @@
 
 <!-- ───────────────────────────── FIND ────────────────────────────── -->
 <main id="tab-find" class="tab-panel">
-  <section class="panel wide">
-    <div class="panel-head">
-      <h2>Find a build</h2>
-      <button id="find-run" class="primary">search</button>
-    </div>
-    <div class="method-row">
-      <div class="segmented" role="radiogroup" aria-label="Search method">
-        <label><input type="radio" name="find-method" value="search" checked /><span>Quick search</span></label>
-        <label><input type="radio" name="find-method" value="bruteforce" /><span>Brute force</span></label>
-        <label><input type="radio" name="find-method" value="parts" /><span>Modular parts</span></label>
-      </div>
-      <p class="hint parts-only">Best zaw, kitgun or amp parts: every combination scored with the mods its first part
-        wants, the best five searched in full (mods and arcane). Untick the parts you don't own.</p>
-      <p class="hint greedy-only">Greedy fill plus local search: fast, usually right.</p>
-      <p class="hint brute-only">Every feasible mod combination, scored on every core. Only mods are searched:
-        your loadout below (arcanes, buffs, strength, riven, conditions) and Incarnon from the Build tab are used as given.</p>
-    </div>
+  <section class="panel wide find-panel">
+    <div class="panel-head"><h2>Find a build</h2></div>
+    <p class="hint greedy-only">Greedy fill plus local search: fast, usually right.</p>
+    <p class="hint brute-only">Every feasible mod combination, scored on every core. Only mods are searched: your loadout (arcanes, buffs, strength, riven, conditions) and Incarnon from the Build tab are used as given.</p>
+    <p class="hint parts-only">Best zaw, kitgun or amp parts: every combination scored with the mods its first part wants, the best five searched in full (mods and arcane). Untick the parts you don't own.</p>
     <p class="hint not-parts">Eight slots, capacity and Forma included. Leave weapon empty to use the Build tab's.</p>
-    <div class="compare-grid">
-      <label class="field not-parts"><span>Weapon</span>
-        <input id="find-weapon" list="weapon-list" placeholder="same as Build" autocomplete="off" /></label>
-      <label class="field parts-only"><span>Modular weapon</span>
-        <select id="parts-kind">
-          <option value="zaw">Zaw</option>
-          <option value="kitgun-primary">Primary kitgun</option>
-          <option value="kitgun-secondary">Secondary kitgun</option>
-          <option value="amp">Amp</option>
-        </select></label>
-      <label class="field"><span>Objective</span>
-        <select id="find-objective">
-          <option value="ttk">fastest kill</option>
-          <option value="dps">highest dps</option>
-          <option value="kpm">most kills/min</option>
-          <option value="group">fastest group clear (5 enemies)</option>
-        </select></label>
-      <label class="field"><span>Kills</span>
-        <input id="find-kills" type="number" min="1" max="100" value="10" /></label>
-      <label class="field"><span>Enemy</span>
-        <input id="find-enemy" list="enemy-list" placeholder="Bombard" autocomplete="off" /></label>
-      <label class="field"><span>Level</span>
-        <input id="find-level" type="number" min="1" max="9999" value="150" /></label>
-      <label class="field"><span>Capacity</span>
-        <select id="find-capacity">
-          <option value="60">60 (Orokin Catalyst)</option>
-          <option value="30">30 (no Catalyst)</option>
-        </select></label>
-      <label class="field"><span>Max Forma</span>
-        <input id="find-forma" type="number" min="0" max="20" step="1" placeholder="as needed" /></label>
-      <label class="field"><span id="find-must-label">Must include</span>
-        <input id="find-must" placeholder="Serration, Hunter Munitions:R3" autocomplete="off" /></label>
-      <label class="field"><span>Exclude (mods you don't own)</span>
-        <input id="find-exclude" placeholder="Heavy Caliber" autocomplete="off" /></label>
-      <div class="field wide-field brute-only"><label for="find-max-evals"><span>Max combinations</span></label>
-        <div class="inline-pair">
-          <input id="find-max-evals" type="number" min="1000" step="100000" value="2000000" />
-          <label class="switch"><input type="checkbox" id="find-all" /> all combinations</label>
-        </div></div>
-      <div class="field wide-field brute-only"><span>Required status (every build carries it)</span>
-        <div id="find-status" class="status-picks">
-            <label class="switch"><input type="checkbox" value="impact" /> Impact</label>
-            <label class="switch"><input type="checkbox" value="puncture" /> Puncture</label>
-            <label class="switch"><input type="checkbox" value="slash" /> Slash</label>
-            <label class="switch"><input type="checkbox" value="heat" /> Heat</label>
-            <label class="switch"><input type="checkbox" value="cold" /> Cold</label>
-            <label class="switch"><input type="checkbox" value="electricity" /> Electricity</label>
-            <label class="switch"><input type="checkbox" value="toxin" /> Toxin</label>
-            <label class="switch"><input type="checkbox" value="blast" /> Blast</label>
-            <label class="switch"><input type="checkbox" value="corrosive" /> Corrosive</label>
-            <label class="switch"><input type="checkbox" value="gas" /> Gas</label>
-            <label class="switch"><input type="checkbox" value="magnetic" /> Magnetic</label>
-            <label class="switch"><input type="checkbox" value="radiation" /> Radiation</label>
-            <label class="switch"><input type="checkbox" value="viral" /> Viral</label>
-        </div></div>
+
+    <div class="methods" role="radiogroup" aria-label="Search method">
+      <label class="method"><input type="radio" name="find-method" value="search" checked /><span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span><span><b>Quick search</b><span class="d">Greedy fill, then swaps. Seconds.</span></span></label>
+      <label class="method"><input type="radio" name="find-method" value="bruteforce" /><span class="ic"><svg class="i"><use href="#i-layers"/></svg></span><span><b>Brute force</b><span class="d">Every mod combination. Exact.</span></span></label>
+      <label class="method"><input type="radio" name="find-method" value="parts" /><span class="ic"><svg class="i"><use href="#i-wrench"/></svg></span><span><b>Modular parts</b><span class="d">Best zaw, kitgun or amp parts.</span></span></label>
     </div>
-    <div id="parts-owned" class="parts-owned parts-only"></div>
-    <div class="toggles parts-only">
-      <label><input type="checkbox" id="parts-arcane" checked /> also pick the best arcanes (every free slot)</label>
-    </div>
-    <div id="find-sp-box" class="steel-path">
-      <label class="switch"><input type="checkbox" id="find-sp" /> Steel Path</label>
-      <div class="sub">
-        <label class="switch"><input type="checkbox" id="find-sp-offset" checked /> <small>level above is the node level (+100)</small></label>
-        <span class="hint">health &amp; shields ×2.5, armour unchanged</span>
-      </div>
-    </div>
-    <div id="find-form-box" class="stack-row" hidden>
-      <span class="field-label">Weapon form <span class="hint">· choose before searching</span></span>
-      <div class="segmented small" role="radiogroup" aria-label="Weapon form for the search">
-        <label><input type="radio" name="find-form" value="normal" /><span>normal</span></label>
-        <label><input type="radio" name="find-form" value="incarnon" /><span>Incarnon form</span></label>
-      </div>
-    </div>
-    <div class="toggles greedy-only">
-      <label><input type="checkbox" id="find-incarnon" /> let the search pick Incarnon evolutions</label>
-    </div>
-    <section class="fixed-inputs brute-only" aria-label="Fixed inputs">
-      <h3>Your loadout <span class="hint">· always used as given, never brute forced · shared with the Build tab</span></h3>
-      <div class="compare-grid">
-        <label class="field"><span id="find-arcane-label">Weapon arcane</span>
-          <input id="find-arcane" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
-        <label class="field" id="find-arcane2-field" hidden><span id="find-arcane2-label">Secondary arcane (arch-gun)</span>
-          <input id="find-arcane2" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
-        <label class="field" id="find-arcane3-field" hidden><span>Operator arcane</span>
-          <input id="find-arcane3" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
-        <label class="field" id="find-arcane4-field" hidden><span>Second Operator arcane</span>
-          <input id="find-arcane4" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
-        <label class="field"><span>Ability strength <b id="find-strength-value">100%</b></span>
-          <input id="find-strength" type="range" min="40" max="500" step="5" value="100" /></label>
-      </div>
-      <div class="loadout-row">
-        <label class="switch"><input type="checkbox" id="find-hit-head" /> Headshots <small>off: bodyshots</small></label>
-        <div class="stack-row">
-          <span class="field-label">Conditional effects</span>
-          <div class="segmented small" role="radiogroup" aria-label="Stack mode for the search">
-            <label><input type="radio" name="find-stack-mode" value="none" /><span>none</span></label>
-            <label><input type="radio" name="find-stack-mode" value="custom" checked /><span>custom</span></label>
-            <label><input type="radio" name="find-stack-mode" value="max" /><span>all</span></label>
-          </div>
+
+    <div class="card stages">
+      <details class="stage " open>
+        <summary><span class="ic"><svg class="i"><use href="#i-target"/></svg></span><span class="txt"><span class="tt">Target</span><span class="vv" data-sum="find-weapon,parts-kind,find-enemy,find-level:L,find-sp:Steel Path"></span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+        <div class="fields">
+          <label class="field not-parts"><span>Weapon</span>
+            <input id="find-weapon" list="weapon-list" placeholder="same as Build" autocomplete="off" /></label>
+          <label class="field parts-only"><span>Modular weapon</span>
+            <select id="parts-kind">
+              <option value="zaw">Zaw</option>
+              <option value="kitgun-primary">Primary kitgun</option>
+              <option value="kitgun-secondary">Secondary kitgun</option>
+              <option value="amp">Amp</option>
+            </select></label>
+          <label class="field"><span>Enemy</span>
+            <input id="find-enemy" list="enemy-list" placeholder="Bombard" autocomplete="off" /></label>
+          <label class="field"><span>Level</span>
+            <input id="find-level" type="number" min="1" max="9999" value="150" /></label>
+          <div id="find-sp-box" class="steel-path full">
+                <label class="switch"><input type="checkbox" id="find-sp" /> Steel Path</label>
+                <div class="sub">
+                  <label class="switch"><input type="checkbox" id="find-sp-offset" checked /> <small>level above is the node level (+100)</small></label>
+                  <span class="hint">health &amp; shields ×2.5, armour unchanged</span>
+                </div>
+              </div>
+          <div id="find-form-box" class="stack-row full" hidden>
+                <span class="field-label">Weapon form <span class="hint">· choose before searching</span></span>
+                <div class="segmented small" role="radiogroup" aria-label="Weapon form for the search">
+                  <label><input type="radio" name="find-form" value="normal" /><span>normal</span></label>
+                  <label><input type="radio" name="find-form" value="incarnon" /><span>Incarnon form</span></label>
+                </div>
+              </div>
         </div>
-        <label class="switch"><input type="checkbox" id="find-simulate" checked /> Simulate status build-up</label>
-        <label class="switch"><input type="checkbox" id="find-arcane-auto" /> Brute force arcanes too <small>fills every empty arcane slot</small></label>
-      </div>
-      <p class="hint" id="find-stack-hint">“all”: every on-kill and on-hit effect at its cap (DE's “Stacks up to”). Weak-point effects need headshots, aiming effects need “aiming” ticked; without it the search leaves aiming-only mods out.
-        Per-mod stack counts set on the Build tab apply here too.</p>
-      <datalist id="find-arcane-list"></datalist>
-      <p class="hint" id="find-shards"></p>
-      <h3>Riven <span class="hint">· kept in its slot; the other mods are brute forced around it</span></h3>
+      </details>
+      <details class="stage parts-only" open>
+        <summary><span class="ic"><svg class="i"><use href="#i-wrench"/></svg></span><span class="txt"><span class="tt">Parts you own</span><span class="vv" data-sum=""></span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+        <div class="fields">
+          <div id="parts-owned" class="parts-owned full"></div>
+              <div class="toggles parts-only full">
+                <label><input type="checkbox" id="parts-arcane" checked /> also pick the best arcanes (every free slot)</label>
+              </div>
+        </div>
+      </details>
+      <details class="stage " open>
+        <summary><span class="ic"><svg class="i"><use href="#i-flame"/></svg></span><span class="txt"><span class="tt">Goal</span><span class="vv" data-sum="find-objective,find-kills:×"></span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+        <div class="fields">
+          <label class="field"><span>Objective</span>
+            <select id="find-objective">
+              <option value="ttk">fastest kill</option>
+              <option value="dps">highest dps</option>
+              <option value="kpm">most kills/min</option>
+              <option value="group">fastest group clear (5 enemies)</option>
+            </select></label>
+          <label class="field"><span>Kills</span>
+            <input id="find-kills" type="number" min="1" max="100" value="10" /></label>
+          <div class="field brute-only full"><span>Required status (every build carries it)</span>
+                  <div id="find-status" class="status-picks">
+                      <label class="switch"><input type="checkbox" value="impact" /> Impact</label>
+                      <label class="switch"><input type="checkbox" value="puncture" /> Puncture</label>
+                      <label class="switch"><input type="checkbox" value="slash" /> Slash</label>
+                      <label class="switch"><input type="checkbox" value="heat" /> Heat</label>
+                      <label class="switch"><input type="checkbox" value="cold" /> Cold</label>
+                      <label class="switch"><input type="checkbox" value="electricity" /> Electricity</label>
+                      <label class="switch"><input type="checkbox" value="toxin" /> Toxin</label>
+                      <label class="switch"><input type="checkbox" value="blast" /> Blast</label>
+                      <label class="switch"><input type="checkbox" value="corrosive" /> Corrosive</label>
+                      <label class="switch"><input type="checkbox" value="gas" /> Gas</label>
+                      <label class="switch"><input type="checkbox" value="magnetic" /> Magnetic</label>
+                      <label class="switch"><input type="checkbox" value="radiation" /> Radiation</label>
+                      <label class="switch"><input type="checkbox" value="viral" /> Viral</label>
+                  </div></div>
+        </div>
+      </details>
+      <details class="stage ">
+        <summary><span class="ic"><svg class="i"><use href="#i-lock"/></svg></span><span class="txt"><span class="tt">Limits</span><span class="vv" data-sum="find-capacity,find-forma:Forma ≤"></span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+        <div class="fields">
+          <label class="field"><span>Capacity</span>
+            <select id="find-capacity">
+              <option value="60">60 (Orokin Catalyst)</option>
+              <option value="30">30 (no Catalyst)</option>
+            </select></label>
+          <label class="field"><span>Max Forma</span>
+            <input id="find-forma" type="number" min="0" max="20" step="1" placeholder="as needed" /></label>
+          <label class="field"><span id="find-must-label">Must include</span>
+            <input id="find-must" placeholder="Serration, Hunter Munitions:R3" autocomplete="off" /></label>
+          <label class="field"><span>Exclude (mods you don't own)</span>
+            <input id="find-exclude" placeholder="Heavy Caliber" autocomplete="off" /></label>
+          <div class="field brute-only full"><label for="find-max-evals"><span>Max combinations</span></label>
+            <div class="inline-pair">
+              <input id="find-max-evals" type="number" min="1000" step="100000" value="2000000" />
+              <label class="switch"><input type="checkbox" id="find-all" /> all combinations</label>
+            </div></div>
+          <div class="toggles greedy-only full">
+                <label><input type="checkbox" id="find-incarnon" /> let the search pick Incarnon evolutions</label>
+              </div>
+        </div>
+      </details>
+      <details class="stage brute-only fixed-inputs">
+        <summary><span class="ic"><svg class="i"><use href="#i-gem"/></svg></span><span class="txt"><span class="tt">Your loadout</span><span class="vv" data-sum="find-arcane"></span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+        <div class="fields">
+          <p class="hint full">Always used as given, never brute forced. Shared with the Build tab.</p>
       <div class="compare-grid">
-        <label class="field wide-field"><span>Stats (card values, − marks the malus)</span>
-          <input id="find-riven-input" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
-        <label class="field"><span>Drain</span>
-          <input id="find-riven-drain" type="number" min="0" max="30" step="1" placeholder="16" /></label>
-        <label class="field"><span>Polarity</span>
-          <select id="find-riven-polarity"><option value="">none</option><option value="madurai">Madurai</option><option value="vazarin">Vazarin</option><option value="naramon">Naramon</option><option value="zenurik">Zenurik</option></select></label>
-      </div>
-      <h3>Conditions <span class="hint">· used when conditional effects are on “custom”; aiming counts on “all” too</span></h3>
-      <div class="toggles">
-        <label><input type="checkbox" id="find-aiming" /> aiming</label>
-        <label><input type="checkbox" id="find-sliding" /> sliding / aim gliding</label>
-        <label><input type="checkbox" id="find-airborne" /> airborne</label>
-        <label><input type="checkbox" id="find-sprinting" /> reloading while sprinting</label>
-        <label class="stack">On-kill <input type="number" id="find-onkill" min="0" max="50" value="0" /></label>
-        <label class="stack">Extra status types <input type="number" id="find-status-types" min="0" max="12" value="0" /></label>
-        <label class="stack">Viral stacks <input type="number" id="find-viral" min="0" max="10" value="0" /></label>
-        <label class="stack">Corrosive stacks <input type="number" id="find-corrosive" min="0" max="14" value="0" /></label>
-      </div>
-      <div class="compare-grid">
-        <label class="field"><span>Corrosive Projections</span>
-          <input id="find-cp-input" type="number" min="0" max="4" step="1" value="0" /></label>
-        <label class="field"><span>Armour strip %</span>
-          <input id="find-strip-input" type="number" min="0" max="100" step="5" value="0" /></label>
-        <label class="field"><span>Shattering Impact hits</span>
-          <input id="find-shattering-input" type="number" min="0" max="100" step="1" value="0" /></label>
-        <label class="field"><span>Strip from ability</span>
-          <select id="find-strip-from"><option value="">none</option></select></label>
-      </div>
-      <span class="field-label">Warframe buffs <span id="find-buff-count" class="badge"></span></span>
-      <div id="find-buff-list" class="buffs"></div>
-    </section>
+                <label class="field"><span id="find-arcane-label">Weapon arcane</span>
+                  <input id="find-arcane" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
+                <label class="field" id="find-arcane2-field" hidden><span id="find-arcane2-label">Secondary arcane (arch-gun)</span>
+                  <input id="find-arcane2" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
+                <label class="field" id="find-arcane3-field" hidden><span>Operator arcane</span>
+                  <input id="find-arcane3" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
+                <label class="field" id="find-arcane4-field" hidden><span>Second Operator arcane</span>
+                  <input id="find-arcane4" list="find-arcane-list" placeholder="none" autocomplete="off" /></label>
+                <label class="field"><span>Ability strength <b id="find-strength-value">100%</b></span>
+                  <input id="find-strength" type="range" min="40" max="500" step="5" value="100" /></label>
+              </div>
+              <div class="loadout-row">
+                <label class="switch"><input type="checkbox" id="find-hit-head" /> Headshots <small>off: bodyshots</small></label>
+                <div class="stack-row">
+                  <span class="field-label">Conditional effects</span>
+                  <div class="segmented small" role="radiogroup" aria-label="Stack mode for the search">
+                    <label><input type="radio" name="find-stack-mode" value="none" /><span>none</span></label>
+                    <label><input type="radio" name="find-stack-mode" value="custom" checked /><span>custom</span></label>
+                    <label><input type="radio" name="find-stack-mode" value="max" /><span>all</span></label>
+                  </div>
+                </div>
+                <label class="switch"><input type="checkbox" id="find-simulate" checked /> Simulate status build-up</label>
+                <label class="switch"><input type="checkbox" id="find-arcane-auto" /> Brute force arcanes too <small>fills every empty arcane slot</small></label>
+              </div>
+              <p class="hint" id="find-stack-hint">“all”: every on-kill and on-hit effect at its cap (DE's “Stacks up to”). Weak-point effects need headshots, aiming effects need “aiming” ticked; without it the search leaves aiming-only mods out.
+                Per-mod stack counts set on the Build tab apply here too.</p>
+              <datalist id="find-arcane-list"></datalist>
+              <p class="hint" id="find-shards"></p>
+              <h3>Riven <span class="hint">· kept in its slot; the other mods are brute forced around it</span></h3>
+              <div class="compare-grid">
+                <label class="field wide-field"><span>Stats (card values, − marks the malus)</span>
+                  <input id="find-riven-input" placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1" autocomplete="off" /></label>
+                <label class="field"><span>Drain</span>
+                  <input id="find-riven-drain" type="number" min="0" max="30" step="1" placeholder="16" /></label>
+                <label class="field"><span>Polarity</span>
+                  <select id="find-riven-polarity"><option value="">none</option><option value="madurai">Madurai</option><option value="vazarin">Vazarin</option><option value="naramon">Naramon</option><option value="zenurik">Zenurik</option></select></label>
+              </div>
+              <h3>Conditions <span class="hint">· used when conditional effects are on “custom”; aiming counts on “all” too</span></h3>
+              <div class="toggles">
+                <label><input type="checkbox" id="find-aiming" /> aiming</label>
+                <label><input type="checkbox" id="find-sliding" /> sliding / aim gliding</label>
+                <label><input type="checkbox" id="find-airborne" /> airborne</label>
+                <label><input type="checkbox" id="find-sprinting" /> reloading while sprinting</label>
+                <label class="stack">On-kill <input type="number" id="find-onkill" min="0" max="50" value="0" /></label>
+                <label class="stack">Extra status types <input type="number" id="find-status-types" min="0" max="12" value="0" /></label>
+                <label class="stack">Viral stacks <input type="number" id="find-viral" min="0" max="10" value="0" /></label>
+                <label class="stack">Corrosive stacks <input type="number" id="find-corrosive" min="0" max="14" value="0" /></label>
+              </div>
+              <div class="compare-grid">
+                <label class="field"><span>Corrosive Projections</span>
+                  <input id="find-cp-input" type="number" min="0" max="4" step="1" value="0" /></label>
+                <label class="field"><span>Armour strip %</span>
+                  <input id="find-strip-input" type="number" min="0" max="100" step="5" value="0" /></label>
+                <label class="field"><span>Shattering Impact hits</span>
+                  <input id="find-shattering-input" type="number" min="0" max="100" step="1" value="0" /></label>
+                <label class="field"><span>Strip from ability</span>
+                  <select id="find-strip-from"><option value="">none</option></select></label>
+              </div>
+              <span class="field-label">Warframe buffs <span id="find-buff-count" class="badge"></span></span>
+              <div id="find-buff-list" class="buffs"></div>
+            
+        </div>
+      </details>
+    </div>
+
+    <!-- run dock: what will run + the one button -->
+    <div class="dock">
+      <div class="sum" id="find-sum"></div>
+      <button id="find-run" class="primary go">search</button>
+    </div>
     <div id="find-out" class="find-out"></div>
   </section>
 </main>
@@ -562,6 +620,9 @@
       Source: <a href="https://github.com/daMarxrider/wfcalc">github.com/daMarxrider/wfcalc</a> (GPL-3.0).</p>
   </section>
 </main>
+
+</div>
+</div>
 
 <div id="preview" class="preview" hidden></div>
 <script type="module" src="app.js"></script>
