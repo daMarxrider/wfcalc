@@ -1059,3 +1059,6 @@ label[title] > span:first-child, label.stack[title], .toggles label[title] { tex
 @media (max-width: 860px) {
   :root[data-theme="retro-dark"] .tab, :root[data-theme="retro-light"] .tab, :root[data-theme="hacker"] .tab { font-size: 9.5px; letter-spacing: -.03em; }
 }
+/* help bubble: start right of the side nav on desktop */
+.tip-bubble { left: calc(var(--nav-w) + 16px); }
+@media (max-width: 860px) { .tip-bubble { left: 16px; } }
