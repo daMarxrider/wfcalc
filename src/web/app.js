@@ -322,6 +322,17 @@ function saveToUrl() {
   }
 }
 
+/** A share link (or just its #hash) -> a full state, or null when it isn't one. */
+function decodeState(link) {
+  try {
+    const hash = link.includes('#') ? link.slice(link.indexOf('#') + 1) : link;
+    const decoded = JSON.parse(decodeURIComponent(escape(atob(hash.trim()))));
+    return decoded && typeof decoded === 'object' && Array.isArray(decoded.mods) ? { ...emptyState(), ...decoded } : null;
+  } catch {
+    return null;
+  }
+}
+
 function loadFromUrl() {
   if (!location.hash || location.hash.length < 2) return false;
   try {
@@ -605,7 +616,7 @@ function renderStageSums() {
   const bMods = $('b-mods').value.split(',').filter((name) => name.trim()).length;
   dock('compare-sum', [
     ['A', `${state.weapon || '—'} · current`],
-    ['B', `${$('b-weapon').value.trim() || 'same weapon'} · ${bMods ? `${bMods} mod${bMods === 1 ? '' : 's'}` : 'A\'s mods'}`],
+    ['B', compareB && !bMods && !$('b-weapon').value.trim() ? compareB.label : `${$('b-weapon').value.trim() || compareB?.state.weapon || 'same weapon'} · ${bMods ? `${bMods} mod${bMods === 1 ? '' : 's'}` : compareB ? compareB.label : 'A\'s mods'}`],
   ]);
   dock('riven-sum', [['Weapon', state.weapon || '—'], ['Goal', text('riven-objective')]]);
 }
@@ -1801,18 +1812,18 @@ function renderSteelPath() {
     : '';
 }
 
-function buildPayload(extra = {}) {
+function buildPayload(extra = {}, s = state) {
   return {
-    ...state,
-    level: effectiveLevel(state.level, state.steelPath, state.steelPathNodeLevel),
-    mods: state.mods.filter((mod) => mod.name && mod.name !== RIVEN),
-    riven: state.riven
+    ...s,
+    level: effectiveLevel(s.level, s.steelPath, s.steelPathNodeLevel),
+    mods: s.mods.filter((mod) => mod.name && mod.name !== RIVEN),
+    riven: s.riven
       ? {
-          ...state.riven,
-          roll: state.rivenRoll,
-          rank: state.rivenRank,
-          ...(state.rivenDrain !== undefined && state.rivenDrain !== null ? { drain: state.rivenDrain } : {}),
-          ...(state.rivenPolarity ? { polarity: state.rivenPolarity } : {}),
+          ...s.riven,
+          roll: s.rivenRoll,
+          rank: s.rivenRank,
+          ...(s.rivenDrain !== undefined && s.rivenDrain !== null ? { drain: s.rivenDrain } : {}),
+          ...(s.rivenPolarity ? { polarity: s.rivenPolarity } : {}),
         }
       : null,
     kills: findKills(),
@@ -1851,24 +1862,60 @@ async function recalc() {
 
 /** ---------- compare ---------- */
 
+const COMPARE_KEY = 'wfcalc.compareB';
+let compareB = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(COMPARE_KEY));
+  } catch {
+    return null;
+  }
+})();
+
+/** Slot B = a full build snapshot (label + state); null means "A with the override fields". */
+function setCompareB(label, snapshot) {
+  const copy = JSON.parse(JSON.stringify(snapshot));
+  const seen = new Set();
+  // one copy of each mod, like dedupeMods does for A
+  copy.mods = (copy.mods ?? []).map((mod) => (!mod?.name || seen.has(mod.name) ? { name: '' } : (seen.add(mod.name), mod)));
+  compareB = { label, state: { ...emptyState(), ...copy } };
+  persistCompareB();
+}
+
+function persistCompareB() {
+  if (compareB) localStorage.setItem(COMPARE_KEY, JSON.stringify(compareB));
+  else localStorage.removeItem(COMPARE_KEY);
+  renderCompareB();
+}
+
+function renderCompareB() {
+  const mods = compareB?.state.mods.filter((mod) => mod.name).length;
+  $('compare-b-source').textContent = compareB
+    ? `B: ${compareB.label} · ${compareB.state.weapon} · ${mods} mods`
+    : 'B: same build as A (use the fields below to change it)';
+  $('compare-swap').hidden = $('compare-clear').hidden = !compareB;
+  renderStageSums();
+}
+
 async function runCompare() {
   if (!state.weapon) {
     $('compare-out').innerHTML = '<p class="hint">Pick a weapon in Build first.</p>';
     return;
   }
-  const bMods = parseNameList($('b-mods').value);
-  const bWeapon = $('b-weapon').value.trim() || state.weapon;
+  const bState = compareB?.state ?? state;
+  const bMods = parseFixed($('b-mods').value);
+  const bWeapon = $('b-weapon').value.trim() || bState.weapon;
   const bElement = parseElementBonus($('b-element').value);
   const bArcane = $('b-arcane').value.trim();
+  const bBase = buildPayload({ contributions: false }, bState);
 
   const [a, b] = await Promise.all([
     postCalc(buildPayload({ contributions: false })),
     postCalc({
-      ...buildPayload({ contributions: false }),
+      ...bBase,
       weapon: bWeapon,
-      mods: bMods.length ? bMods : buildPayload().mods,
-      elementBonus: $('b-element').value.trim() ? bElement : state.elementBonus,
-      arcanes: bArcane ? [{ name: bArcane }] : state.arcanes,
+      mods: bMods.length ? bMods : bBase.mods,
+      elementBonus: $('b-element').value.trim() ? bElement : bState.elementBonus,
+      arcanes: bArcane ? [{ name: bArcane }] : bState.arcanes,
     }),
   ]);
 
@@ -2323,6 +2370,7 @@ function renderSaved() {
             </div>
             <div class="saved-actions">
               <button data-load="${index}" class="ghost">load</button>
+              <button data-compare="${index}" class="ghost">compare</button>
               <button data-delete="${index}" class="ghost danger">delete</button>
             </div>
           </div>`,
@@ -2339,6 +2387,15 @@ function renderSaved() {
       syncInputs();
       showTab('build');
       recalc();
+    };
+  }
+  for (const button of $('saved-list').querySelectorAll('[data-compare]')) {
+    button.onclick = () => {
+      const entry = loadLibrary()[Number(button.dataset.compare)];
+      if (!entry) return;
+      setCompareB(entry.name, entry.state);
+      showTab('compare');
+      runCompare();
     };
   }
   for (const button of $('saved-list').querySelectorAll('[data-delete]')) {
@@ -2379,6 +2436,11 @@ const TIPS = {
   'setting-gpu': 'Run the brute force on this device\'s GPU through WebGPU. Off: the server\'s CPU threads do it.',
   'ability-run': 'Price one cast of the ability against the target.',
   'compare-run': 'Compare build A (the Build tab) with B.',
+  'copy-mods': 'Copy the mod names (with :R ranks) to paste into the B: mods field on the Compare tab.',
+  'set-as-b': 'Use this build as slot B on the Compare tab.',
+  'compare-swap': 'Make B the current build and the current build B.',
+  'compare-clear': 'Forget B: it is the current build again, plus the fields below.',
+  'compare-link': 'Paste a share link (the Build tab\'s "copy link") to use that build as B.',
   'residual-element': 'The Residual Arcane zone you stand in: Theorem Demulcent adds up to +180% of its element, combined with your elemental mods like one more element mod.',
   'surge-shot': 'Secondary Surge: Energy built up for the next shot after a cast (+0.5% damage per point, up to x8 at 1,400). Empty: off; the arcane only buffs that one shot, so "all" stacks never assume it.',
   'sliding': 'Sliding or aim gliding: turns on "while sliding" effects (Akimbo Slip Shot, Felarx and Laetum Incarnon Ammo Efficiency). Like aiming, "all" stacks never assume it.',
@@ -2868,6 +2930,46 @@ function bindEvents() {
   });
 
   $('compare-run').onclick = runCompare;
+  $('copy-mods').onclick = async () => {
+    const list = state.mods.filter((mod) => mod.name && mod.name !== RIVEN).map((mod) => (mod.rank !== undefined ? `${mod.name}:R${mod.rank}` : mod.name)).join(', ');
+    try {
+      await navigator.clipboard.writeText(list);
+      $('copy-mods').textContent = 'copied';
+      setTimeout(() => ($('copy-mods').textContent = 'copy mods'), 1200);
+    } catch {
+      prompt('Copy these mods', list);
+    }
+  };
+  $('set-as-b').onclick = () => {
+    setCompareB('current build', state);
+    $('set-as-b').textContent = 'set';
+    setTimeout(() => ($('set-as-b').textContent = 'set as B'), 1200);
+  };
+  $('compare-clear').onclick = () => {
+    compareB = null;
+    persistCompareB();
+  };
+  $('compare-swap').onclick = () => {
+    if (!compareB) return;
+    const previousA = JSON.parse(JSON.stringify(state));
+    state = { ...compareB.state };
+    setCompareB('previous A', previousA);
+    dedupeMods();
+    syncInputs();
+    recalc();
+    runCompare();
+  };
+  $('compare-link').onchange = () => {
+    const pasted = decodeState($('compare-link').value);
+    $('compare-link').value = '';
+    if (!pasted) {
+      $('compare-out').innerHTML = '<p class="error">That is not a wfcalc share link.</p>';
+      return;
+    }
+    setCompareB('shared link', pasted);
+    runCompare();
+  };
+  renderCompareB();
 
   $('save-build').onclick = () => {
     const name = prompt('Name this build', `${state.weapon} ${new Date().toLocaleDateString()}`);

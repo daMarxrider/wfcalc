@@ -337,6 +337,8 @@
     <div class="actions">
       <button id="save-build" class="primary">save build</button>
       <button id="share" class="ghost">copy link</button>
+      <button id="copy-mods" class="ghost">copy mods</button>
+      <button id="set-as-b" class="ghost">set as B</button>
     </div>
   </section>
 
@@ -571,7 +573,7 @@
 <main id="tab-compare" class="tab-panel">
   <section class="panel wide find-panel">
     <div class="panel-head"><h2>Compare</h2></div>
-    <p class="hint">A is the current build. Leave a field empty in B to reuse A's value.</p>
+    <p class="hint">A is the current build. B is a whole build: send one from the Saved tab, the Build tab (“set as B”) or paste a share link. A field filled in below overrides that part of B; empty fields keep B's value.</p>
     <div class="card stages">
       <details class="stage ">
         <summary><span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span class="txt"><span class="tt">A · Current build</span><span class="vv" id="cmp-a-sum"></span></span></summary>
@@ -583,12 +585,19 @@
       <details class="stage " open>
         <summary><span class="ic"><svg class="i"><use href="#i-swap"/></svg></span><span class="txt"><span class="tt">B · Alternative</span><span class="vv" data-sum="b-weapon,b-mods,b-element,b-arcane"></span></span></summary>
         <div class="fields">
+          <div class="full stack-row">
+            <span id="compare-b-source" class="field-label"></span>
+            <button id="compare-swap" type="button" class="ghost" hidden>swap A↔B</button>
+            <button id="compare-clear" type="button" class="ghost" hidden>clear</button>
+          </div>
+          <label class="field full"><span>Paste share link</span>
+            <input id="compare-link" placeholder="https://…#eyJ…" autocomplete="off" /></label>
           <label class="field"><span>Weapon</span>
             <input id="b-weapon" placeholder="same as A" autocomplete="off" list="weapon-list" /></label>
           <label class="field"><span>Arcane</span>
             <input id="b-arcane" placeholder="same as A" autocomplete="off" list="arcane-list" /></label>
           <label class="field full"><span>Mods (slot order)</span>
-            <input id="b-mods" placeholder="Serration, Split Chamber, Vital Sense" autocomplete="off" /></label>
+            <input id="b-mods" placeholder="Serration:R10, Split Chamber, Vital Sense" autocomplete="off" /></label>
           <label class="field"><span>Element bonus</span>
             <input id="b-element" placeholder="heat:60" autocomplete="off" /></label>
         </div>
