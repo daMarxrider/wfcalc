@@ -40,11 +40,13 @@ body {
 .sprite { position: absolute; width: 0; height: 0; }
 svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
+/* Perf: backdrop-filter only where content scrolls underneath (run dock, menus); the sticky context strip is near-opaque instead, Firefox re-blurs a sticky bar on every scroll frame. On panels
+   and the side nav the blur sat over a plain gradient, changed nothing visible and cost 3x the frame time in Chrome. */
 /* ── shell: side nav (desktop) / tab bar (phone), context strip on top of every tab */
 .app { display: grid; grid-template-columns: var(--nav-w) minmax(0, 1fr); min-height: 100vh; }
 .sidenav {
   position: sticky; top: 0; height: 100vh; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 0;
-  border-right: 1px solid var(--border); background: rgb(var(--surf) / .55); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  border-right: 1px solid var(--border); background: rgb(var(--surf) / .55);
 }
 .sidenav .sp { flex: 1; }
 .brand { font-weight: 800; font-size: 15px; letter-spacing: .02em; color: var(--accent); margin-bottom: 14px; }
@@ -58,7 +60,7 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 .main { min-width: 0; }
 .ctx {
   position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 8px; padding: 10px 28px; overflow-x: auto; white-space: nowrap;
-  border-bottom: 1px solid var(--border); background: rgb(var(--surf) / .7); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+  border-bottom: 1px solid var(--border); background: rgb(var(--surf) / .94);
 }
 .cx {
   display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 99px; font-size: 13px; color: var(--text);
@@ -75,7 +77,7 @@ main {
 }
 .panel {
   background: linear-gradient(180deg, rgb(var(--ov) / .06), rgb(var(--ov) / .02) 40%, rgb(var(--ov) / .015));
-  backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass);
+
   border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; min-width: 0;
   box-shadow: inset 0 1px 0 rgb(var(--ov) / .06), var(--shadow);
 }
@@ -832,7 +834,7 @@ label[title] > span:first-child, label.stack[title], .toggles label[title] { tex
 }
 
 /* ═════════ Deck components ═════════ */
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
 .find-panel { background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; padding: 0; display: flex; flex-direction: column; gap: 18px; }
 .find-panel > .hint { margin: -10px 0 0; max-width: 68ch; }
 .find-panel > .panel-head { margin: 0; }

@@ -103,7 +103,7 @@ function modCardMarkup(mod, options = {}) {
       ${mod.isExilus ? '<span class="mcard-exilus" title="Exilus mod: only fits the Exilus slot">exilus</span>' : ''}
       <span class="mcard-drain">${drain}<i class="polarity" style="color:${polarityColor(mod.polarity)}">${glyph(mod.polarity)}</i></span>
       <figure class="mcard-image">
-        ${mod.image ? `<img src="${imgUrl(mod.image)}" alt="" loading="lazy" draggable="false" onerror="this.style.display='none'" />` : ''}
+        ${mod.image ? `<img src="${imgUrl(mod.image)}" alt="" loading="lazy" decoding="async" draggable="false" onerror="this.style.display='none'" />` : ''}
       </figure>
       <div class="mcard-text">
         <b>${mod.name}</b>
@@ -621,7 +621,7 @@ async function renderIncarnonPicker({ weaponChanged = false } = {}) {
   const picked = new Set(picks.map((entry) => chosenOption(entry, options)).filter(Boolean));
   const tiers = [...new Set(options.map((option) => option.tier))];
   const card = (attributes, image, label, selected, title) => `<button type="button" class="evo-option${selected ? ' selected' : ''}" aria-pressed="${selected}" title="${escapeHtml(title)}" ${attributes}>
-      ${image ? `<img src="${cardUrl(image)}" alt="" loading="lazy" />` : '<span class="evo-glyph" aria-hidden="true">✦</span>'}
+      ${image ? `<img src="${cardUrl(image)}" alt="" loading="lazy" decoding="async" />` : '<span class="evo-glyph" aria-hidden="true">✦</span>'}
       <span>${escapeHtml(label)}</span></button>`;
   box.innerHTML = `
     <div class="evo-row"><span class="evo-tier">Form</span><div class="evo-options">
@@ -952,7 +952,7 @@ function showPreview(modName, event) {
   if (!mod || !bubble) return;
   const drain = (mod.baseDrain ?? 0) + (mod.maxRank ?? 0);
   bubble.innerHTML = `
-    ${mod.card ? `<img src="${cardUrl(mod.card)}" alt="" />` : ''}
+    ${mod.card ? `<img src="${cardUrl(mod.card)}" alt="" decoding="async" />` : ''}
     <div class="pv-body">
       <div class="pv-title"><span class="polarity" style="color:${polarityColor(mod.polarity)}">${glyph(mod.polarity)}</span>${mod.name}</div>
       <div class="pv-text">${(mod.description || '').replace(/\n/g, '<br>')}</div>
