@@ -616,7 +616,7 @@ function renderStageSums() {
   const bMods = $('b-mods').value.split(',').filter((name) => name.trim()).length;
   dock('compare-sum', [
     ['A', `${state.weapon || '—'} · current`],
-    ['B', `${$('b-weapon').value.trim() || 'same weapon'} · ${bMods ? `${bMods} mod${bMods === 1 ? '' : 's'}` : 'A\'s mods'}`],
+    ['B', compareB && !bMods && !$('b-weapon').value.trim() ? compareB.label : `${$('b-weapon').value.trim() || compareB?.state.weapon || 'same weapon'} · ${bMods ? `${bMods} mod${bMods === 1 ? '' : 's'}` : compareB ? compareB.label : 'A\'s mods'}`],
   ]);
   dock('riven-sum', [['Weapon', state.weapon || '—'], ['Goal', text('riven-objective')]]);
 }
@@ -1893,6 +1893,7 @@ function renderCompareB() {
     ? `B: ${compareB.label} · ${compareB.state.weapon} · ${mods} mods`
     : 'B: same build as A (use the fields below to change it)';
   $('compare-swap').hidden = $('compare-clear').hidden = !compareB;
+  renderStageSums();
 }
 
 async function runCompare() {
