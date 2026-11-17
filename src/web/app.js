@@ -103,7 +103,7 @@ function modCardMarkup(mod, options = {}) {
       ${mod.isExilus ? '<span class="mcard-exilus" title="Exilus mod: only fits the Exilus slot">exilus</span>' : ''}
       <span class="mcard-drain">${drain}<i class="polarity" style="color:${polarityColor(mod.polarity)}">${glyph(mod.polarity)}</i></span>
       <figure class="mcard-image">
-        ${mod.image ? `<img src="${imgUrl(mod.image)}" alt="" loading="lazy" draggable="false" onerror="this.style.display='none'" />` : ''}
+        ${mod.image ? `<img src="${imgUrl(mod.image)}" alt="" loading="lazy" decoding="async" draggable="false" onerror="this.style.display='none'" />` : ''}
       </figure>
       <div class="mcard-text">
         <b>${mod.name}</b>
@@ -516,7 +516,85 @@ function showTab(name) {
   }
   for (const panel of document.querySelectorAll('.tab-panel')) panel.classList.toggle('active', panel.id === `tab-${name}`);
   if (name === 'find') renderFindForm();
+  renderContext();
+  renderStageSums();
   if (name === 'riven') renderRivenTab();
+}
+
+/**
+ * The board backdrop is the weapon art, blurred. Chrome blurs it with a CSS filter; Firefox repaints a
+ * filtered full-board layer on every scroll frame, so there the art is blurred once into a small canvas.
+ * If the canvas is unusable (art from another origin) the CSS blur stays.
+ */
+let silhouetteToken = 0;
+async function setSilhouette(board, art) {
+  const token = ++silhouetteToken;
+  board.classList.remove('soft-art');
+  board.style.setProperty('--silhouette', art ? `url("${art}")` : 'none');
+  if (!art || document.documentElement.dataset.engine !== 'firefox') return;
+  try {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.src = art;
+    await image.decode();
+    const side = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = side;
+    const ctx = canvas.getContext('2d');
+    ctx.filter = 'blur(2.5px) brightness(0.45) saturate(0.7)';
+    const scale = (side * 0.8) / Math.max(image.naturalWidth, image.naturalHeight);
+    const w = image.naturalWidth * scale;
+    const h = image.naturalHeight * scale;
+    ctx.drawImage(image, (side - w) / 2, (side - h) / 2, w, h);
+    const url = canvas.toDataURL('image/png');
+    if (token !== silhouetteToken) return;
+    board.style.setProperty('--silhouette', `url("${url}")`);
+    board.classList.add('soft-art');
+  } catch { /* keep the CSS blur */ }
+}
+
+/** Theme: the inline script in index.html sets it before first paint; this wires the Settings picker. */
+function initTheme() {
+  const current = document.documentElement.dataset.theme || 'dark';
+  for (const radio of document.querySelectorAll('input[name="theme"]')) {
+    radio.checked = radio.value === current;
+    radio.addEventListener('change', () => {
+      document.documentElement.dataset.theme = radio.value;
+      try { localStorage.setItem('wfcalc-theme', radio.value); } catch { /* private mode: the choice lasts for this visit */ }
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', getComputedStyle(document.body).backgroundColor);
+    });
+  }
+}
+
+/** Context strip: what Build holds, shown on every tab. */
+function renderContext() {
+  const mods = state.mods.filter((mod) => mod?.name).length;
+  $('ctx-weapon').textContent = state.weapon || 'No weapon';
+  $('ctx-target').textContent = `${state.enemy || 'No enemy'} L${state.level}${state.steelPath ? ' · SP' : ''}`;
+  $('ctx-mods').textContent = `${mods} mod${mods === 1 ? '' : 's'}`;
+}
+
+/** A stage row shows its current value: data-sum="id[:prefix],…" lists the inputs it reads. */
+function renderStageSums() {
+  for (const el of document.querySelectorAll('[data-sum]')) {
+    el.textContent = el.dataset.sum.split(',').filter(Boolean).map((entry) => {
+      const [id, prefix = ''] = entry.split(':');
+      const input = $(id);
+      if (!input) return '';
+      if (input.type === 'checkbox') return input.checked ? prefix : '';
+      const text = input.tagName === 'SELECT' ? input.selectedOptions[0]?.textContent : input.value.trim();
+      return text ? prefix + text : '';
+    }).filter(Boolean).join(' · ') || 'default';
+  }
+  const text = (id) => $(id).tagName === 'SELECT' ? $(id).selectedOptions[0]?.textContent : $(id).value.trim();
+  const method = { search: 'Quick search', bruteforce: 'Brute force', parts: 'Modular parts' }[findMethod()];
+  const sp = $('find-sp').checked ? ' · SP' : '';
+  const rows = [
+    ['Target', `${findMethod() === 'parts' ? text('parts-kind') : $('find-weapon').value.trim() || state.weapon || '—'} · L${$('find-level').value}${sp}`],
+    ['Goal', `${text('find-objective')} ×${$('find-kills').value}`],
+    ['Search', method],
+  ];
+  $('find-sum').innerHTML = rows.map(([k, v]) => `<div>${k}<b>${escapeHtml(v)}</b></div>`).join('');
 }
 
 /** ---------- Incarnon evolutions ---------- */
@@ -575,7 +653,7 @@ async function renderIncarnonPicker({ weaponChanged = false } = {}) {
   const picked = new Set(picks.map((entry) => chosenOption(entry, options)).filter(Boolean));
   const tiers = [...new Set(options.map((option) => option.tier))];
   const card = (attributes, image, label, selected, title) => `<button type="button" class="evo-option${selected ? ' selected' : ''}" aria-pressed="${selected}" title="${escapeHtml(title)}" ${attributes}>
-      ${image ? `<img src="${cardUrl(image)}" alt="" loading="lazy" />` : '<span class="evo-glyph" aria-hidden="true">✦</span>'}
+      ${image ? `<img src="${cardUrl(image)}" alt="" loading="lazy" decoding="async" />` : '<span class="evo-glyph" aria-hidden="true">✦</span>'}
       <span>${escapeHtml(label)}</span></button>`;
   box.innerHTML = `
     <div class="evo-row"><span class="evo-tier">Form</span><div class="evo-options">
@@ -906,7 +984,7 @@ function showPreview(modName, event) {
   if (!mod || !bubble) return;
   const drain = (mod.baseDrain ?? 0) + (mod.maxRank ?? 0);
   bubble.innerHTML = `
-    ${mod.card ? `<img src="${cardUrl(mod.card)}" alt="" />` : ''}
+    ${mod.card ? `<img src="${cardUrl(mod.card)}" alt="" decoding="async" />` : ''}
     <div class="pv-body">
       <div class="pv-title"><span class="polarity" style="color:${polarityColor(mod.polarity)}">${glyph(mod.polarity)}</span>${mod.name}</div>
       <div class="pv-text">${(mod.description || '').replace(/\n/g, '<br>')}</div>
@@ -1441,7 +1519,7 @@ function renderWeaponMeta(result) {
   // The weapon's artwork, blurred, becomes the board's backdrop.
   const board = document.querySelector('.board');
   if (board) {
-    board.style.setProperty('--silhouette', art ? `url("${art}")` : 'none');
+    void setSilhouette(board, art);
   }
   // The weapon's flavour text, the way the game prints it under the build name.
   const description = String(meta?.description ?? '').trim();
@@ -1740,6 +1818,7 @@ async function postCalc(payload) {
 
 async function recalc() {
   saveToUrl();
+  renderContext();
   if (!state.weapon) {
     $('stats').innerHTML = '<p class="hint">Pick a weapon to start.</p>';
     for (const id of ['weapon-summary', 'damage-bars', 'contributions', 'target-report', 'notes']) $(id).innerHTML = '';
@@ -1817,6 +1896,7 @@ function renderFindMethod() {
   $('find-must-label').textContent = brute ? 'Fixed mods (always kept, :R3 for a rank)' : 'Must include';
   $('find-run').textContent = brute ? 'brute force' : parts ? 'find parts' : 'search';
   $('find-sp-box').classList.toggle('on', $('find-sp').checked);
+  renderStageSums();
 }
 
 /** "Serration, Hunter Munitions:R3" -> [{ name, rank? }] */
@@ -2501,6 +2581,10 @@ function bindEvents() {
   eventsBound = true;
   for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => showTab(tab.dataset.tab);
   void initSettings();
+  initTheme();
+  $('tab-find').addEventListener('input', renderStageSums);
+  $('tab-find').addEventListener('change', renderStageSums);
+  for (const chip of document.querySelectorAll('[data-go]')) chip.onclick = () => showTab(chip.dataset.go);
   $('riven-run').addEventListener('click', () => void runRivenPicker());
   // Picking a datalist entry fires only `input` in Firefox and mobile browsers; blurring commits it as `change`.
   document.addEventListener('input', (event) => {

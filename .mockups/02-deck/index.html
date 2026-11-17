@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>wfcalc · UI mockup 02 · Deck</title>
+<style>
+/* ═════════ tokens: the existing gold + glass palette ═════════ */
+:root{
+  --bg:#09090b; --panel:rgba(255,255,255,.04); --panel-2:rgba(255,255,255,.065); --panel-3:rgba(255,255,255,.1);
+  --text:#efede8; --muted:#a39f96; --accent:#e8b25e; --accent-dim:#7a5a2a; --accent-ink:#1a1408;
+  --border:rgba(255,255,255,.09); --border-strong:rgba(255,255,255,.18);
+  --ok:#7cc68a; --warn:#e8b25e; --bad:#ee8089;
+  --r:16px; --r-s:10px; --ease:cubic-bezier(.22,1,.36,1); --glass:blur(18px) saturate(140%);
+  --rail:84px; --nav-h:64px;
+  accent-color:var(--accent); color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{scroll-padding-top:70px;caret-color:var(--accent)}
+body{margin:0;color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%;
+  background:radial-gradient(60% 40% at 10% -5%,rgba(232,178,94,.14),transparent 70%),radial-gradient(50% 45% at 100% 100%,rgba(150,52,78,.17),transparent 70%),var(--bg);background-attachment:fixed;min-height:100vh}
+::selection{background:rgba(232,178,94,.35);color:#fff}
+*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}
+input,select,button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+h1,h2,h3,h4,p{margin:0}
+.dim{color:var(--muted)} .up{color:var(--ok)} .down{color:var(--bad)} .num{font-variant-numeric:tabular-nums}
+
+/* ═════════ shell: rail (desktop) / bottom bar (phone) ═════════ */
+.app{display:grid;grid-template-columns:var(--rail) minmax(0,1fr);min-height:100vh}
+.rail{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px 0;border-right:1px solid var(--border);background:rgba(10,10,12,.55);backdrop-filter:var(--glass)}
+.logo{font-weight:800;letter-spacing:.02em;color:var(--accent);font-size:15px;margin-bottom:14px}
+.nav{display:flex;flex-direction:column;align-items:center;gap:3px;width:68px;padding:9px 0 7px;border-radius:12px;border:0;background:0;color:var(--muted);font-size:11.5px;cursor:pointer;transition:background .25s var(--ease),color .2s}
+.nav:hover{color:var(--text);background:var(--panel-2)}
+.nav[aria-current=page]{color:var(--accent);background:rgba(232,178,94,.1)}
+.rail .sp{flex:1}
+
+.main{min-width:0;display:flex;flex-direction:column}
+
+/* context strip: what every tab works on. Tapping a chip jumps to Build */
+.ctx{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:8px;padding:10px 28px;border-bottom:1px solid var(--border);background:rgba(10,10,12,.7);backdrop-filter:var(--glass);overflow-x:auto;white-space:nowrap}
+.ctx .brand{display:none;font-weight:800;color:var(--accent);margin-right:6px}
+.cx{display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 10px;border-radius:99px;background:var(--panel-2);border:1px solid var(--border);font-size:13px;cursor:pointer;color:var(--text);transition:border-color .2s,background .2s}
+.cx:hover{border-color:var(--border-strong);background:var(--panel-3)}
+.cx svg.i{width:16px;height:16px;color:var(--accent)}
+.cx small{color:var(--muted);font-size:12px}
+.ctx .hint{margin-left:auto;color:var(--muted);font-size:12px}
+
+.page{width:100%;max-width:1240px;margin:0 auto;padding:28px 28px 40px;display:flex;flex-direction:column;gap:20px}
+.head h1{font-size:30px;line-height:1.1;letter-spacing:-.02em;font-weight:700;text-wrap:balance}
+.head p{color:var(--muted);margin-top:6px;max-width:64ch;text-wrap:pretty}
+.view{display:none}.view.on{display:flex;flex-direction:column;gap:20px;animation:in .5s var(--ease)}
+@keyframes in{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ═════════ surfaces ═════════ */
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);backdrop-filter:var(--glass)}
+.pad{padding:18px 20px}
+.sec-title{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:650;letter-spacing:-.005em;margin-bottom:12px}
+.badge{background:var(--panel-3);border-radius:99px;padding:1px 9px;font-size:12px;color:var(--muted);font-weight:500}
+
+/* stages: one list, one row per setup topic. Row shows its current value, tap to edit. */
+.stages{padding:0;overflow:hidden}
+.stage+.stage{border-top:1px solid var(--border)}
+.stage>summary{list-style:none;display:flex;align-items:center;gap:14px;padding:16px 20px;cursor:pointer;min-height:64px;transition:background .2s}
+.stage>summary::-webkit-details-marker{display:none}
+.stage>summary:hover{background:var(--panel)}
+.stage .ic{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;background:var(--panel-2);color:var(--accent);flex:none}
+.stage .tt{font-weight:600;font-size:15.5px}
+.stage .vv{color:var(--muted);font-size:13.5px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stage .txt{min-width:0;flex:1}
+.stage .chev{width:18px;height:18px;color:var(--muted);transition:transform .35s var(--ease);flex:none}
+.stage[open]>summary .chev{transform:rotate(180deg)}
+.stage[open]>summary .vv{opacity:.0;height:0;margin:0}
+.stage .fields{padding:4px 20px 22px 72px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px 18px}
+.stage .full{grid-column:1/-1}
+.stage.opt .tt::after{content:"optional";margin-left:9px;font-size:11.5px;font-weight:500;color:var(--muted);border:1px solid var(--border);border-radius:99px;padding:1px 8px;vertical-align:1px}
+.group-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:8px}
+.group-title small{font-weight:400;color:var(--muted)}
+
+/* form controls: 44px targets */
+.f{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);min-width:0}
+.f .lb{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline}
+.f .lb b{color:var(--text);font-weight:600}
+.f .when{font-size:12px;color:var(--muted);opacity:.85}
+input[type=text],input[type=number],input:not([type]),select{background:rgba(0,0,0,.38);border:1px solid var(--border-strong);border-radius:11px;padding:0 13px;height:44px;width:100%;min-width:0;color:var(--text);transition:border-color .2s,box-shadow .2s}
+input::placeholder{color:#7d7a73}
+input:hover,select:hover{border-color:rgba(255,255,255,.3)}
+input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(232,178,94,.2)}
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a39f96' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center;background-size:16px;padding-right:36px}
+input[type=range]{height:44px;padding:0;background:none;border:0;box-shadow:none}
+.switch{display:flex;align-items:center;gap:12px;min-height:44px;font-size:14px;color:var(--text);cursor:pointer}
+.switch small{color:var(--muted);font-size:12.5px}
+.switch input{appearance:none;flex:none;width:42px;height:24px;border-radius:99px;background:var(--panel-3);border:1px solid var(--border-strong);position:relative;cursor:pointer;transition:background .25s var(--ease)}
+.switch input::after{content:"";position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#cfcbc2;transition:transform .3s var(--ease),background .2s}
+.switch input:checked{background:var(--accent);border-color:var(--accent)}
+.switch input:checked::after{transform:translateX(18px);background:var(--accent-ink)}
+.switch span{display:flex;flex-direction:column}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--panel-2);border-radius:12px;padding:3px;gap:3px}
+.seg button{border:0;background:0;border-radius:9px;min-height:40px;padding:0 12px;color:var(--muted);cursor:pointer;font-size:14px;transition:background .25s var(--ease),color .2s}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--panel-3);color:var(--text);box-shadow:0 1px 0 rgba(255,255,255,.08) inset}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;min-height:36px;border:1px solid var(--border-strong);border-radius:99px;padding:0 14px;font-size:13.5px;color:var(--muted);background:var(--panel);cursor:pointer;transition:all .2s}
+.chip:hover{color:var(--text)}
+.chip.on{border-color:var(--accent);color:var(--accent);background:rgba(232,178,94,.1)}
+.chip.fix{border-style:dashed}
+.help{font-size:13px;color:var(--muted);max-width:68ch;text-wrap:pretty}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border-radius:11px;border:1px solid var(--border-strong);background:var(--panel);cursor:pointer;font-size:14px;font-weight:550;transition:background .2s,transform .25s var(--ease),border-color .2s}
+.btn:hover{background:var(--panel-3);transform:translateY(-1px)}
+.btn:active{transform:translateY(1px)}
+.btn.p{border-color:var(--accent);color:var(--accent)}
+.btn.sm{min-height:38px;padding:0 14px;font-size:13px}
+.btn.bad{color:var(--bad)}
+.go{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:50px;padding:0 30px;border:0;border-radius:13px;background:var(--accent);color:var(--accent-ink);font-weight:750;font-size:16px;cursor:pointer;white-space:nowrap;box-shadow:0 10px 24px -10px rgba(232,178,94,.6),0 1px 0 rgba(255,255,255,.35) inset;transition:transform .25s var(--ease),filter .2s}
+.go:hover{filter:brightness(1.08);transform:translateY(-1px)}
+.go:active{transform:translateY(1px)}
+.go.stop{background:var(--panel-3);color:var(--text);box-shadow:none;border:1px solid var(--border-strong)}
+
+/* method tiles (Find) */
+.methods{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.method{display:flex;gap:14px;align-items:flex-start;text-align:left;padding:16px 18px;border-radius:var(--r);border:1px solid var(--border);background:var(--panel);cursor:pointer;transition:border-color .25s,background .25s,transform .3s var(--ease)}
+.method:hover{transform:translateY(-2px);border-color:var(--border-strong)}
+.method .ic{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--panel-2);color:var(--muted);flex:none;transition:all .25s}
+.method b{display:block;font-size:16px}
+.method span.d{display:block;color:var(--muted);font-size:13px;margin-top:2px;line-height:1.4}
+.method[aria-pressed=true]{border-color:var(--accent);background:rgba(232,178,94,.09)}
+.method[aria-pressed=true] .ic{background:var(--accent);color:var(--accent-ink)}
+.method[aria-pressed=true] b{color:var(--accent)}
+
+/* run dock: what will run + the one button. Sticky at the bottom on every size. */
+.dock{position:sticky;bottom:16px;z-index:20;display:flex;align-items:center;gap:18px;padding:12px 12px 12px 22px;border-radius:20px;border:1px solid var(--border-strong);background:rgba(20,20,23,.82);backdrop-filter:var(--glass);box-shadow:0 18px 40px -18px rgba(0,0,0,.9)}
+.dock .sum{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:2px 22px}
+.dock .sum div{font-size:12.5px;color:var(--muted);white-space:nowrap}
+.dock .sum b{color:var(--text);font-weight:600;font-size:14px;margin-left:6px}
+
+/* ═════════ results ═════════ */
+.facts{display:flex;flex-wrap:wrap;gap:0}
+.fact{padding:2px 26px 2px 0;margin-right:26px;border-right:1px solid var(--border);min-width:0}
+.fact:last-child{border:0;margin:0;padding:0}
+.fact span{display:block;font-size:13px;color:var(--muted)}
+.fact b{display:block;font-size:26px;font-weight:700;letter-spacing:-.015em;font-variant-numeric:tabular-nums;line-height:1.2}
+.fact.hot b{color:var(--accent);font-size:34px}
+.fact small{font-size:12.5px;color:var(--ok)}
+.fact small.neg{color:var(--bad)}
+
+.board{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.mod{position:relative;display:flex;flex-direction:column;gap:2px;padding:12px 14px;min-height:68px;border-radius:13px;border:1px solid var(--border);background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02));transition:transform .3s var(--ease),border-color .2s}
+.mod:hover{transform:translateY(-2px);border-color:var(--border-strong)}
+.mod b{font-size:14px;padding-right:30px;line-height:1.25}
+.mod small{font-size:12.5px;color:var(--muted)}
+.mod .dr{position:absolute;right:10px;top:10px;font-size:12px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums;background:var(--panel-2);border-radius:7px;padding:0 6px}
+.mod.hl{border-color:rgba(232,178,94,.55);background:linear-gradient(180deg,rgba(232,178,94,.16),rgba(232,178,94,.04))}
+.mod.hl .dr{color:var(--accent-ink);background:var(--accent)}
+.mod.empty{border-style:dashed;background:none;align-items:center;justify-content:center;color:var(--muted);font-size:13px}
+.mod.found{border-color:rgba(232,178,94,.55)}
+.mod .tag{font-size:11.5px;color:var(--accent)}
+.meter{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted)}
+.meter i{display:block;height:8px;width:150px;border-radius:8px;background:var(--panel-3);overflow:hidden}
+.meter i s{display:block;height:100%;background:var(--accent);border-radius:8px}
+
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th{font-size:12.5px;color:var(--muted);text-align:left;padding:10px 14px;font-weight:550;white-space:nowrap}
+td{padding:13px 14px;border-top:1px solid var(--border);white-space:nowrap}
+td:first-child,th:first-child{padding-left:20px}
+tbody tr{transition:background .2s}tbody tr:hover{background:var(--panel)}
+
+.bar{display:grid;grid-template-columns:104px 1fr 62px;gap:12px;align-items:center;font-size:13.5px;padding:5px 0}
+.bar i{display:block;height:9px;border-radius:9px;background:var(--panel-3);overflow:hidden}
+.bar i s{display:block;height:100%;background:linear-gradient(90deg,#b98a42,var(--accent));border-radius:9px}
+.bar span:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:6px 36px}
+
+.status{display:flex;gap:8px 20px;flex-wrap:wrap;font-size:13.5px;color:var(--muted);align-items:center}
+.status b{color:var(--ok);font-weight:650;display:inline-flex;gap:6px;align-items:center}
+.notes{display:flex;flex-direction:column;gap:8px;font-size:13.5px;color:var(--muted)}
+.notes li{display:flex;gap:10px;align-items:flex-start;list-style:none}
+.notes{padding:0;margin:0}
+.notes svg.i{width:17px;height:17px;margin-top:2px}
+.notes .w{color:var(--warn)}.notes .w span{color:var(--text)}
+
+.progress{height:10px;border-radius:10px;background:var(--panel-3);overflow:hidden}
+.progress i{display:block;height:100%;width:62%;border-radius:10px;background:linear-gradient(90deg,#b98a42,var(--accent));animation:pulse 1.8s ease-in-out infinite}
+@keyframes pulse{50%{filter:brightness(1.3)}}
+.live{display:flex;gap:10px 40px;flex-wrap:wrap}.live div{font-size:13px;color:var(--muted)}.live b{display:block;font-size:22px;color:var(--text);font-variant-numeric:tabular-nums}
+.callout{display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.callout h3{font-size:19px;letter-spacing:-.01em}
+.callout p{color:var(--muted);max-width:60ch;text-wrap:pretty}
+.callout.err{border-color:rgba(238,128,137,.5);background:rgba(238,128,137,.07)}
+.callout.err h3{color:var(--bad)}
+.result-head{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between}
+.result-head h3{font-size:22px;letter-spacing:-.015em;line-height:1.2}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.hero{display:flex;gap:16px;align-items:center}
+.art{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,rgba(232,178,94,.4),rgba(150,52,78,.4));border:1px solid var(--border-strong);flex:none}
+.hero h3{font-size:18px}.hero p{color:var(--muted);font-size:13.5px}
+.tools{display:flex;gap:10px;flex-wrap:wrap}.tools input{flex:1;min-width:180px}.tools select{width:auto;min-width:150px}
+.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.cols>div{background:var(--panel-2);border-radius:13px;padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+.cols h5{margin:0 0 4px;font-size:13px;font-weight:600}
+.cols label{display:flex;gap:11px;align-items:center;min-height:38px;font-size:14px;cursor:pointer}
+.cols input{appearance:none;width:20px;height:20px;border-radius:6px;border:1.5px solid var(--border-strong);background:rgba(0,0,0,.3);flex:none;display:grid;place-items:center;cursor:pointer;padding:0}
+.cols input:checked{background:var(--accent);border-color:var(--accent)}
+.cols input:checked::after{content:"";width:9px;height:5px;border-left:2px solid var(--accent-ink);border-bottom:2px solid var(--accent-ink);transform:rotate(-45deg) translate(1px,-1px)}
+.savedgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+.sv{display:flex;flex-direction:column;gap:14px}
+.sv h3{font-size:16.5px}
+
+/* mockup-only controls: not part of the design */
+.mock{display:flex;gap:10px 22px;flex-wrap:wrap;align-items:center;padding:10px 28px;border-bottom:1px dashed var(--border-strong);background:rgba(0,0,0,.35);font-size:12.5px;color:var(--muted)}
+.mock .g{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.mock b{color:var(--text);font-weight:600;margin-right:2px}
+.pill{border:1px solid var(--border-strong);background:var(--panel);color:var(--muted);border-radius:99px;min-height:30px;padding:0 13px;font-size:12.5px;cursor:pointer}
+.pill.on{border-color:var(--accent);color:var(--accent);background:rgba(232,178,94,.1)}
+
+/* method × result visibility */
+#v-find[data-m=quick] :is(.b-only,.p-only),#v-find[data-m=brute] :is(.q-only,.p-only),#v-find[data-m=parts] :is(.q-only,.b-only,.np-only){display:none!important}
+#v-find[data-r=done] :is(.r-run,.r-empty,.r-err),#v-find[data-r=running] :is(.r-done,.r-empty,.r-err),#v-find[data-r=empty] :is(.r-done,.r-run,.r-err),#v-find[data-r=error] :is(.r-done,.r-run,.r-empty){display:none!important}
+#v-find[data-r=running] .r-idle{display:none!important}
+.sheet-more{display:none}
+
+/* ═════════ phone + tablet ═════════ */
+@media (max-width:980px){
+  .board{grid-template-columns:repeat(2,1fr)}
+  .two{grid-template-columns:1fr}
+  .cols{grid-template-columns:1fr}
+}
+@media (max-width:860px){
+  :root{--rail:0px}
+  .app{display:block}
+  .rail{position:fixed;inset:auto 0 0 0;top:auto;z-index:50;height:calc(var(--nav-h) + env(safe-area-inset-bottom));flex-direction:row;justify-content:space-around;align-items:flex-start;padding:6px 6px env(safe-area-inset-bottom);border:0;border-top:1px solid var(--border-strong);background:rgba(12,12,14,.9)}
+  .logo,.rail .sp,.rail .nav.extra{display:none}
+  .nav{width:auto;flex:1;max-width:84px;padding:7px 0 5px;font-size:11.5px}
+  .nav.more{display:flex}
+  .ctx{padding:10px 16px}
+  .ctx .brand{display:block}.ctx .hint{display:none}
+  .mock{padding:10px 16px}
+  .page{padding:20px 16px calc(var(--nav-h) + 96px);gap:18px}
+  .head h1{font-size:26px}
+  .stage>summary{padding:14px 16px;gap:12px}
+  .stage .fields{padding:2px 16px 20px;grid-template-columns:1fr 1fr}
+  .stage .fields>.f{grid-column:auto}
+  .dock{position:fixed;left:10px;right:10px;bottom:calc(var(--nav-h) + 10px + env(safe-area-inset-bottom));padding:10px 10px 10px 16px;gap:12px;border-radius:18px;z-index:40}
+  .dock .sum{flex-direction:column;gap:0;flex-wrap:nowrap;overflow:hidden}
+  .dock .sum div{overflow:hidden;text-overflow:ellipsis}
+  .dock .sum div:nth-child(n+3){display:none}
+  .go{padding:0 22px}
+  .fact{padding-right:18px;margin-right:18px}
+  .fact.hot b{font-size:30px}.fact b{font-size:22px}
+  .facts{gap:14px 0}
+  .sheet-more{position:fixed;right:10px;bottom:calc(var(--nav-h) + 12px + env(safe-area-inset-bottom));z-index:60;flex-direction:column;gap:2px;padding:6px;border-radius:16px;border:1px solid var(--border-strong);background:rgba(20,20,23,.96);backdrop-filter:var(--glass);box-shadow:0 18px 40px -12px #000}
+  .sheet-more.open{display:flex}
+  .sheet-more .nav{flex-direction:row;gap:12px;width:180px;max-width:none;max-height:none;padding:12px 14px;font-size:14.5px;justify-content:flex-start}
+  .stage-dock-pad{height:0}
+  .bar{grid-template-columns:84px 1fr 54px}
+}
+@media (max-width:860px){
+  .methods{gap:8px}
+  .method{flex-direction:column;align-items:center;text-align:center;padding:14px 8px 12px;gap:8px}
+  .method .d{display:none!important}
+  .method b{font-size:14.5px}
+  .actions .btn{flex:1 1 auto}
+}
+@media (max-width:520px){
+  .stage .fields{grid-template-columns:1fr}
+  .stage .full{grid-column:auto}
+  .board{gap:8px}
+  .mod{padding:11px 12px}
+  .sec-title{font-size:16px}
+  .fact{border:0;margin:0;padding:0;flex:1 1 40%}
+  .facts{gap:16px 12px}
+  .result-head h3{font-size:20px}
+  .dock .go{min-height:48px}
+  .tools select{flex:1}
+}
+@media (min-width:861px){.nav.more{display:none}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-build" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 17.5h7M17.5 14v7"/></symbol>
+    <symbol id="i-find" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 22c4 0 7-2.8 7-6.6 0-3-1.8-4.7-3.2-6.4C14.6 7.600 14 6 14 4c-3 1.600-5 4.600-5 7.600-1-.4-1.600-1.200-2-2.200C5.600 11 5 12.800 5 15.400 5 19.200 8 22 12 22Z"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1Z"/></symbol>
+    <symbol id="i-gem" viewBox="0 0 24 24"><path d="m6 3-4 6 10 12L22 9l-4-6Z"/><path d="M2 9h20M10 3l-2 6 4 12 4-12-2-6"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.400 15a1.700 1.700 0 0 0 .3 1.800l.1.1a2 2 0 1 1-2.800 2.800l-.1-.1a1.700 1.700 0 0 0-1.800-.3 1.700 1.700 0 0 0-1 1.500V21a2 2 0 1 1-4 0v-.1a1.700 1.700 0 0 0-1.100-1.500 1.700 1.700 0 0 0-1.800.3l-.1.1a2 2 0 1 1-2.800-2.800l.1-.1a1.700 1.700 0 0 0 .3-1.800 1.700 1.700 0 0 0-1.500-1H3a2 2 0 1 1 0-4h.1a1.700 1.700 0 0 0 1.500-1.100 1.700 1.700 0 0 0-.3-1.800l-.1-.1a2 2 0 1 1 2.800-2.800l.1.1a1.700 1.700 0 0 0 1.800.3H9a1.700 1.700 0 0 0 1-1.500V3a2 2 0 1 1 4 0v.1a1.700 1.700 0 0 0 1 1.500 1.700 1.700 0 0 0 1.800-.3l.1-.1a2 2 0 1 1 2.800 2.800l-.1.100a1.700 1.700 0 0 0-.3 1.800V9a1.700 1.700 0 0 0 1.500 1H21a2 2 0 1 1 0 4h-.1a1.700 1.700 0 0 0-1.500 1Z"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.500 4.500 4.500L19 7.500"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h0"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h0"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.700 6.300a4 4 0 0 0-5 5L3 18l3 3 6.700-6.700a4 4 0 0 0 5-5l-2.700 2.700-2.500-.5-.5-2.500Z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.300"/><circle cx="12" cy="12" r="1.300"/><circle cx="19" cy="12" r="1.300"/></symbol>
+    <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5.500 9.500A2 2 0 0 0 6.200 21h11.600a2 2 0 0 0 1.700-2.500L14 9V3"/><path d="M7.500 15h9"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7z"/><path d="m3 7 9 5 9-5M12 12v10"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  </defs>
+</svg>
+
+<div class="app">
+
+  <!-- ═════ nav: rail on desktop, bottom bar on phone ═════ -->
+  <nav class="rail" aria-label="Sections">
+    <div class="logo">wfcalc</div>
+    <button class="nav" data-v="build"><svg class="i"><use href="#i-build"/></svg>Build</button>
+    <button class="nav" data-v="find"><svg class="i"><use href="#i-find"/></svg>Find</button>
+    <button class="nav extra" data-v="abilities"><svg class="i"><use href="#i-bolt"/></svg>Abilities</button>
+    <button class="nav" data-v="compare"><svg class="i"><use href="#i-swap"/></svg>Compare</button>
+    <button class="nav" data-v="saved"><svg class="i"><use href="#i-save"/></svg>Saved</button>
+    <button class="nav extra" data-v="riven"><svg class="i"><use href="#i-gem"/></svg>Riven</button>
+    <div class="sp"></div>
+    <button class="nav extra" data-v="settings"><svg class="i"><use href="#i-gear"/></svg>Settings</button>
+    <button class="nav more" id="moreBtn" aria-expanded="false"><svg class="i"><use href="#i-more"/></svg>More</button>
+  </nav>
+  <div class="sheet-more" id="more">
+    <button class="nav" data-v="abilities"><svg class="i"><use href="#i-bolt"/></svg>Abilities</button>
+    <button class="nav" data-v="riven"><svg class="i"><use href="#i-gem"/></svg>Riven</button>
+    <button class="nav" data-v="settings"><svg class="i"><use href="#i-gear"/></svg>Settings</button>
+  </div>
+
+  <div class="main">
+    <!-- the shared context, on every tab. Tap a chip to edit it in Build. -->
+    <div class="ctx">
+      <span class="brand">wfcalc</span>
+      <button class="cx" data-go="build" aria-label="Weapon: Coda Hema, edit in Build"><svg class="i"><use href="#i-target"/></svg>Coda Hema</button>
+      <button class="cx" data-go="build" aria-label="Target: Heavy Gunner level 150, edit in Build"><svg class="i"><use href="#i-cube"/></svg>Heavy Gunner <small>L150</small></button>
+      <button class="cx" data-go="build" aria-label="8 mods, 59 of 60 capacity, edit in Build"><svg class="i"><use href="#i-layers"/></svg>8 mods <small>59/60</small></button>
+      <span class="hint">Every tab uses what Build holds</span>
+    </div>
+
+    <div class="mock">
+      <span><b>Mockup 02 · Deck.</b> Switch states here (not part of the design):</span>
+      <div class="g" id="mockFind" hidden><b>Method</b><button class="pill" data-m="quick">Quick</button><button class="pill" data-m="brute">Brute force</button><button class="pill" data-m="parts">Parts</button>
+        <b style="margin-left:10px">Result</b><button class="pill" data-r="done">Done</button><button class="pill" data-r="running">Running</button><button class="pill" data-r="empty">Nothing found</button><button class="pill" data-r="error">Error</button></div>
+      <div class="g" id="mockOther">Pick the Find tab to switch method and result states.</div>
+    </div>
+
+    <main class="page">
+
+<!-- ═══════════════════════ BUILD ═══════════════════════ -->
+<section class="view" id="v-build">
+  <div class="head"><h1>Build</h1><p>Set the weapon, the target and the mods. Everything the other tabs use is set here.</p></div>
+
+  <div class="card pad">
+    <div class="result-head" style="margin-bottom:18px">
+      <div class="hero"><div class="art"></div><div><h3>Coda Hema</h3><p>Rifle · Burst · Viral · Adversary +60% Heat</p></div></div>
+      <div class="actions"><button class="btn p"><svg class="i"><use href="#i-save"/></svg>Save build</button><button class="btn" data-go="find"><svg class="i"><use href="#i-find"/></svg>Find better mods</button><button class="btn">Copy as text</button></div>
+    </div>
+    <div class="facts">
+      <div class="fact hot"><span>Time to kill</span><b>1.34 s</b><small>14 shots</small></div>
+      <div class="fact"><span>DPS on target</span><b>88,240</b></div>
+      <div class="fact"><span>Crit</span><b>92% ×10.6</b></div>
+      <div class="fact"><span>Status</span><b>48%</b></div>
+      <div class="fact"><span>Multishot</span><b>2.5</b></div>
+      <div class="fact"><span>Kills / min</span><b>44.7</b></div>
+    </div>
+  </div>
+
+  <div class="card pad">
+    <div class="result-head" style="margin-bottom:14px;align-items:center">
+      <h2 class="sec-title" style="margin:0">Mods <span class="badge">8</span></h2>
+      <div class="meter"><span class="num">59 / 60</span><i><s style="width:98%"></s></i><label class="switch" style="min-height:36px"><input type="checkbox" checked aria-label="Orokin Catalyst"> Catalyst</label></div>
+    </div>
+    <div class="board">
+      <div class="mod hl"><span class="dr">11</span><b>Necrophagic Vigor</b><small>Rank 5</small></div>
+      <div class="mod"><span class="dr">14</span><b>Serration</b><small>Rank 10</small></div>
+      <div class="mod"><span class="dr">11</span><b>Split Chamber</b><small>Rank 5</small></div>
+      <div class="mod"><span class="dr">8</span><b>Thermite Rounds</b><small>Rank 3</small></div>
+      <div class="mod"><span class="dr">12</span><b>Vile Acceleration</b><small>Rank 5</small></div>
+      <div class="mod"><span class="dr">16</span><b>Heavy Caliber</b><small>Rank 10</small></div>
+      <div class="mod"><span class="dr">9</span><b>Hellfire</b><small>Rank 5</small></div>
+      <div class="mod"><span class="dr">9</span><b>Vigilante Armaments</b><small>Rank 5</small></div>
+      <div class="mod empty">+ Exilus slot</div>
+      <div class="mod empty">+ Weapon arcane</div>
+      <div class="mod empty">+ Riven</div>
+      <div class="mod empty">+ Incarnon form</div>
+    </div>
+  </div>
+
+  <div class="card stages">
+    <details class="stage" open>
+      <summary><span class="ic"><svg class="i"><use href="#i-target"/></svg></span><span class="txt"><span class="tt" style="display:block">Weapon &amp; target</span><span class="vv" style="display:block">Coda Hema · Heavy Gunner L150</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <label class="f"><span class="lb">Weapon</span><input value="Coda Hema"></label>
+        <label class="f"><span class="lb">Fire mode</span><select><option>Normal</option></select></label>
+        <label class="f"><span class="lb">Bonus element <b>Heat 60%</b></span><select><option>Heat</option></select></label>
+        <label class="f"><span class="lb">Enemy</span><input value="Heavy Gunner"></label>
+        <label class="f"><span class="lb">Level <b>150</b></span><input type="range" min="1" max="400" value="150"></label>
+        <div class="full"><label class="switch"><input type="checkbox"><span>Steel Path<small>Health and shields ×2.5, armour unchanged</small></span></label></div>
+      </div>
+    </details>
+    <details class="stage">
+      <summary><span class="ic"><svg class="i"><use href="#i-flask"/></svg></span><span class="txt"><span class="tt" style="display:block">Conditions</span><span class="vv" style="display:block">All stacks at max · headshots · simulate status</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <div class="full seg"><button>None</button><button>Custom</button><button class="on">All</button></div>
+        <p class="help full">“All” puts every on-kill and on-hit effect at its cap. Weak-point effects need headshots.</p>
+        <div class="full chips"><span class="chip on">Headshots</span><span class="chip">Aiming</span><span class="chip">Sliding</span><span class="chip">Airborne</span><span class="chip on">Simulate status</span></div>
+      </div>
+    </details>
+    <details class="stage opt">
+      <summary><span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span><span class="txt"><span class="tt" style="display:block">Frame &amp; buffs</span><span class="vv" style="display:block">Ash · 100% strength</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <label class="f"><span class="lb">Frame</span><input value="Ash"></label>
+        <label class="f"><span class="lb">Ability strength <b>100%</b></span><input type="range" value="40"></label>
+        <label class="f"><span class="lb">Frame mods</span><input placeholder="Intensify, Blind Rage"></label>
+        <label class="f"><span class="lb">Frame arcane</span><input placeholder="Arcane Avenger"></label>
+      </div>
+    </details>
+    <details class="stage opt">
+      <summary><span class="ic"><svg class="i"><use href="#i-sliders"/></svg></span><span class="txt"><span class="tt" style="display:block">Debuffs on the target</span><span class="vv" style="display:block">None</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <label class="f"><span class="lb">Viral stacks</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Corrosive stacks</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Armour strip %</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Corrosive Projections</span><input type="number" value="0"></label>
+      </div>
+    </details>
+  </div>
+
+  <div class="card pad">
+    <div class="two" style="gap:20px 44px">
+      <div><h3 class="group-title">Damage per hit</h3>
+        <div class="bar"><span>Viral</span><i><s style="width:78%"></s></i><span>41.2k</span></div>
+        <div class="bar"><span>Heat</span><i><s style="width:52%"></s></i><span>27.5k</span></div>
+        <div class="bar"><span>Slash</span><i><s style="width:18%"></s></i><span>9.6k</span></div></div>
+      <div><h3 class="group-title">What each mod adds</h3>
+        <div class="bar"><span>Necrophagic</span><i><s style="width:90%"></s></i><span>+48%</span></div>
+        <div class="bar"><span>Serration</span><i><s style="width:60%"></s></i><span>+32%</span></div>
+        <div class="bar"><span>Split Chamber</span><i><s style="width:48%"></s></i><span>+26%</span></div></div>
+    </div>
+  </div>
+
+  <div class="card pad">
+    <h2 class="sec-title">Mod library <span class="badge">214</span></h2>
+    <div class="tools" style="margin-bottom:14px"><input placeholder="Search mods…" aria-label="Search mods"><select aria-label="Polarity"><option>All polarities</option></select><select aria-label="Type"><option>All types</option></select><select aria-label="Sort"><option>Sort: name</option></select></div>
+    <div class="lib">
+      <div class="mod"><span class="dr">4</span><b>Point Strike</b><small>+150% crit chance</small></div>
+      <div class="mod"><span class="dr">6</span><b>Hammer Shot</b><small>+90% status chance</small></div>
+      <div class="mod"><span class="dr">6</span><b>Critical Delay</b><small>+135% crit chance</small></div>
+      <div class="mod"><span class="dr">9</span><b>Vital Sense</b><small>+120% crit damage</small></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ FIND ═══════════════════════ -->
+<section class="view" id="v-find" data-m="brute" data-r="done">
+  <div class="head"><h1>Find a build</h1>
+    <p class="q-only">Greedy fill plus local search. Fast, and usually right.</p>
+    <p class="b-only">Tries every feasible mod combination. Slower, but exact.</p>
+    <p class="p-only">Finds the best zaw, kitgun or amp parts, with the mods the first part wants.</p></div>
+
+  <div class="methods" role="group" aria-label="Search method">
+    <button class="method" data-m="quick"><span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span><span><b>Quick</b><span class="d">Greedy fill, then swaps. Seconds.</span></span></button>
+    <button class="method" data-m="brute"><span class="ic"><svg class="i"><use href="#i-layers"/></svg></span><span><b>Brute force</b><span class="d">Every mod combination, on the GPU. Exact.</span></span></button>
+    <button class="method" data-m="parts"><span class="ic"><svg class="i"><use href="#i-wrench"/></svg></span><span><b>Parts</b><span class="d">Best zaw, kitgun or amp parts.</span></span></button>
+  </div>
+
+  <div class="card stages">
+    <details class="stage" open>
+      <summary><span class="ic"><svg class="i"><use href="#i-target"/></svg></span><span class="txt"><span class="tt" style="display:block">Target</span><span class="vv" style="display:block"><span class="np-only">Coda Hema · </span><span class="p-only">Zaw · </span>Heavy Gunner L150 · Steel Path</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <label class="f np-only"><span class="lb">Weapon <span class="when">empty = Build's weapon</span></span><input value="Coda Hema" placeholder="Same as Build"></label>
+        <label class="f p-only"><span class="lb">Modular weapon</span><select><option>Zaw</option><option>Primary kitgun</option><option>Secondary kitgun</option><option>Amp</option></select></label>
+        <div class="f np-only"><span class="lb">Weapon form <span class="when">only weapons with an Incarnon form</span></span><div class="seg"><button class="on">Normal</button><button>Incarnon</button></div></div>
+        <label class="f"><span class="lb">Enemy</span><input value="Heavy Gunner"></label>
+        <label class="f"><span class="lb">Level</span><input type="number" value="150"></label>
+        <div class="full"><label class="switch"><input type="checkbox" checked><span>Steel Path<small>Health and shields ×2.5, armour unchanged</small></span></label>
+          <label class="switch" style="margin-left:54px"><input type="checkbox" checked><span><small>The level above is the node level (+100)</small></span></label></div>
+      </div>
+    </details>
+
+    <details class="stage p-only" open>
+      <summary><span class="ic"><svg class="i"><use href="#i-wrench"/></svg></span><span class="txt"><span class="tt" style="display:block">Parts you own</span><span class="vv" style="display:block">Strike 3 · Grip 2 · Link 2</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <p class="help full">Every part combination is scored with the mods its first part wants. The best five are searched in full. Untick the parts you don't own.</p>
+        <div class="cols full">
+          <div><h5>Strike</h5><label><input type="checkbox" checked>Plague Kripath</label><label><input type="checkbox" checked>Plague Keewar</label><label><input type="checkbox">Balefire</label><label><input type="checkbox" checked>Cyath</label></div>
+          <div><h5>Grip</h5><label><input type="checkbox" checked>Kronsh</label><label><input type="checkbox" checked>Laka</label><label><input type="checkbox">Ekwana Jai</label></div>
+          <div><h5>Link</h5><label><input type="checkbox" checked>Vargeet Jai II</label><label><input type="checkbox">Pencha</label><label><input type="checkbox" checked>Ruhang</label></div>
+        </div>
+        <div class="full"><label class="switch"><input type="checkbox" checked><span>Also pick the best arcanes<small>Fills every free arcane slot</small></span></label></div>
+      </div>
+    </details>
+
+    <details class="stage" open>
+      <summary><span class="ic"><svg class="i"><use href="#i-flame"/></svg></span><span class="txt"><span class="tt" style="display:block">Goal</span><span class="vv" style="display:block">Fastest kill · 10 kills<span class="b-only"> · must carry Slash</span></span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <label class="f"><span class="lb">Optimise for</span><select><option>Fastest kill</option><option>Highest DPS</option><option>Most kills / min</option><option>Fastest group clear (5 enemies)</option></select></label>
+        <label class="f"><span class="lb">Kills <span class="when">length of the run</span></span><input type="number" value="10"></label>
+        <div class="full b-only"><div class="group-title">Required status <small>· every build carries it</small></div>
+          <div class="chips"><span class="chip">Impact</span><span class="chip">Puncture</span><span class="chip on">Slash</span><span class="chip">Heat</span><span class="chip">Cold</span><span class="chip">Electricity</span><span class="chip">Toxin</span><span class="chip">Blast</span><span class="chip">Corrosive</span><span class="chip">Gas</span><span class="chip">Magnetic</span><span class="chip">Radiation</span><span class="chip">Viral</span></div></div>
+      </div>
+    </details>
+
+    <details class="stage">
+      <summary><span class="ic"><svg class="i"><use href="#i-lock"/></svg></span><span class="txt"><span class="tt" style="display:block">Limits</span><span class="vv" style="display:block">60 capacity · Forma as needed<span class="b-only"> · up to 2,000,000 combinations</span></span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <label class="f"><span class="lb">Capacity</span><select><option>60 (Orokin Catalyst)</option><option>30 (no Catalyst)</option></select></label>
+        <label class="f"><span class="lb">Max Forma</span><input type="number" placeholder="As needed"></label>
+        <label class="f"><span class="lb">Must include <span class="when b-only">fixed, rest searched around</span></span><input placeholder="Serration, Hunter Munitions:R3"></label>
+        <label class="f"><span class="lb">Exclude <span class="when">mods you don't own</span></span><input placeholder="Heavy Caliber"></label>
+        <div class="f b-only full"><span class="lb">Max combinations</span><div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap"><input type="number" value="2000000" style="max-width:220px"><label class="switch"><input type="checkbox">All of them</label></div></div>
+        <div class="full q-only"><label class="switch"><input type="checkbox"><span>Let the search pick Incarnon evolutions</span></label></div>
+      </div>
+    </details>
+
+    <details class="stage b-only opt">
+      <summary><span class="ic"><svg class="i"><use href="#i-gem"/></svg></span><span class="txt"><span class="tt" style="display:block">Arcanes &amp; riven</span><span class="vv" style="display:block">None set</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <label class="f"><span class="lb">Weapon arcane</span><input placeholder="None"></label>
+        <label class="f"><span class="lb">Secondary arcane <span class="when">arch-gun with an Adapter</span></span><input placeholder="None"></label>
+        <label class="f"><span class="lb">Operator arcane <span class="when">amps</span></span><input placeholder="None"></label>
+        <label class="f"><span class="lb">Second Operator arcane <span class="when">amps</span></span><input placeholder="None"></label>
+        <label class="f full"><span class="lb">Riven stats <span class="when">card values, − marks the malus</span></span><input placeholder="crit-chance=142.3,multishot=110.2,-zoom=40.1"></label>
+        <label class="f"><span class="lb">Drain</span><input type="number" placeholder="16"></label>
+        <label class="f"><span class="lb">Polarity</span><select><option>None</option><option>Madurai</option><option>Vazarin</option><option>Naramon</option></select></label>
+        <div class="full"><label class="switch"><input type="checkbox"><span>Brute force arcanes too<small>Fills every empty arcane slot</small></span></label></div>
+        <p class="help full">The riven stays in its slot; the other mods are searched around it.</p>
+      </div>
+    </details>
+
+    <details class="stage b-only opt">
+      <summary><span class="ic"><svg class="i"><use href="#i-flask"/></svg></span><span class="txt"><span class="tt" style="display:block">Conditions, buffs &amp; debuffs</span><span class="vv" style="display:block">All stacks at max · no buffs · no debuffs</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields">
+        <div class="full seg"><button>None</button><button>Custom</button><button class="on">All</button></div>
+        <p class="help full">“All”: every on-kill and on-hit effect at its cap. Weak-point effects need headshots, aiming effects need Aiming. Stack counts set on Build apply here too.</p>
+        <div class="full chips"><span class="chip on">Headshots</span><span class="chip on">Simulate status</span><span class="chip">Aiming</span><span class="chip">Sliding / aim gliding</span><span class="chip">Airborne</span><span class="chip">Reloading while sprinting</span></div>
+        <div class="full group-title" style="margin-top:6px">Custom values <small>· read when conditions = Custom</small></div>
+        <label class="f"><span class="lb">On-kill</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Extra status types</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Viral stacks</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Corrosive stacks</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Corrosive Projections</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Armour strip %</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Shattering Impact hits</span><input type="number" value="0"></label>
+        <label class="f"><span class="lb">Strip from ability</span><select><option>None</option></select></label>
+        <label class="f"><span class="lb">Ability strength <b>100%</b></span><input type="range" min="40" max="500" value="100"></label>
+        <div class="full group-title" style="margin-top:6px">Warframe buffs <small>· none active</small></div>
+        <div class="full chips"><span class="chip">Roar</span><span class="chip">Eclipse</span><span class="chip">Molt Augmented</span><span class="chip">Arcane Strike</span><span class="chip">Covenant</span><span class="chip fix">14 more…</span></div>
+      </div>
+    </details>
+  </div>
+
+  <!-- run dock -->
+  <div class="dock">
+    <div class="sum">
+      <div>Target<b><span class="np-only">Coda Hema</span><span class="p-only">Zaw</span> · L150 SP</b></div>
+      <div>Goal<b>Fastest kill ×10</b></div>
+      <div>Search<b><span class="q-only">Quick</span><span class="b-only">Brute force · ≤ 2M · GPU</span><span class="p-only">12 part combinations</span></b></div>
+    </div>
+    <button class="go r-idle"><svg class="i"><use href="#i-find"/></svg>Search</button>
+    <button class="go stop r-run"><svg class="i"><use href="#i-check" style="display:none"/><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg>Stop</button>
+  </div>
+
+  <!-- RUNNING -->
+  <div class="card pad r-run callout" style="align-items:stretch" role="status">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><h3>Searching…</h3><span class="dim num">62%</span></div>
+    <div class="progress"><i></i></div>
+    <div class="live"><div>Combinations<b>1.24M / 2.00M</b></div><div>Best so far<b>1.36 s</b></div><div>Elapsed<b>0:07</b></div><div>Device<b>RTX 3050 Ti</b></div></div>
+    <p class="b-only">GPU pre-filter over 64 candidates, then the best 20,000 are scored with the full engine.</p>
+    <p class="q-only">Greedy fill, then one-slot swaps.</p>
+    <p class="p-only">Scoring every part combination. This takes a few seconds.</p>
+  </div>
+
+  <!-- DONE -->
+  <div class="r-done" style="display:flex;flex-direction:column;gap:20px">
+    <div class="status">
+      <b><svg class="i" style="width:17px;height:17px"><use href="#i-check"/></svg>Done</b>
+      <span class="q-only">212 builds tried in 0.4 s · CPU, greedy</span>
+      <span class="b-only">1.98M combinations in 8.1 s · GPU, exhaustive over 64 candidates</span>
+      <span class="p-only">12 part combinations scored, the best 5 searched in full</span>
+    </div>
+
+    <div class="card p-only">
+      <div class="pad" style="padding-bottom:6px"><h2 class="sec-title" style="margin:0">Best parts</h2></div>
+      <div class="tbl"><table><thead><tr><th>#</th><th>Strike</th><th>Grip</th><th>Link</th><th>Kill</th><th>DPS</th></tr></thead><tbody>
+        <tr><td class="dim">1</td><td>Plague Kripath</td><td>Kronsh</td><td>Ruhang</td><td>0.82 s</td><td>142k</td></tr>
+        <tr><td class="dim">2</td><td>Plague Keewar</td><td>Kronsh</td><td>Ruhang</td><td>0.85 s</td><td>138k</td></tr>
+        <tr><td class="dim">3</td><td>Plague Kripath</td><td>Laka</td><td>Vargeet Jai II</td><td>0.91 s</td><td>130k</td></tr></tbody></table></div>
+    </div>
+
+    <article class="card pad">
+      <div class="result-head" style="margin-bottom:20px">
+        <div><h2 class="dim" style="font-size:14px;font-weight:550;margin-bottom:4px">Best build</h2>
+          <h3><span class="np-only">Necrophagic Vigor + 7 mods</span><span class="p-only">Plague Kripath · Kronsh · Ruhang</span></h3>
+          <p class="dim" style="font-size:13.5px;margin-top:4px">Capacity 59 / 60 · 2 Forma<span class="b-only"> · Slash status guaranteed</span></p></div>
+        <div class="actions"><button class="btn p" data-go="build">Open in Build</button><button class="btn"><svg class="i"><use href="#i-save"/></svg>Save</button><button class="btn">Copy as text</button></div>
+      </div>
+      <div class="facts" style="margin-bottom:22px">
+        <div class="fact hot"><span>Time to kill</span><b class="np-only">1.34 s</b><b class="p-only">0.82 s</b></div>
+        <div class="fact"><span>DPS</span><b class="np-only">88,240</b><b class="p-only">142,000</b></div>
+        <div class="fact"><span>Crit</span><b>92% ×10.6</b></div>
+        <div class="fact"><span>Kills / min</span><b class="np-only">44.7</b><b class="p-only">73.2</b></div>
+      </div>
+      <div class="board np-only">
+        <div class="mod hl"><span class="dr">11</span><b>Necrophagic Vigor</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">14</span><b>Serration</b><small>Rank 10</small></div>
+        <div class="mod"><span class="dr">11</span><b>Split Chamber</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">8</span><b>Thermite Rounds</b><small>Rank 3</small></div>
+        <div class="mod"><span class="dr">12</span><b>Vile Acceleration</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">16</span><b>Heavy Caliber</b><small>Rank 10</small></div>
+        <div class="mod"><span class="dr">9</span><b>Hellfire</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">9</span><b>Vigilante Armaments</b><small>Rank 5</small></div>
+        <div class="mod found" style="grid-column:span 2"><b>Weapon arcane</b><small>Primary Merciless <span class="tag b-only">· picked by the search</span></small></div>
+        <div class="mod found" style="grid-column:span 2"><b>Incarnon</b><small><span class="q-only">Evolution I · II · IV <span class="tag">· picked by the search</span></span><span class="b-only">As set on Build</span></small></div>
+      </div>
+      <div class="board p-only">
+        <div class="mod hl"><span class="dr">10</span><b>Pressure Point</b><small>Rank 10</small></div>
+        <div class="mod"><span class="dr">6</span><b>Fury</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">12</span><b>Weeping Wounds</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">6</span><b>Organ Shatter</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">9</span><b>Blood Rush</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">8</span><b>Reach</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">11</span><b>Condition Overload</b><small>Rank 5</small></div>
+        <div class="mod"><span class="dr">14</span><b>Fever Strike</b><small>Rank 5</small></div>
+        <div class="mod found" style="grid-column:span 2"><b>Weapon arcane</b><small>Melee Influence <span class="tag">· picked by the search</span></small></div>
+        <div class="mod" style="grid-column:span 2"><b>Parts</b><small>Plague Kripath · Kronsh · Ruhang</small></div>
+      </div>
+    </article>
+
+    <div class="card">
+      <div class="pad" style="padding-bottom:6px"><h2 class="sec-title" style="margin:0">Runners-up</h2></div>
+      <div class="tbl"><table><thead><tr><th>#</th><th>Differs from best</th><th>Kill</th><th>DPS</th><th>Crit</th><th>Capacity</th></tr></thead><tbody>
+        <tr><td class="dim">2</td><td><span class="np-only">Hellfire → Point Strike</span><span class="p-only">Organ Shatter → Fury</span></td><td>1.35 s <span class="dim">+0.01</span></td><td>87,610</td><td>94% ×9.8</td><td>60 / 60 · 1 Forma</td></tr>
+        <tr><td class="dim">3</td><td><span class="np-only">Hammer Shot → Hellfire</span><span class="p-only">Reach → Blood Rush</span></td><td>1.36 s <span class="dim">+0.02</span></td><td>86,900</td><td>92% ×10.1</td><td>58 / 60 · 2 Forma</td></tr></tbody></table></div>
+    </div>
+
+    <div class="card pad">
+      <h2 class="sec-title" style="font-size:15px">Assumptions &amp; warnings</h2>
+      <ul class="notes">
+        <li><svg class="i"><use href="#i-info"/></svg>All mods at max rank, 60 capacity (Orokin Catalyst).</li>
+        <li class="np-only"><svg class="i"><use href="#i-info"/></svg>Necrophagic Vigor at the 360% cap (conditions: all).</li>
+        <li><svg class="i"><use href="#i-info"/></svg>The Exilus and stance slots are not searched.</li>
+        <li class="p-only"><svg class="i"><use href="#i-info"/></svg>Parts you did not tick are never used. Combinations are ranked with the mods the first part wants.</li>
+        <li class="w np-only"><svg class="i"><use href="#i-warn"/></svg><span>Heavy Caliber has an unmodelled accuracy penalty; the search prefers an equal alternative when one fits.</span></li>
+        <li class="w b-only"><svg class="i"><use href="#i-warn"/></svg><span>GPU search failed, ran on the CPU instead (Vulkan device lost).</span></li>
+        <li class="w"><svg class="i"><use href="#i-warn"/></svg><span>Unknown effects on 1 mod: the result is a lower bound.</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- NOTHING FOUND -->
+  <div class="card pad callout r-empty">
+    <h3>No build fits</h3>
+    <p class="q-only">No combination of the candidates fits 30 capacity with 0 Forma and the mods you fixed.</p>
+    <p class="b-only">No combination fits the capacity and Forma limits and carries Slash.</p>
+    <p class="p-only">No part combination scored with the parts you ticked.</p>
+    <div class="group-title" style="margin:4px 0 -4px">Try one of these</div>
+    <div class="chips"><span class="chip on">Allow 2 Forma</span><span class="chip on">Use the Orokin Catalyst (60)</span><span class="chip on b-only">Remove Slash as required</span><span class="chip on">Clear “Must include”</span></div>
+  </div>
+
+  <!-- ERROR -->
+  <div class="card pad callout err r-err" role="alert">
+    <h3>Can't search yet</h3>
+    <p class="p-only">Tick at least one part in every group: Strike, Grip and Link.</p>
+    <p class="q-only b-only">There is no enemy called “Heavy Gunnar”. Did you mean Heavy Gunner?</p>
+    <div class="actions"><button class="btn p p-only">Open Parts you own</button><button class="btn p q-only b-only">Use “Heavy Gunner”</button></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ ABILITIES ═══════════════════════ -->
+<section class="view" id="v-abilities">
+  <div class="head"><h1>Ability damage</h1><p>Flat damage per cast: no crit, no multishot, no status. Uses the same target maths as the weapon.</p></div>
+  <div class="card stages">
+    <details class="stage" open><summary><span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span><span class="txt"><span class="tt" style="display:block">Ability</span><span class="vv" style="display:block">Ash · Blade Storm · 100% strength</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields"><label class="f"><span class="lb">Ability</span><select><option>Ash · Blade Storm</option></select></label><label class="f"><span class="lb">Strength <b>100%</b></span><input type="range" min="40" max="500" value="100"></label></div></details>
+    <details class="stage"><summary><span class="ic"><svg class="i"><use href="#i-target"/></svg></span><span class="txt"><span class="tt" style="display:block">Target</span><span class="vv" style="display:block">Heavy Gunner L150</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields"><label class="f"><span class="lb">Enemy</span><input value="Heavy Gunner"></label><label class="f"><span class="lb">Level</span><input type="number" value="150"></label><div class="full"><label class="switch"><input type="checkbox"><span>Steel Path<small>Health and shields ×2.5</small></span></label></div></div></details>
+  </div>
+  <div class="dock"><div class="sum"><div>Ability<b>Blade Storm</b></div><div>Target<b>Heavy Gunner · L150</b></div></div><button class="go"><svg class="i"><use href="#i-bolt"/></svg>Cast</button></div>
+  <div class="card pad"><div class="facts"><div class="fact hot"><span>Damage per cast</span><b>18,420</b></div><div class="fact"><span>Enemy health</span><b>24,600</b></div><div class="fact"><span>Casts to kill</span><b>2</b></div></div></div>
+  <div class="card pad"><h3 class="group-title">By damage type</h3><div class="bar"><span>Slash</span><i><s style="width:80%"></s></i><span>14.7k</span></div><div class="bar"><span>Puncture</span><i><s style="width:20%"></s></i><span>3.7k</span></div></div>
+</section>
+
+<!-- ═══════════════════════ COMPARE ═══════════════════════ -->
+<section class="view" id="v-compare">
+  <div class="head"><h1>Compare</h1><p>A is your current build. Leave a field empty in B to reuse A's value.</p></div>
+  <div class="card stages">
+    <details class="stage" open><summary><span class="ic"><svg class="i"><use href="#i-check"/></svg></span><span class="txt"><span class="tt" style="display:block">A · Current build</span><span class="vv" style="display:block">Coda Hema · 8 mods · Heavy Gunner L150</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields"><p class="help full">Taken from Build. Change it there.</p><div class="full"><button class="btn sm" data-go="build">Edit in Build</button></div></div></details>
+    <details class="stage" open><summary><span class="ic"><svg class="i"><use href="#i-swap"/></svg></span><span class="txt"><span class="tt" style="display:block">B · Alternative</span><span class="vv" style="display:block">3 mods</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary>
+      <div class="fields"><label class="f"><span class="lb">Weapon</span><input placeholder="Same as A"></label><label class="f"><span class="lb">Arcane</span><input placeholder="Same as A"></label>
+        <label class="f full"><span class="lb">Mods <span class="when">in slot order</span></span><input placeholder="Serration, Split Chamber, Vital Sense"></label><label class="f"><span class="lb">Element bonus</span><input placeholder="heat:60"></label></div></details>
+  </div>
+  <div class="dock"><div class="sum"><div>A<b>Coda Hema · current</b></div><div>B<b>Coda Hema · 3 mods</b></div></div><button class="go"><svg class="i"><use href="#i-swap"/></svg>Compare</button></div>
+  <div class="card"><div class="pad" style="padding-bottom:6px"><h2 class="sec-title" style="margin:0">Result</h2></div><div class="tbl"><table><thead><tr><th></th><th>A</th><th>B</th><th>Difference</th></tr></thead><tbody>
+    <tr><td>Time to kill</td><td>1.34 s</td><td>2.10 s</td><td class="down">+57% slower</td></tr><tr><td>DPS</td><td>88,240</td><td>51,300</td><td class="down">−42%</td></tr><tr><td>Crit</td><td>92% ×10.6</td><td>64% ×4.2</td><td class="down">lower</td></tr><tr><td>Multishot</td><td>2.5</td><td>1.9</td><td class="down">−24%</td></tr></tbody></table></div></div>
+</section>
+
+<!-- ═══════════════════════ SAVED ═══════════════════════ -->
+<section class="view" id="v-saved">
+  <div class="head"><h1>Saved builds <span class="badge" style="font-size:14px;vertical-align:4px">3</span></h1><p>Stored in this browser only.</p></div>
+  <div class="tools"><input placeholder="Search saved builds…" aria-label="Search saved builds" style="max-width:380px"><select aria-label="Weapon"><option>All weapons</option></select></div>
+  <div class="savedgrid">
+    <article class="card pad sv"><div><h3>Coda Hema · fastest kill</h3><span class="dim" style="font-size:13px">vs Heavy Gunner L150</span></div><div class="facts"><div class="fact hot"><span>Time to kill</span><b>1.34 s</b></div><div class="fact"><span>DPS</span><b>88k</b></div></div><div class="chips"><span class="chip">Necrophagic Vigor</span><span class="chip">Serration</span><span class="chip">+6</span></div><div class="actions"><button class="btn p sm" data-go="build">Open</button><button class="btn sm" data-go="compare">Compare</button><button class="btn sm bad">Delete</button></div></article>
+    <article class="card pad sv"><div><h3>Soma Prime · kills / min</h3><span class="dim" style="font-size:13px">vs Bombard L150</span></div><div class="facts"><div class="fact hot"><span>Kills / min</span><b>61</b></div><div class="fact"><span>DPS</span><b>41k</b></div></div><div class="chips"><span class="chip">Serration</span><span class="chip">Hornet Strike</span><span class="chip">+6</span></div><div class="actions"><button class="btn p sm" data-go="build">Open</button><button class="btn sm" data-go="compare">Compare</button><button class="btn sm bad">Delete</button></div></article>
+    <article class="card pad sv"><div><h3>Hek · group clear</h3><span class="dim" style="font-size:13px">vs Corpus Tech L150</span></div><div class="facts"><div class="fact hot"><span>Clear time</span><b>3.1 s</b></div><div class="fact"><span>DPS</span><b>120k</b></div></div><div class="chips"><span class="chip">Point Blank</span><span class="chip">Hell's Chamber</span><span class="chip">+6</span></div><div class="actions"><button class="btn p sm" data-go="build">Open</button><button class="btn sm" data-go="compare">Compare</button><button class="btn sm bad">Delete</button></div></article>
+  </div>
+</section>
+
+<!-- ═══════════════════════ RIVEN ═══════════════════════ -->
+<section class="view" id="v-riven">
+  <div class="head"><h1>Riven picker</h1><p>Every riven the weapon can roll, tested against your build: which mod it replaces, and which element mods could go too.</p></div>
+  <div class="card stages">
+    <details class="stage"><summary><span class="ic"><svg class="i"><use href="#i-target"/></svg></span><span class="txt"><span class="tt" style="display:block">Your build</span><span class="vv" style="display:block">Coda Hema · 8 mods · Heavy Gunner L150</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary><div class="fields"><p class="help full">Target, loadout and conditions come from Build.</p></div></details>
+    <details class="stage" open><summary><span class="ic"><svg class="i"><use href="#i-flame"/></svg></span><span class="txt"><span class="tt" style="display:block">Goal</span><span class="vv" style="display:block">Fastest kill</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary><div class="fields"><label class="f"><span class="lb">Optimise for</span><select><option>Fastest kill</option><option>Most DPS</option><option>Most kills / min</option></select></label></div></details>
+    <details class="stage opt" open><summary><span class="ic"><svg class="i"><use href="#i-gem"/></svg></span><span class="txt"><span class="tt" style="display:block">My riven</span><span class="vv" style="display:block">Any</span></span><svg class="i chev"><use href="#i-chev"/></svg></summary><div class="fields"><label class="f"><span class="lb">Has these stats</span><select><option>—</option></select></label><label class="f"><span class="lb">&nbsp;</span><select><option>—</option></select></label><label class="f"><span class="lb">&nbsp;</span><select><option>—</option></select></label><label class="f"><span class="lb">Negative stat</span><select><option>—</option></select></label></div></details>
+  </div>
+  <div class="dock"><div class="sum"><div>Weapon<b>Coda Hema</b></div><div>Goal<b>Fastest kill</b></div></div><button class="go"><svg class="i"><use href="#i-gem"/></svg>Find the riven slot</button></div>
+  <div class="card"><div class="pad" style="padding-bottom:6px"><h2 class="sec-title" style="margin:0">Best rivens</h2></div><div class="tbl"><table><thead><tr><th>#</th><th>Stats</th><th>Replaces</th><th>Kill</th><th>Gain</th></tr></thead><tbody>
+    <tr><td class="dim">1</td><td>Crit chance · Crit damage · Multishot / −Zoom</td><td>Hammer Shot</td><td>1.12 s</td><td class="up">+16%</td></tr><tr><td class="dim">2</td><td>Crit chance · Multishot · Viral / −Recoil</td><td>Hellfire</td><td>1.15 s</td><td class="up">+14%</td></tr></tbody></table></div></div>
+</section>
+
+<!-- ═══════════════════════ SETTINGS ═══════════════════════ -->
+<section class="view" id="v-settings">
+  <div class="head"><h1>Settings</h1><p>Saved in this browser only.</p></div>
+  <div class="card pad" style="max-width:780px"><h2 class="sec-title">Brute force</h2>
+    <label class="switch"><input type="checkbox" checked><span>Use the GPU (WebGPU)<small>Much faster than the CPU for large searches</small></span></label>
+    <div class="status" style="margin:6px 0 10px"><b><svg class="i" style="width:17px;height:17px"><use href="#i-check"/></svg>Ready</b><span>NVIDIA GeForce RTX 3050 Ti</span></div>
+    <p class="help">The GPU scores every combination of up to 64 candidate mods with a reduced model, then the best 20,000 with the full engine. A build the reduced model badly underrates can be missed.</p></div>
+  <div class="card pad" style="max-width:780px"><h2 class="sec-title">Data &amp; credits</h2><p class="help">WFCD/warframe-items (MIT) and wiki.warframe.com (CC BY-NC-SA 3.0). Warframe belongs to Digital Extremes; this is an unofficial fan tool. Source on GitHub (GPL-3.0).</p></div>
+</section>
+
+    </main>
+  </div>
+</div>
+
+<script>
+const views=[...document.querySelectorAll('.view')], navs=[...document.querySelectorAll('.nav[data-v]')];
+const more=document.getElementById('more'), moreBtn=document.getElementById('moreBtn');
+function show(v){
+  views.forEach(e=>e.classList.toggle('on',e.id==='v-'+v));
+  navs.forEach(n=>n.dataset.v===v?n.setAttribute('aria-current','page'):n.removeAttribute('aria-current'));
+  ['abilities','riven','settings'].includes(v)?moreBtn.setAttribute('aria-current','page'):moreBtn.removeAttribute('aria-current');
+  document.getElementById('mockFind').hidden=v!=='find';document.getElementById('mockOther').hidden=v==='find';
+  more.classList.remove('open');moreBtn.setAttribute('aria-expanded','false');
+  history.replaceState(null,'','#'+v);scrollTo({top:0});
+}
+document.addEventListener('click',e=>{
+  const n=e.target.closest('[data-v]');if(n&&n.classList.contains('nav'))return show(n.dataset.v);
+  const g=e.target.closest('[data-go]');if(g)return show(g.dataset.go);
+});
+moreBtn.onclick=()=>{const o=more.classList.toggle('open');moreBtn.setAttribute('aria-expanded',o)};
+document.querySelectorAll('.seg').forEach(s=>s.addEventListener('click',e=>{const b=e.target.closest('button');if(b){s.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b))}}));
+document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{if(!c.classList.contains('fix'))c.classList.toggle('on')}));
+
+const find=document.getElementById('v-find');
+function set(k,v){find.dataset[k]=v;
+  document.querySelectorAll('.pill[data-'+k+']').forEach(p=>p.classList.toggle('on',p.dataset[k]===v));
+  if(k==='m')document.querySelectorAll('.method').forEach(m=>m.setAttribute('aria-pressed',m.dataset.m===v));}
+document.querySelectorAll('.pill,.method').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.m)set('m',b.dataset.m);if(b.dataset.r)set('r',b.dataset.r)}));
+document.querySelector('#v-find .dock .go:not(.stop)').addEventListener('click',()=>set('r','running'));
+document.querySelector('#v-find .dock .stop').addEventListener('click',()=>set('r','done'));
+const q=new URLSearchParams(location.search);set('m',q.get('m')||'brute');set('r',q.get('r')||'done');
+show(location.hash.slice(1)&&document.getElementById('v-'+location.hash.slice(1))?location.hash.slice(1):'build');
+</script>
+</body>
+</html>
