@@ -521,6 +521,38 @@ function showTab(name) {
   if (name === 'riven') renderRivenTab();
 }
 
+/**
+ * The board backdrop is the weapon art, blurred. Chrome blurs it with a CSS filter; Firefox repaints a
+ * filtered full-board layer on every scroll frame, so there the art is blurred once into a small canvas.
+ * If the canvas is unusable (art from another origin) the CSS blur stays.
+ */
+let silhouetteToken = 0;
+async function setSilhouette(board, art) {
+  const token = ++silhouetteToken;
+  board.classList.remove('soft-art');
+  board.style.setProperty('--silhouette', art ? `url("${art}")` : 'none');
+  if (!art || document.documentElement.dataset.engine !== 'firefox') return;
+  try {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.src = art;
+    await image.decode();
+    const side = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = side;
+    const ctx = canvas.getContext('2d');
+    ctx.filter = 'blur(2.5px) brightness(0.45) saturate(0.7)';
+    const scale = (side * 0.8) / Math.max(image.naturalWidth, image.naturalHeight);
+    const w = image.naturalWidth * scale;
+    const h = image.naturalHeight * scale;
+    ctx.drawImage(image, (side - w) / 2, (side - h) / 2, w, h);
+    const url = canvas.toDataURL('image/png');
+    if (token !== silhouetteToken) return;
+    board.style.setProperty('--silhouette', `url("${url}")`);
+    board.classList.add('soft-art');
+  } catch { /* keep the CSS blur */ }
+}
+
 /** Theme: the inline script in index.html sets it before first paint; this wires the Settings picker. */
 function initTheme() {
   const current = document.documentElement.dataset.theme || 'dark';
@@ -1487,7 +1519,7 @@ function renderWeaponMeta(result) {
   // The weapon's artwork, blurred, becomes the board's backdrop.
   const board = document.querySelector('.board');
   if (board) {
-    board.style.setProperty('--silhouette', art ? `url("${art}")` : 'none');
+    void setSilhouette(board, art);
   }
   // The weapon's flavour text, the way the game prints it under the build name.
   const description = String(meta?.description ?? '').trim();
