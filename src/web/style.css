@@ -1050,6 +1050,119 @@ label[title] > span:first-child, label.stack[title], .toggles label[title] { tex
 :root[data-theme="hacker"] :is(h2, h3, .brand, .tt, .build-head h3) { text-shadow: 0 0 8px rgb(0 255 65 / .55); }
 :root[data-theme="hacker"] button.primary { box-shadow: 0 0 18px rgb(0 255 65 / .5); }
 
+/* ═════════ Windows XP (Luna): every panel is a window with a blue caption, the nav is the taskbar ═════════ */
+:root[data-theme="xp"] {
+  --bg: #3a6ea5; --solid: #ece9d8; --solid-2: #ffffff; --panel: rgb(0 0 0 / .03);
+  --text: #000000; --muted: #4f4d44; --accent: #0a3fb0; --accent-dim: #7f9db9; --accent-ink: #ffffff;
+  --border: #aca899; --border-strong: #716f64;
+  --ok: #1d6b1d; --warn: #8a5a00; --error: #b3001b;
+  --ov: 0 0 0; --acc: 10 63 176; --surf: 36 94 219; --glow2: 74 154 42;
+  --font: Tahoma, "Segoe UI", Verdana, "DejaVu Sans", sans-serif;
+  --radius: 3px; --glass: none; --bw: 1px; --xp-pad: 14px;
+  --shadow: 2px 3px 6px rgb(0 0 0 / .4); --shadow-lite: 2px 3px 6px rgb(0 0 0 / .4); --glow: none;
+  --xp-blue: #0054e3; --xp-green: #2e7d2e;
+  --xp-caption: linear-gradient(180deg, #0997ff 0%, #0053ee 8%, #0050ee 40%, #0066ff 88%, #005bff 93%, #003dd7 95%, #003dd7 100%);
+  --xp-task: linear-gradient(180deg, #3168d5 0%, #4993e6 8%, #2157d7 22%, #245edb 80%, #1941a5 100%);
+  --xp-face: linear-gradient(180deg, #ffffff 0%, #f3f2ea 55%, #dcd8c4 100%);
+  color-scheme: light;
+  accent-color: #316ac5;
+  caret-color: #000;
+
+  & body {
+    font-size: 14px;
+    background:
+      radial-gradient(130% 42% at 25% 112%, #5ab332 0 62%, transparent 63%),
+      radial-gradient(120% 36% at 95% 114%, #3f8f22 0 60%, transparent 61%),
+      linear-gradient(180deg, #1f5fc4 0%, #4f93e6 55%, #a9d1f7 80%);
+    background-attachment: fixed;
+  }
+  & ::selection { background: #316ac5; color: #fff; }
+  & * { scrollbar-color: #c1bda8 #f3f1e6; }
+
+  /* windows */
+  & .panel {
+    background: var(--solid); border: 3px solid var(--xp-blue); border-radius: 8px 8px 2px 2px;
+    padding: var(--xp-pad); box-shadow: var(--shadow);
+  }
+  & .panel > .panel-head {
+    margin: calc(var(--xp-pad) * -1 - 3px) calc(var(--xp-pad) * -1 - 3px) var(--xp-pad); padding: 0 8px; min-height: 30px; border-radius: 5px 5px 0 0;
+    background: var(--xp-caption); color: #fff;
+  }
+  & .find-panel { display: flex; flex-direction: column; gap: 14px; }
+  & .panel-head h2, & .tab-panel > .panel.wide > .panel-head h2 {
+    font-size: 14px; line-height: 30px; font-weight: 700; letter-spacing: 0; color: #fff; text-shadow: 1px 1px 0 #0a246a;
+  }
+  & .panel-head .badge { color: #dce9ff; }
+  & .panel-head :is(button, select) { min-height: 0; }
+  & .theme-opt { border-radius: 3px; background: #fff; border-color: #7f9db9; }
+  & .swatch { border-radius: 0; }
+  & .board { background: var(--solid); }
+  & .board::before, & .board.soft-art::before { opacity: .06; }
+
+  /* group boxes and sunken fields */
+  & :is(.card, .build-card, .saved-item) { background: #f7f6ee; border: 1px solid #d0d0bf; border-radius: 4px; box-shadow: inset 1px 1px 0 #fff; }
+  & .stage { border-top-color: #d0d0bf; }
+  & .stage .ic, & .method .ic { border-radius: 3px; background: #fff; border: 1px solid var(--border); }
+  & :is(input, select) { background: #fff; border: 1px solid #7f9db9; border-radius: 0; min-height: 0; }
+  & :is(input[type=range], input[type=checkbox], input[type=radio]) { background: none; border: 0; }
+  & :is(input, select, button):focus-visible { outline: 1px dotted #000; outline-offset: 2px; box-shadow: none; }
+  & :is(.slot, .lib-card, .summary .kpi, .chip, .buffs label) { background: #fff; border: 1px solid #7f9db9; border-radius: 2px; box-shadow: none; }
+  & .slot.filled, & .slot.filled:hover { background: #fff; box-shadow: none; }
+  & .slot.filled::after { display: none; }
+  & .slot.drop-target { background: #dce8fb; border-color: #316ac5; }
+  & .buffs label:has(input:checked) { background: #316ac5; border-color: #1f4a96; color: #fff; }
+  & .bar { background: #fff; border: 1px solid #7f9db9; border-radius: 0; }
+
+  /* buttons: Luna face with an orange hover ring, green for the one go button */
+  & button {
+    background: var(--xp-face); color: #000; border: 1px solid #003c74; border-radius: 3px; box-shadow: none; text-shadow: none;
+  }
+  & button:hover:not(:disabled) { border-color: #003c74; box-shadow: inset 0 0 0 2px #f9a23a; }
+  & button:active:not(:disabled) { background: linear-gradient(180deg, #dcd8c4, #f3f2ea); box-shadow: inset 1px 1px 2px rgb(0 0 0 / .3); }
+  & button:disabled { color: #8a877b; border-color: #aca899; }
+  & button.ghost { background: var(--xp-face); }
+  & button.primary {
+    background: linear-gradient(180deg, #6fc46f 0%, #3a9a3a 45%, #2e7d2e 100%); color: #fff; border: 1px solid #1a4f1a;
+    font-weight: 700; text-shadow: 1px 1px 0 #1a4f1a; letter-spacing: 0; border-radius: 4px;
+  }
+  & button.primary:hover:not(:disabled) { filter: none; border-color: #1a4f1a; box-shadow: inset 0 0 0 2px #f9d23a; }
+  & button.primary:disabled { filter: none; background: #c9c6b4; color: #5a574c; text-shadow: none; border-color: #aca899; }
+  & .go { border-radius: 4px; }
+  & .star, & .remove, & .slot .remove { background: none; border: 0; box-shadow: none; }
+
+  /* taskbar: the nav, with a green Start pill for the brand */
+  & .sidenav { background: var(--xp-task); border-right: 1px solid #0c2f87; box-shadow: 2px 0 6px rgb(0 0 0 / .35); }
+  & .brand {
+    margin: 0 0 10px; padding: 5px 12px 5px 9px; border-radius: 0 14px 14px 0; align-self: flex-start;
+    font: italic 700 14px/1 var(--font); color: #fff; text-shadow: 1px 1px 2px #1a4f1a;
+    background: linear-gradient(180deg, #5cb85c 0%, #3c9b3c 50%, #2e7d2e 100%); box-shadow: 1px 0 3px rgb(0 0 0 / .5);
+  }
+  & .tab { border-radius: 3px; color: #fff; background: linear-gradient(180deg, #3d85f0, #2a62d4); border: 1px solid #14409b; }
+  & .tab:hover { color: #fff; background: linear-gradient(180deg, #3d85f0, #2a62d4); box-shadow: inset 0 0 0 1px #9cc2ff; }
+  & .tab.active { color: #fff; background: #1b4fb8; box-shadow: inset 1px 1px 3px rgb(0 0 0 / .55); }
+
+  /* toolbar strip and run dock */
+  & .ctx { background: var(--xp-face); border-bottom: 1px solid #aca899; box-shadow: 0 1px 0 #fff; }
+  & .cx { border-radius: 3px; background: var(--xp-face); border: 1px solid #7f9db9; }
+  & .cx:hover { background: var(--xp-face); box-shadow: inset 0 0 0 2px #f9a23a; border-color: #7f9db9; }
+  & .dock { background: var(--solid); border: 2px solid var(--xp-blue); border-radius: 6px; box-shadow: var(--shadow); padding: 8px 8px 8px 16px; }
+  & .method { background: #f7f6ee; border: 1px solid #d0d0bf; border-radius: 4px; transform: none; }
+  & .method:hover { transform: none; border-color: #316ac5; }
+  & .method:has(input:checked) { background: #dce8fb; border-color: #316ac5; box-shadow: inset 0 0 0 1px #316ac5; }
+  & .method:has(input:checked) b { color: #0a3fb0; }
+  & .method:has(input:checked) .ic { background: #316ac5; color: #fff; }
+  & .preview { background: #ffffe1; border: 1px solid #000; border-radius: 0; box-shadow: 2px 3px 4px rgb(0 0 0 / .4); color: #000; }
+  & .tip-bubble { border-radius: 8px; }
+}
+@media (max-width: 860px) {
+  :root[data-theme="xp"] .sidenav { border: 0; border-top: 1px solid #0c2f87; box-shadow: 0 -2px 6px rgb(0 0 0 / .3); background: var(--xp-task); }
+}
+@media (max-width: 520px) {
+  :root[data-theme="xp"] { --xp-pad: 12px; }
+}
+/* hover lift reads as noise on a flat desktop */
+:root[data-theme="xp"] :is(.slot, .lib-card, .theme-opt, .method):hover { transform: none; }
+
 .themes { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 6px 0 4px; }
 .theme-opt { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); cursor: pointer; transition: border-color .2s, transform .3s var(--ease); }
 .theme-opt:hover { transform: translateY(-2px); border-color: var(--border-strong); }
