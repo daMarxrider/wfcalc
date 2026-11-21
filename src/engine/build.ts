@@ -458,6 +458,8 @@ export const ARCANE_SLOTS: Record<string, string[]> = {
 export function arcaneSlotsOf(weapon: WeaponData): string[] {
   // Exalted weapons take no arcanes (wiki: Exalted Weapon), except Regulators.
   if (weapon.exalted && !EXALTED[weapon.exalted.family]?.arcanes) return [];
+  // The Arquebex is an Archgun without Arcane Enhancement slots (wiki: Arquebex).
+  if (weapon.name === 'Arquebex') return [];
   const own = ARCANE_SLOTS[weapon.category] ?? [];
   const kind = weapon.modular?.kind;
   return kind === 'zaw' ? [...own, 'zaw'] : kind?.startsWith('kitgun') ? [...own, 'kitgun'] : own;
@@ -786,8 +788,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`arcane not found: ${wanted}`);
       continue;
     }
-    if (weapon.exalted && !EXALTED[weapon.exalted.family]?.arcanes) {
-      collected.warnings.push(`${weapon.name} is an exalted weapon and takes no arcanes; ${arcane.name} ignored`);
+    if (!allowedArcanes.length) {
+      collected.warnings.push(`${weapon.name} takes no arcanes; ${arcane.name} ignored`);
       continue;
     }
     if (arcane.slot && !allowedArcanes.includes(arcane.slot)) {

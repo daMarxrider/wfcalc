@@ -1,5 +1,9 @@
 {
   "_comment": "Per-weapon corrections for fields the WFCD export gets wrong or omits. Each entry is verified against Overframe's oracle by `node tools/calibrate.ts --battery`. Keep the note: it is the evidence.",
+  "Arquebex": {
+    "note": "Never consumes ammo (wiki), so it never reloads; the export still lists a 3s reloadTime.",
+    "reloadTime": 0.01
+  },
   "Nataruk": {
     "note": "Export reloadTime is 0.05 (nock animation only); the arsenal and Overframe both show 0.15.",
     "reloadTime": 0.15
