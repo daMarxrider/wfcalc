@@ -112,3 +112,13 @@ test('Dex Pixia: Archon Continuity strips armour with its Toxin procs, Archon Vi
     .dot.find((entry) => entry.type === 'heat')!.procsPerSecond;
   close(heatProcs(['Archon Vitality']), 2 * heatProcs([]));
 });
+
+test('Arquebex: archgun with infinite ammo that takes no arcanes', () => {
+  const arquebex = snapshot.weapons.Arquebex;
+  assert.deepEqual(arcaneSlotsOf(arquebex), []);
+  const plain = shot({ weapon: 'Arquebex', mods: [] });
+  const withArcane = shot({ weapon: 'Arquebex', mods: [], arcanes: ['Arcane Avenger'] });
+  close(withArcane.shotDamage, plain.shotDamage);
+  assert.ok(withArcane.warnings.some((w) => w.includes('takes no arcanes')));
+  assert.ok(plain.magazineSize >= 1e6);
+});

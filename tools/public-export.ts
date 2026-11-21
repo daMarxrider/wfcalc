@@ -116,6 +116,26 @@ async function main(): Promise<void> {
   const changes: Array<{ weapon: string; field: string; from: number; to: number }> = [];
   const profileMismatch: string[] = [];
   const unmatched: string[] = [];
+  // WFCD lacks the Voidrig's Arquebex; the export has its stats. Wiki: Archgun mods, Madurai, infinite ammo, no reload.
+  let added = false;
+  const arquebex = byName.get('arquebex')?.[0];
+  if (arquebex?.damagePerShot && !snapshot.weapons.Arquebex) {
+    const stats = Object.fromEntries(DAMAGE_TYPES.map((type) => [type, 0])) as Record<string, number>;
+    EXPORT_DAMAGE_ORDER.forEach((type, i) => { if (type) stats[type] = arquebex.damagePerShot![i] ?? 0; });
+    Object.assign(stats, {
+      critChance: arquebex.criticalChance, critMultiplier: arquebex.criticalMultiplier, statusChance: arquebex.procChance,
+      fireRate: arquebex.fireRate, multishot: arquebex.multishot ?? 1,
+      magazineSize: 1e6, reloadTime: Number(overrides.Arquebex?.reloadTime ?? 0), // infinite ammo: shortcut as a huge magazine, switch if the engine grows an infinite-ammo flag
+    });
+    snapshot.weapons.Arquebex = {
+      id: 'Arquebex', name: 'Arquebex', category: 'archgun', type: 'Arch-Gun', masteryRank: 0, disposition: 4, dispositionMultiplier: 1.2,
+      polarities: ['madurai'], exilusPolarity: null, modClasses: ['Archgun'], trigger: 'Auto', image: 'ThanotechArchGun.png', stancePolarity: null,
+      hasRivenSlot: false, description: 'Voidrig Guard Mode artillery: dual energy mortars. 6 m explosion, no falloff.',
+      stats, modes: [{ name: 'Mortar', stats, trigger: 'Projectile' }],
+    } as unknown as WeaponData;
+    added = true;
+    console.log('added Arquebex from the export');
+  }
   for (const weapon of Object.values(snapshot.weapons) as WeaponData[]) {
     // The export holds rank-0 ability values for exalted weapons; the wiki's max rank wins.
     if (weapon.exalted) continue;
@@ -207,10 +227,10 @@ async function main(): Promise<void> {
     source: entry.trim(), checkedAt: new Date().toISOString(), changes, profileMismatch, unmatched, missing, stackUnconfirmed,
   }, null, 2) + '\n');
   if (check) {
-    process.exitCode = changes.length ? 1 : 0;
+    process.exitCode = changes.length || added ? 1 : 0;
     return;
   }
-  if (!changes.length) {
+  if (!changes.length && !added) {
     console.log('snapshot already matches the Public Export');
     return;
   }
