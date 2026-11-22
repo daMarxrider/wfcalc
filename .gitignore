@@ -9,3 +9,4 @@ AUDIT.md
 dist/
 firefox.md
 data/snapshot.prev.json
+.claude/
