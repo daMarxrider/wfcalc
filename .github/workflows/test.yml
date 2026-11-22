@@ -3,6 +3,11 @@ name: tests
 on:
   push:
   pull_request:
+  # The Pages workflow runs the same checks before it publishes.
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
