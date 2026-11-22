@@ -199,3 +199,19 @@ test('search budget, limits and pool are clamped', async () => {
     assert.ok(Date.now() - started < 60_000);
   });
 });
+
+test('Calc and Search read the target the same way: flatDr reaches the search, and level defaults agree', async () => {
+  await withServer(async (base) => {
+    const search = async (extra: object) => {
+      const response = await fetch(`${base}/api/search`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ weapon: 'Lex', form: 'normal', enemy: 'Bombard', budget: 300, simulate: false, mdpt: 1000, mdps: 100, ...extra }) });
+      assert.equal(response.status, 200);
+      return JSON.stringify(await response.json());
+    };
+    // The same mdpt/mdps with a flat damage reduction must change the answer (Search used to drop flatDr).
+    assert.notEqual(await search({ flatDr: 0 }), await search({ flatDr: 50 }));
+    // No level: both default to 150.
+    const calc = await (await fetch(`${base}/api/calc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ weapon: 'Lex', form: 'normal', enemy: 'Bombard', mods: [] }) })).json() as any;
+    const level150 = await (await fetch(`${base}/api/calc`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ weapon: 'Lex', form: 'normal', enemy: 'Bombard', level: 150, mods: [] }) })).json() as any;
+    assert.equal(calc.target.timeToKill, level150.target.timeToKill);
+  });
+});

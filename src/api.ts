@@ -44,14 +44,39 @@ const reply = (status: number, body: unknown): ApiReply => ({ status, body });
 /** The caller stopped the request: nothing to send. */
 const GONE: ApiReply = { status: 0, body: null };
 
+const pick = <T extends object, K extends keyof T>(value: T, keys: K[]): Pick<T, K> => Object.fromEntries(keys.map((key) => [key, value[key]])) as Pick<T, K>;
 const objectiveOf = (value: unknown): 'ttk' | 'dps' | 'kpm' | 'group' => (value === 'dps' || value === 'kpm' || value === 'group' ? value : 'ttk');
+
+const asList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
+
+/** The target a request describes, read the same way by Calc, Search, Find and Riven. */
+function enemyFrom(body: any) {
+  const attenuation = body.attenuation !== undefined
+    ? body.attenuation
+    : (body.mdpt !== undefined || body.mdps !== undefined
+      ? {
+          id: 'custom',
+          mdpi: body.mdpt !== undefined ? Number(body.mdpt) : undefined,
+          mdps: body.mdps !== undefined ? Number(body.mdps) : undefined,
+          flatDr: body.flatDr !== undefined ? Number(body.flatDr) / 100 : undefined,
+          statusDr: body.statusDr !== undefined ? Number(body.statusDr) / 100 : undefined,
+        }
+      : undefined);
+  return {
+    enemy: body.enemy ?? 'Bombard',
+    level: body.level !== undefined ? Number(body.level) : 150,
+    steelPath: Boolean(body.steelPath),
+    eximus: Boolean(body.eximus),
+    overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
+    attenuation,
+  };
+}
 
 /** A brute-force request from a JSON body (the Find tab's shape), or the weapon-not-found reply. */
 function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; suggestions: string[] } {
   const { item: weapon, suggestions } = findWeapon(snapshot, body.weapon ?? '');
   if (!weapon) return { error: `weapon not found: ${body.weapon ?? ''}`, suggestions };
-  const asList = (value: unknown): string[] =>
-    Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
   // Mods are searched; everything else (buffs, Incarnon, arcanes, riven) is the player's input.
   const baseSource = body.base && typeof body.base === 'object' ? body.base : body;
   const base = { ...buildFromJson(snapshot, baseSource, weapon.name), mods: [] };
@@ -70,12 +95,7 @@ function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; 
   return {
     weapon: weapon.name,
     objective: objectiveOf(body.objective),
-    enemy: body.enemy ?? 'Bombard',
-    level: body.level !== undefined ? Number(body.level) : 150,
-    steelPath: Boolean(body.steelPath),
-    eximus: Boolean(body.eximus),
-    overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
-    attenuation: body.attenuation,
+    ...enemyFrom(body),
     capacity: body.capacity !== undefined ? Number(body.capacity) : 60,
     maxForma: body.maxForma === null || body.maxForma === undefined ? null : Number(body.maxForma),
     fixed,
@@ -110,10 +130,7 @@ function rivenRequestFrom(body: any): RivenPickerRequest | { error: string; sugg
     mods: (build.mods ?? []).map((mod) => (typeof mod === 'string' ? { name: mod } : mod)).filter((mod) => mod.name && mod.name !== 'Riven'),
     fixed: Array.isArray(body.fixed) ? body.fixed.filter((mod: any) => typeof mod?.name === 'string').map((mod: any) => ({ name: mod.name, rank: mod.rank })) : [],
     base: { ...build, incarnon, mods: [] },
-    enemy: body.enemy ?? 'Bombard',
-    level: body.level !== undefined ? Number(body.level) : 150,
-    steelPath: Boolean(body.steelPath),
-    eximus: Boolean(body.eximus),
+    ...pick(enemyFrom(body), ['enemy', 'level', 'steelPath', 'eximus']),
     objective: objectiveOf(body.objective),
     limit: body.limit !== undefined ? Math.max(1, Math.min(1000, Number(body.limit))) : 200,
     stats: Array.isArray(body.stats) ? body.stats.map(String).slice(0, 3) : undefined,
@@ -154,22 +171,8 @@ function calculate(body: any) {
   if (body.enemy) {
     const { item: enemy, suggestions: enemySuggestions } = findEnemy(snapshot, body.enemy);
     if (!enemy) return { error: `enemy not found: ${body.enemy}`, suggestions: enemySuggestions };
-    const scaled = scaleEnemy(snapshot, enemy, Number(body.level ?? 100), {
-      eximus: Boolean(body.eximus),
-      overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
-      steelPath: Boolean(body.steelPath),
-    });
-    const attenuation = body.attenuation !== undefined
-      ? body.attenuation
-      : (body.mdpt !== undefined || body.mdps !== undefined
-        ? {
-            id: 'custom',
-            mdpi: body.mdpt !== undefined ? Number(body.mdpt) : undefined,
-            mdps: body.mdps !== undefined ? Number(body.mdps) : undefined,
-            flatDr: body.flatDr !== undefined ? Number(body.flatDr) / 100 : undefined,
-            statusDr: body.statusDr !== undefined ? Number(body.statusDr) / 100 : undefined,
-          }
-        : undefined);
+    const { level, eximus, overguard, steelPath, attenuation } = enemyFrom(body);
+    const scaled = scaleEnemy(snapshot, enemy, level, { eximus, overguard, steelPath });
     const hit = hitEnemy(snapshot, resolved, scaled, {
       attenuation,
       targets: body.targets !== undefined ? Number(body.targets) : undefined,
@@ -275,13 +278,10 @@ const weaponSummary = (w: WeaponData) => ({
 
 /** Everything of a /api/search body except the weapon; /api/part-search takes the same. */
 function searchOptions(body: any, base: Build): Omit<SearchRequest, 'weapon'> {
-  const asList = (value: unknown): string[] =>
-    Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.split(',').map((v) => v.trim()).filter(Boolean) : [];
   const chooseIncarnon = Boolean(body.chooseIncarnon) || body.incarnon === 'auto';
   return {
     objective: objectiveOf(body.objective),
-    enemy: body.enemy ?? 'Bombard',
-    level: body.level !== undefined ? Number(body.level) : 150,
+    ...enemyFrom(body),
     capacity: body.capacity !== undefined ? Number(body.capacity) : 60,
     maxForma: body.maxForma === null ? null : body.maxForma !== undefined ? Number(body.maxForma) : undefined,
     exclude: asList(body.exclude),
@@ -290,16 +290,8 @@ function searchOptions(body: any, base: Build): Omit<SearchRequest, 'weapon'> {
     budget: clamp(body.budget, 1, 1_000_000),
     chooseIncarnon,
     chooseArcane: Boolean(body.chooseArcane) || body.arcane === 'auto',
-    eximus: Boolean(body.eximus),
-    overguard: body.overguard !== undefined ? Number(body.overguard) : undefined,
-    steelPath: Boolean(body.steelPath),
     simulate: body.simulate !== false,
     kills: body.kills !== undefined ? Number(body.kills) : undefined,
-    attenuation: body.attenuation !== undefined
-      ? body.attenuation
-      : (body.mdpt !== undefined || body.mdps !== undefined
-        ? { id: 'custom', mdpi: Number(body.mdpt ?? 0), mdps: Number(body.mdps ?? 0) }
-        : undefined),
     // Choosing perks keeps the player's form switch.
     base: chooseIncarnon ? { ...base, incarnon: (base.incarnon ?? []).filter((choice) => choice.toLowerCase() === 'form') } : base,
   };
@@ -419,82 +411,62 @@ export async function handleApi(method: string, url: URL, body: any, io: ApiIo =
     }
     // Arcanes chosen with the mods: the sets the Find tab runs one brute force each for (CPU or GPU).
     if (url.pathname === '/api/bruteforce/arcane-sets' && method === 'POST') {
-      try {
-        const request = bruteForceRequestFrom(body);
-        if ('error' in request) return reply(404, request);
-        return reply(200, { sets: arcaneSetsFor(snapshot, request) });
-      } catch (error) {
-        if (error instanceof InputError) return reply(400, { error: error.message, code: error.code });
-        throw error;
-      }
+      const request = bruteForceRequestFrom(body);
+      if ('error' in request) return reply(404, request);
+      return reply(200, { sets: arcaneSetsFor(snapshot, request) });
     }
     // GPU brute force: the model for the browser's pre-filter, then the exact pass on its shortlist.
     if (url.pathname === '/api/bruteforce/gpu-model' && method === 'POST') {
-      try {
-        const request = bruteForceRequestFrom(body);
-        if ('error' in request) return reply(404, request);
-        // The exact pass follows in a few seconds: load its threads while the GPU works.
-        warmExactPool();
-        return reply(200, gpuModel(snapshot, request, body.keep !== undefined ? Math.max(1, Math.min(100_000, Number(body.keep))) : undefined));
-      } catch (error) {
-        if (error instanceof InputError) return reply(400, { error: error.message, code: error.code });
-        throw error;
-      }
+      const request = bruteForceRequestFrom(body);
+      if ('error' in request) return reply(404, request);
+      // The exact pass follows in a few seconds: load its threads while the GPU works.
+      warmExactPool();
+      return reply(200, gpuModel(snapshot, request, body.keep !== undefined ? Math.max(1, Math.min(100_000, Number(body.keep))) : undefined));
     }
     if (url.pathname === '/api/bruteforce/gpu-finish' && method === 'POST') {
       if (!Array.isArray(body.combinations) || body.combinations.length > 100_000
         || !body.combinations.every((combo: unknown) => Array.isArray(combo) && combo.every((name) => typeof name === 'string'))) {
         return reply(400, { error: 'combinations: a list of up to 100,000 lists of mod names', code: 'invalid_argument' });
       }
-      try {
-        const request = bruteForceRequestFrom(body);
-        if ('error' in request) return reply(404, request);
-        const gpu = body.gpu ?? {};
-        return reply(200, await bruteForceFromCombinations(snapshot, request, body.combinations, {
-          combinations: Number(gpu.combinations) || 0,
-          elapsedMs: Number(gpu.elapsedMs) || 0,
-          adapter: typeof gpu.adapter === 'string' ? gpu.adapter.slice(0, 80) : undefined,
-          drift: gpu.drift !== undefined ? Number(gpu.drift) : undefined,
-        }));
-      } catch (error) {
-        if (error instanceof InputError) return reply(400, { error: error.message, code: error.code });
-        throw error;
-      }
+      const request = bruteForceRequestFrom(body);
+      if ('error' in request) return reply(404, request);
+      const gpu = body.gpu ?? {};
+      return reply(200, await bruteForceFromCombinations(snapshot, request, body.combinations, {
+        combinations: Number(gpu.combinations) || 0,
+        elapsedMs: Number(gpu.elapsedMs) || 0,
+        adapter: typeof gpu.adapter === 'string' ? gpu.adapter.slice(0, 80) : undefined,
+        drift: gpu.drift !== undefined ? Number(gpu.drift) : undefined,
+      }));
     }
     // Riven tab: which build mod each possible riven should replace. The GPU variant fetches a model,
     // scores every riven in the browser, and sends the best back for the exact pass.
     if (url.pathname.startsWith('/api/riven-picker') && method === 'POST') {
-      try {
-        const request = rivenRequestFrom(body);
-        if ('error' in request) return reply(404, request);
-        if (url.pathname === '/api/riven-picker/gpu-model') {
-          warmExactPool();
-          // The browser rebuilds a riven from its four indices and the vector names ("+viral", "-zoom").
-          const { rivenSpecs: _specs, ...model } = rivenGpuModel(snapshot, request);
-          return reply(200, model);
-        }
-        if (url.pathname === '/api/riven-picker/gpu-finish') {
-          if (!Array.isArray(body.rivens) || body.rivens.length > 20_000) {
-            return reply(400, { error: 'rivens: a list of up to 20,000 { stats, malus }', code: 'invalid_argument' });
-          }
-          const gpu = body.gpu ?? {};
-          return reply(200, await rivenPicker(snapshot, {
-            ...request,
-            rivens: body.rivens.map((riven: any) => ({ stats: Array.isArray(riven?.stats) ? riven.stats.map(String) : [], malus: String(riven?.malus ?? '') })),
-            gpu: {
-              rivens: Number(gpu.rivens) || 0,
-              elapsedMs: Number(gpu.elapsedMs) || 0,
-              adapter: typeof gpu.adapter === 'string' ? gpu.adapter.slice(0, 80) : undefined,
-              replacedCounts: Object.fromEntries(Object.entries(gpu.replacedCounts ?? {}).map(([name, count]) => [name, Number(count) || 0])),
-            },
-          }));
-        }
-        if (url.pathname !== '/api/riven-picker') return reply(404, { error: 'not found' });
-        return reply(200, await rivenPicker(snapshot, request));
-      } catch (error) {
-        if (error instanceof InputError) return reply(400, { error: error.message, code: error.code });
-        throw error;
+      const request = rivenRequestFrom(body);
+      if ('error' in request) return reply(404, request);
+      if (url.pathname === '/api/riven-picker/gpu-model') {
+        warmExactPool();
+        // The browser rebuilds a riven from its four indices and the vector names ("+viral", "-zoom").
+        const { rivenSpecs: _specs, ...model } = rivenGpuModel(snapshot, request);
+        return reply(200, model);
       }
+      if (url.pathname === '/api/riven-picker/gpu-finish') {
+        if (!Array.isArray(body.rivens) || body.rivens.length > 20_000) {
+          return reply(400, { error: 'rivens: a list of up to 20,000 { stats, malus }', code: 'invalid_argument' });
+        }
+        const gpu = body.gpu ?? {};
+        return reply(200, await rivenPicker(snapshot, {
+          ...request,
+          rivens: body.rivens.map((riven: any) => ({ stats: Array.isArray(riven?.stats) ? riven.stats.map(String) : [], malus: String(riven?.malus ?? '') })),
+          gpu: {
+            rivens: Number(gpu.rivens) || 0,
+            elapsedMs: Number(gpu.elapsedMs) || 0,
+            adapter: typeof gpu.adapter === 'string' ? gpu.adapter.slice(0, 80) : undefined,
+            replacedCounts: Object.fromEntries(Object.entries(gpu.replacedCounts ?? {}).map(([name, count]) => [name, Number(count) || 0])),
+          },
+        }));
+      }
+      if (url.pathname !== '/api/riven-picker') return reply(404, { error: 'not found' });
+      return reply(200, await rivenPicker(snapshot, request));
     }
     if (url.pathname === '/api/bruteforce' && method === 'POST') {
       const request = bruteForceRequestFrom(body);
