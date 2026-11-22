@@ -1,6 +1,6 @@
 name: GitHub Pages
 
-# Builds the static version (tools/build-pages.ts) and publishes it on every push to main.
+# Builds the static version (tools/build-pages.ts) and publishes it on every push to main, once the tests pass.
 on:
   push:
     branches: [main]
@@ -16,7 +16,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A red main must not go live.
+  test:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yml
+
   deploy:
+    needs: test
     runs-on: ubuntu-latest
     environment:
       name: github-pages
