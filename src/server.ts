@@ -68,14 +68,35 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
+const MAX_BODY = 1_000_000;
+
 async function readBody(req: IncomingMessage): Promise<any> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > MAX_BODY) throw new InputError('request body is too large (1 MB limit)', 'body_too_large');
+    chunks.push(chunk as Buffer);
+  }
   if (!chunks.length) return {};
+  let body: unknown;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     throw new InputError('request body is not valid JSON', 'invalid_json');
+  }
+  // `null`, numbers and arrays carry no fields; handlers read body.weapon and friends.
+  return body !== null && typeof body === 'object' && !Array.isArray(body) ? body : {};
+}
+
+/** A page on another site can POST to localhost: only accept requests that come from this server's own pages. */
+function foreignOrigin(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (!origin) return false;
+  try {
+    return new URL(origin).host !== req.headers.host;
+  } catch {
+    return true;
   }
 }
 
@@ -83,6 +104,7 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
   try {
     if (url.pathname.startsWith('/api/')) {
+      if (foreignOrigin(req)) return json(res, 403, { error: 'cross-origin request refused', code: 'bad_origin' });
       // A dropped connection (the Find tab's stop button) stops the search behind it.
       const stopped = new AbortController();
       res.on('close', () => { if (!res.writableFinished) stopped.abort(new Error('stopped by the client')); });
@@ -167,14 +189,15 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': MIME[extname(path)] ?? 'application/octet-stream' });
     return res.end(file);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'EISDIR') {
       res.writeHead(404, { 'content-type': 'text/plain' });
       return res.end('not found');
     }
     // Bad input from any route (a level of "abc") is the caller's mistake, not a server fault.
     if (error instanceof InputError) return json(res, 400, { error: error.message, code: error.code });
     console.error(error);
-    return json(res, 500, { error: String(error) });
+    return json(res, 500, { error: 'internal error' });
   }
 });
 

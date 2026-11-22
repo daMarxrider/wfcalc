@@ -170,3 +170,29 @@ test('a body that is not JSON is the caller\'s mistake: 400, not 500', async () 
     }
   });
 });
+
+test('the server hides internals, caps bodies, refuses foreign origins and checks card/img names', async () => {
+  await withServer(async (base) => {
+    const post = (body: string, headers: Record<string, string> = {}) =>
+      fetch(`${base}/api/calc`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body });
+    // A JSON null body is treated as empty: a normal 4xx for the missing weapon, never a 500 with a stack.
+    const empty = await post('null');
+    assert.ok(empty.status < 500, `null body gave ${empty.status}`);
+    assert.equal((await post('x'.repeat(1_100_000))).status, 400);
+    assert.equal((await post('{}', { origin: 'http://evil.example' })).status, 403);
+    assert.ok((await post('{}', { origin: base })).status < 500);
+    // A directory is not found, not an internal error that names a path.
+    assert.equal((await fetch(`${base}/..`)).status < 500, true);
+    assert.equal((await fetch(`${base}/card/..%2f..`)).status, 400);
+    assert.equal((await fetch(`${base}/img/a/b.png`)).status, 400);
+  });
+});
+
+test('search budget, limits and pool are clamped', async () => {
+  await withServer(async (base) => {
+    const started = Date.now();
+    const response = await fetch(`${base}/api/search`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ weapon: 'Lex', budget: 1e12, limit: 1e9 }) });
+    assert.equal(response.status, 200);
+    assert.ok(Date.now() - started < 60_000);
+  });
+});

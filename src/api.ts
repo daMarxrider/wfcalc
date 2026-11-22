@@ -81,12 +81,12 @@ function bruteForceRequestFrom(body: any): BruteForceRequest | { error: string; 
     fixed,
     exclude: asList(body.exclude),
     requireStatus: asList(body.requireStatus),
-    pool: body.pool !== undefined ? Number(body.pool) : undefined,
-    maxEvaluations: body.maxEvaluations !== undefined ? Number(body.maxEvaluations) : undefined,
+    pool: clamp(body.pool, 1, 40),
+    maxEvaluations: clamp(body.maxEvaluations, 1, 50_000_000),
     allCombinations: body.allCombinations === true,
     simulate: body.simulate !== false,
     kills: body.kills !== undefined ? Number(body.kills) : undefined,
-    limit: body.limit !== undefined ? Number(body.limit) : 5,
+    limit: clamp(body.limit, 1, 1000) ?? 5,
     chooseArcane: body.chooseArcane === true,
     base,
   };
@@ -119,6 +119,13 @@ function rivenRequestFrom(body: any): RivenPickerRequest | { error: string; sugg
     stats: Array.isArray(body.stats) ? body.stats.map(String).slice(0, 3) : undefined,
     malus: typeof body.malus === 'string' && body.malus ? body.malus : undefined,
   };
+}
+
+/** A numeric request field held inside [min, max]; undefined when absent or not a number. Keeps one request from freezing the server. */
+function clamp(value: unknown, min: number, max: number): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(min, Math.min(max, Math.floor(number))) : undefined;
 }
 
 /** Runs a build and returns everything the UI needs to render a report. */
@@ -279,8 +286,8 @@ function searchOptions(body: any, base: Build): Omit<SearchRequest, 'weapon'> {
     maxForma: body.maxForma === null ? null : body.maxForma !== undefined ? Number(body.maxForma) : undefined,
     exclude: asList(body.exclude),
     mustInclude: asList(body.mustInclude ?? body.must),
-    limit: body.limit !== undefined ? Number(body.limit) : 3,
-    budget: body.budget !== undefined ? Number(body.budget) : undefined,
+    limit: clamp(body.limit, 1, 1000) ?? 3,
+    budget: clamp(body.budget, 1, 1_000_000),
     chooseIncarnon,
     chooseArcane: Boolean(body.chooseArcane) || body.arcane === 'auto',
     eximus: Boolean(body.eximus),
