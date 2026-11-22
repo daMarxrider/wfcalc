@@ -33,7 +33,7 @@ import { augmentFits, byExactName, findWarframe, normalizeName } from '../data.t
 import { abilityStrengthFromMods, buffById, buffEffects } from './buffs.ts';
 import { shardEffects, type ShardSpec } from './shards.ts';
 import { rivenEffects, type RivenSpec } from './riven.ts';
-import { arcaneEffectsAt, arcaneScopeMiss, energyDepletedUptime, enervateCritChance, enervateHitsPerShot, isDualPistols, RESIDUAL_ARCANE_ELEMENT, type ResidualElement } from './arcanes.ts';
+import { arcaneEffectsAt, arcaneScopeMiss, energyDepletedUptime, enervateCritChance, enervateHitsPerShot, isDualPistols, reloadConditionUptime, RESIDUAL_ARCANE_ELEMENT, type ResidualElement } from './arcanes.ts';
 import { ammoCost, incarnonAmmoEffects, modAmmoEffects, weaponAmmoEffects, type AmmoBuff } from './ammo.ts';
 import { COMBO, NEXT_SHOT, necrophagicVigor, shellReload, spoolSeconds, weaponTraitEffects } from './traits.ts';
 import { arcaneProcRates, procRates, sustainedPulls } from './dot.ts';
@@ -988,13 +988,16 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
         mode: build.stackMode ?? 'custom',
         override: build.sourceStacks?.[source.name],
         hit: hitZoneOf(build),
-      }) * (effect.condition === 'on_energy_depleted' ? energyDepletedUptime(stats) : 1);
+      }) * (effect.condition === 'on_energy_depleted' ? energyDepletedUptime(stats) : 1)
+        // Plated Round counts the shots inside its own window (platedRound), so it only needs the never-reloads gate.
+        * (/\bonReload(Empty)?\b/.test(effect.condition ?? '') ? (effect.target === 'platedRound' ? Math.sign(reloadConditionUptime(stats, '')) : reloadConditionUptime(stats, effect.raw)) : 1);
       if (effect.condition) {
         const entry = conditional.get(source.name)!;
         entry.stacks = Math.max(entry.stacks, effect.perStatusType ? stacks / Math.max(1, Number(conditions.statusTypes ?? 1)) : stacks);
       }
       if (stacks === 0) {
-        collected.inactive.push(`${source.name}: ${effect.raw}`);
+        const neverReloads = /\bonReload(Empty)?\b/.test(effect.condition ?? '') && reloadConditionUptime(stats, '') === 0;
+        collected.inactive.push(`${source.name}: ${effect.raw}${neverReloads ? ' (this weapon never reloads in a fight)' : ''}`);
         continue;
       }
       // Incarnon perks scoped to one form (wiki: "for Incarnon Form", "does not apply to the Incarnon form").

@@ -35,6 +35,25 @@ export function energyDepletedUptime(stats: { energyPool?: number; magazineSize?
   return Math.min(1, (below + ENERGY_DEPLETED_SECONDS) / (fire + reload));
 }
 
+/** A weapon whose magazine outlasts any fight (Arquebex: 1,000,000 rounds) never reloads, so reload triggers never fire. */
+const NEVER_RELOADS_AFTER = 3600;
+
+/**
+ * Share of a firing cycle a reload-triggered buff is up ("On Reload From Empty: +220% Damage for
+ * 16.5s", "On Reload: ... for 9s"): the buff starts when the reload finishes and runs `seconds`,
+ * the next empty magazine refreshes it. A buff text without a duration lasts until the next reload.
+ * 0 for a weapon that never reloads in a fight, whatever the stack mode says: it cannot happen.
+ * shortcut: the first magazine (the weapon starts full, so no buff yet) and mods that change the
+ * magazine, fire rate or reload speed are ignored, like energyDepletedUptime.
+ */
+export function reloadConditionUptime(stats: { magazineSize?: number; fireRate?: number; reloadTime?: number }, raw: string): number {
+  const fire = (stats.magazineSize ?? 0) / Math.max(0.01, stats.fireRate ?? 0);
+  if (!Number.isFinite(fire) || fire > NEVER_RELOADS_AFTER || !(stats.magazineSize! > 0)) return 0;
+  const cycle = fire + Math.max(0, stats.reloadTime ?? 0);
+  const seconds = Number(/for (\d+(?:\.\d+)?)\s*s\b/i.exec(raw)?.[1] ?? Infinity);
+  return Math.min(1, seconds / cycle);
+}
+
 /** Warframe arcanes that buff one weapon class only. Absent: every weapon. */
 const WEAPON_SCOPE: Record<string, { label: string; fits: (weapon: WeaponData) => boolean }> = {
   'Arcane Acceleration': { label: 'primary weapons except shotguns', fits: (w) => w.category === 'primary' && w.type !== 'Shotgun' },

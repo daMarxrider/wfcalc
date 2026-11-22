@@ -122,3 +122,16 @@ test('Arquebex: archgun with infinite ammo that takes no arcanes', () => {
   assert.ok(withArcane.warnings.some((w) => w.includes('takes no arcanes')));
   assert.ok(plain.magazineSize >= 1e6);
 });
+
+test('reload-triggered buffs: never on a weapon that cannot reload, a share of the cycle otherwise', () => {
+  const buff = { name: 'Primed Deadly Efficiency', rank: 10 };
+  const ratio = (weapon: string, stackMode: 'max' | 'none') =>
+    shot({ weapon, mods: [buff], stackMode }).shotDamage / shot({ weapon, mods: [], stackMode }).shotDamage;
+  // Arquebex never empties its magazine: off even with every condition on.
+  close(ratio('Arquebex', 'max'), 1);
+  assert.ok(shot({ weapon: 'Arquebex', mods: [buff], stackMode: 'max' }).inactiveConditions.some((line) => line.includes('never reloads')));
+  // Corvas: 12.5 s of fire + 8 s reload = 20.5 s cycle, the +220% lasts 16.5 s of it.
+  close(ratio('Corvas', 'max'), 1 + 2.2 * (16.5 / 20.5));
+  // A short cycle keeps the buff up the whole time.
+  close(ratio('Cortege', 'max'), 3.2);
+});
