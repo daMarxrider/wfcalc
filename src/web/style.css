@@ -827,10 +827,14 @@ label[title] > span:first-child, label.stack[title], .toggles label[title] { tex
 }
 .riven-rank { color: var(--accent); text-align: center; }
 .riven-stats { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
-.riven-action { font-size: 13px; }
+.riven-action { font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.riven-apply { flex: none; min-height: 32px; padding: 4px 14px; color: var(--accent); border-color: var(--accent-dim); background: transparent; }
+.riven-apply:hover:not(:disabled) { background: var(--panel-2); }
+.riven-apply:disabled { opacity: .45; cursor: not-allowed; }
 @media (max-width: 640px) {
   .riven-row { grid-template-columns: 24px 1fr; }
   .riven-action { grid-column: 2; }
+  .riven-apply { min-height: 44px; }
 }
 
 /* ═════════ Deck components ═════════ */

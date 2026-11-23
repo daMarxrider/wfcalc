@@ -811,7 +811,31 @@ async function gpuRivenPicker(payload, post) {
   });
 }
 
+let shownPicks = [];
+
+/** Put a picked riven into the build, in the slot of the mod it replaces; false when that mod is gone. */
+function applyRiven(pick) {
+  const at = state.mods.findIndex((mod, index) => index < MAX_SLOTS && mod.name === pick.replaces);
+  if (at < 0) return false;
+  const old = state.mods.findIndex((mod) => mod.name === RIVEN);
+  if (old >= 0) state.mods[old] = { name: '', rank: undefined };
+  state.mods[at] = { name: RIVEN, rank: 0 };
+  // the picker scores rank 8 at the best roll, so the card gets the same numbers
+  Object.assign(state, { riven: { stats: pick.stats, malus: pick.malus }, rivenRoll: 1.1, rivenRank: 8 });
+  rivenLines = [];
+  $('riven-input').value = rivenText(state.riven);
+  $('riven-roll').value = '1.1';
+  $('roll-value').textContent = '1.10';
+  $('riven-rank').value = '8';
+  $('rinkrank-value').textContent = '8';
+  showTab('build');
+  renderSlots();
+  recalc();
+  return true;
+}
+
 function renderRivenResult(result) {
+  shownPicks = result.picks;
   const ttk = result.objective === 'ttk';
   const value = (score, kill) => (ttk ? (kill === null ? '—' : `${fmt(kill, 2)}s`) : result.objective === 'kpm' ? `${fmt(score, 1)} kills/min` : `${fmt(score, 0)} dps`);
   const total = Object.values(result.replacedCounts).reduce((sum, count) => sum + count, 0) || 1;
@@ -832,8 +856,9 @@ function renderRivenResult(result) {
       <b class="riven-rank">${index + 1}</b>
       <div class="riven-stats">${pick.lines.map((line) => `<span class="chip${/ -/.test(line) ? ' warn' : ''}">${escapeHtml(line)}</span>`).join('')}
         ${pick.equivalent > 1 ? `<span class="hint" title="${escapeHtml(pick.examples.join('\n'))}">+${pick.equivalent - 1} riven(s) with the same effect here</span>` : ''}</div>
-      <div class="riven-action">replaces <b>${escapeHtml(pick.replaces)}</b> → ${value(pick.score, pick.timeToKill)}
+      <div class="riven-action"><div>replaces <b>${escapeHtml(pick.replaces)}</b> → ${value(pick.score, pick.timeToKill)}
         ${pick.swap ? `<div class="hint">then ${escapeHtml(pick.swap.out)} → ${escapeHtml(pick.swap.in)}: ${value(pick.swap.score, pick.swap.timeToKill)}</div>` : ''}</div>
+        <button class="riven-apply" data-pick="${index}" title="Put this riven into the build, in place of ${escapeHtml(pick.replaces)}">Apply</button></div>
     </div>`).join('') || '<p class="hint">No riven matches that filter.</p>'}</div>
     ${(result.assumptions ?? []).map((line) => `<p class="hint">· ${escapeHtml(line)}</p>`).join('')}`;
 }
@@ -2845,6 +2870,13 @@ function bindEvents() {
     rivenLines = [];
     renderSlots();
     recalc();
+  });
+  $('riven-out').addEventListener('click', (event) => {
+    const button = event.target.closest('.riven-apply');
+    if (!button || applyRiven(shownPicks[Number(button.dataset.pick)])) return;
+    button.disabled = true;
+    button.textContent = 'Build changed'; // a title alone never shows on a phone
+    button.title = 'The build changed: that mod is no longer in it. Run the search again.';
   });
   $('riven-drain').addEventListener('change', (event) => {
     state.rivenDrain = event.target.value === '' ? null : Math.max(0, Number(event.target.value));
