@@ -1019,7 +1019,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       // no melee damage bonus: Pressure Point, Arcane Fury, the stance and the combo
       // multiplier do nothing. Elemental, faction, crit, status and Condition Overload still
       // apply, so only plain "melee damage" rolls are dropped.
-      if (spectralForm && effect.target === 'baseDamage' && !effect.flat && !effect.perStatusType
+      if (spectralForm && effect.target === 'baseDamage' && !effect.flat && !effect.perStatusType && !effect.overloadBucket
         && (source.kind === 'riven' || /melee damage/i.test(effect.raw))) {
         collected.inactive.push(`${source.name}: ${effect.raw} (spectral hits ignore melee damage)`);
         continue;
@@ -1030,7 +1030,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       // "(x2 for Bows)": the mod text doubles the effect on bows.
       const bowFactor = effect.doublesForBows && /bow/i.test(weapon.type) ? 2 : 1;
       const setFactor = 1 + amplifyFor(source.set, source.name);
-      const directOnly = effect.perStatusType ? directShare : 1;
+      const directOnly = effect.perStatusType || effect.overloadBucket ? directShare : 1;
       // Coda Motovore (wiki): Impact, Puncture and Slash mods are six times as strong.
       const motovore = weapon.name === 'Coda Motovore' && source.kind === 'mod' && effect.target === 'element'
         && (PHYSICAL_TYPES as readonly string[]).includes(effect.element ?? '') ? 6 : 1;
@@ -1052,7 +1052,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       }
       // Per-status-type damage: on most attacks it joins the Serration bucket and skips the final
       // multipliers (wiki: Condition Overload (Mechanic), "Adding"); listed attacks multiply.
-      if (effect.perStatusType && effect.op === 'add' && (effect.target === 'directDamage' || effect.target === 'baseDamage')) {
+      if ((effect.perStatusType || effect.overloadBucket) && effect.op === 'add' && (effect.target === 'directDamage' || effect.target === 'baseDamage')) {
         const target = overloadMultiplies(weapon.name, mode?.name ?? null, incarnonForm) ? 'directDamage' : 'baseDamage';
         collected.byTarget.set(target, (collected.byTarget.get(target) ?? 0) + value);
         if (target === 'baseDamage') collected.byTarget.set('overloadAdd', (collected.byTarget.get('overloadAdd') ?? 0) + value);

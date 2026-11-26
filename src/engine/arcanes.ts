@@ -185,7 +185,7 @@ const CURATED: Record<string, (r: number, context: ArcaneContext) => Effect[]> =
   // Multiplies the Heat the amp deals (a Virtuos Forge conversion), like Accelerant does.
   'Magus Melt': (r) => [effect('elementMultiplier', 0.3, `On Void Sling: +30% Heat Damage in Operator Mode for 15s, up to ${r + 2}x`, { op: 'mult', element: 'heat', condition: 'onVoidSling', maxStacks: r + 2 })],
   // Per Cold stack on the target (10 at most); additive to Hornet Strike.
-  'Secondary Shiver': (r) => [effect('baseDamage', 0.075 * (r + 1), `+${pct(0.075 * (r + 1))} damage per Cold stack on the target`, { condition: 'on_cold_status_effect', maxStacks: 10 })],
+  'Secondary Shiver': (r) => [effect('baseDamage', 0.075 * (r + 1), `+${pct(0.075 * (r + 1))} damage per Cold stack on the target`, { condition: 'on_cold_status_effect', maxStacks: 10, overloadBucket: true })],
 };
 
 const clean = (text: string): string => text.replace(/<[^>]+>/g, '').replace(/\\n|\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
