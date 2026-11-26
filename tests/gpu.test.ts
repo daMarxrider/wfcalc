@@ -108,7 +108,7 @@ const mirrored: Array<[string, Record<string, unknown>]> = [
   ['Madurai Phoenix Talons', { weapon: 'Hek', enemy: 'Corpus Tech', base: { buffs: ['phoenix-talons'] } }],
   ['Focus Void Strike + Void Fuel', { weapon: 'Hek', enemy: 'Corpus Tech', base: { buffs: ['void-strike', 'void-fuel'] } }],
   ['Infinite Ammo on hit (Chamber Cascade)', { weapon: 'Magnus Prime', enemy: 'Heavy Gunner', base: { stackMode: 'max' } }],
-  ['Infinite Ammo on kill (Arcane Pistoleer)', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', arcanes: ['Arcane Pistoleer'] } }],
+  ['Infinite Ammo on kill (Arcane Pistoleer)', { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', warframeArcanes: ['Arcane Pistoleer'] } }],
 ];
 for (const [name, extra] of mirrored) {
   test(`GPU pre-filter scores like the exact ranking: ${name}`, () => {
@@ -125,7 +125,7 @@ for (const [name, extra] of mirrored) {
 }
 
 test('the GPU model carries the fixed build\'s timed ammo buffs', () => {
-  const pistoleer = gpuModel(snapshot, { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', arcanes: ['Arcane Pistoleer'] } }, 10);
+  const pistoleer = gpuModel(snapshot, { weapon: 'Lex Prime', enemy: 'Heavy Gunner', base: { hit: 'head', stackMode: 'max', warframeArcanes: ['Arcane Pistoleer'] } }, 10);
   assert.equal(pistoleer.params[P.killBuffs], 1);
 });
 

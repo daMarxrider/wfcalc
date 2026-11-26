@@ -103,8 +103,8 @@ test('Athodai Overdrive: fire rate and Infinite Ammo by uptime, 8 s per wait at 
   // Body shots never trigger it.
   assert.equal(resolve('Athodai', { stackMode: 'max' }).timedBuff, undefined);
   // Overdrive takes precedence over Arcane Pistoleer (wiki), on and off.
-  const pistoleer = resolve('Athodai', { stackMode: 'max', hit: 'head', arcanes: ['Arcane Pistoleer'] });
+  const pistoleer = resolve('Athodai', { stackMode: 'max', hit: 'head', warframeArcanes: ['Arcane Pistoleer'] });
   assert.equal(pistoleer.ammo.buffs.length, 0);
   assert.equal(pistoleer.timedBuff!.off!.ammo.buffs.length, 0);
-  assert.equal(resolve('Lex', { stackMode: 'max', hit: 'head', arcanes: ['Arcane Pistoleer'] }).ammo.buffs.length, 1);
+  assert.equal(resolve('Lex', { stackMode: 'max', hit: 'head', warframeArcanes: ['Arcane Pistoleer'] }).ammo.buffs.length, 1);
 });

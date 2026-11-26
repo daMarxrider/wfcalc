@@ -257,9 +257,10 @@ export const ENCUMBER_TYPES: DamageType[] = ['impact', 'puncture', 'slash', 'hea
  *   - Secondary Cryogenic: every Puncture proc puts `cryogenicStacks` Cold stacks on the target.
  *   - Archon Continuity / Vitality (exalted weapons): a Corrosive proc per Toxin proc, a second
  *     Heat proc per Heat proc, arcane ones included (wiki: Secondary Encumber's Toxin counts).
+ *   - Internal Bleeding / Hemorrhage / Magnetic Welt: a Slash (Magnetic) proc per Impact proc at `impactProcs`.
  */
 export function arcaneProcRates(
-  build: Pick<ResolvedBuild, 'statusChance' | 'multishot' | 'statusDurationBonus' | 'debilitateChance' | 'encumberChance' | 'cryogenicStacks' | 'archonContinuity' | 'archonVitality'>,
+  build: Pick<ResolvedBuild, 'statusChance' | 'multishot' | 'statusDurationBonus' | 'debilitateChance' | 'encumberChance' | 'cryogenicStacks' | 'archonContinuity' | 'archonVitality'> & Partial<Pick<ResolvedBuild, 'impactProcs'>>,
   pullsPerSecond: number,
   rateOf: (type: DamageType) => number,
 ): Partial<Record<DamageType, number>> {
@@ -276,6 +277,10 @@ export function arcaneProcRates(
   // shortcut: Continuity's Corrosive does not feed Debilitate back; second-order, add it if asked.
   if (build.archonContinuity) extra.corrosive = (extra.corrosive ?? 0) + rateOf('toxin') + (extra.toxin ?? 0);
   if (build.archonVitality) extra.heat = (extra.heat ?? 0) + rateOf('heat') + (extra.heat ?? 0);
+  // Internal Bleeding / Hemorrhage / Magnetic Welt: a proc per Impact proc at its chance, Encumber's and Debilitate's Impact included.
+  // shortcut: a hit that also rolls Slash elsewhere (Hunter Munitions) still lands one Slash proc in game (wiki); counted twice here.
+  const impact = rateOf('impact') + (extra.impact ?? 0);
+  for (const [type, chance] of Object.entries(build.impactProcs ?? {}) as Array<[DamageType, number]>) extra[type] = (extra[type] ?? 0) + chance * impact;
   return extra;
 }
 

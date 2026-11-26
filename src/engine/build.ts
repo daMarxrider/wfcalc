@@ -248,6 +248,8 @@ export interface ResolvedBuild {
   archonContinuity: boolean;
   /** Archon Vitality on an exalted weapon's frame: a second Heat proc per Heat proc. */
   archonVitality: boolean;
+  /** Internal Bleeding / Hemorrhage (Slash), Magnetic Welt (Magnetic): chance of that proc per Impact proc, doubled below 2.5 fire rate (wiki). */
+  impactProcs: Partial<Record<DamageType, number>>;
   /** Secondary Irradiate's share of a hit dealt to nearby enemies (on 10 Radiation stacks), 0 when none. */
   irradiateShare: number;
   /** Exodia Force's share of the weapon's damage a status event deals to enemies within 6m (50% chance), 0 when none. */
@@ -792,10 +794,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`${weapon.name} takes no arcanes; ${arcane.name} ignored`);
       continue;
     }
+    // The game will not equip an arcane in the wrong slot, so it adds nothing.
     if (arcane.slot && !allowedArcanes.includes(arcane.slot)) {
-      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.category} weapon`);
+      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.category} weapon; ignored`);
+      continue;
     } else if ((arcane.slot === 'bow' && weapon.type !== 'Bow') || (arcane.slot === 'shotgun' && weapon.type !== 'Shotgun')) {
-      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.type}`);
+      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.type}; ignored`);
+      continue;
     }
     const { group, size } = arcaneGroupOf(weapon, arcane.slot ?? '');
     const taken = usedArcaneGroups.get(group) ?? [];
@@ -1094,6 +1099,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
               chance: value,
               requiresCrit: /critical|crit/i.test(effect.raw),
             });
+          } else if (effect.target === 'impactProc' && effect.element) {
+            collected.byTarget.set(`impactProc:${effect.element}`, (collected.byTarget.get(`impactProc:${effect.element}`) ?? 0) + value);
           } else if (effect.target === 'factionDamage' && effect.faction) {
             collected.faction.set(effect.faction, (collected.faction.get(effect.faction) ?? 0) + value);
           } else {
@@ -1464,6 +1471,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     cryogenicStacks: bonus('cryogenic'),
     archonContinuity: exalted?.continuity ?? false,
     archonVitality: exalted?.vitality ?? false,
+    impactProcs: Object.fromEntries(DAMAGE_TYPES.filter((type) => bonus(`impactProc:${type}`) > 0)
+      .map((type) => [type, Math.min(1, bonus(`impactProc:${type}`) * (fireRate < 2.5 ? 2 : 1))])),
     irradiateShare: bonus('irradiate'),
     exodiaForceShare: bonus('exodiaForce'),
     ammo,

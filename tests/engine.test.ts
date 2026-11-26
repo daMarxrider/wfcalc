@@ -355,14 +355,16 @@ test('Secondary Enervate averages its crit chance over the reset cycle', () => {
   // At 195% the first shot is big 95% of the time: E[sum]/E[shots] = (6.05 x 1.95 + 1.53) / 6.05.
   // The wiki's fit (35 + 0.95x = 220.25%) averages per-cycle means, which is not the per-shot average.
   close(enervateCritChance(1.95, 6), 1.95 + 1.53 / 6.05);
-  const snap = snapshot([weapon({ impact: 100, critChance: 2.5 })], [], [], { arcanes: [enervate] });
+  // A secondary arcane needs a secondary weapon: a wrong-slot arcane is ignored.
+  const pistol = weapon({ impact: 100, critChance: 2.5 }, { category: 'secondary', type: 'Pistol', modClasses: ['Pistol'] });
+  const snap = snapshot([pistol], [], [], { arcanes: [enervate] });
   close(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: ['Secondary Enervate'] }).critChance, 2.75);
   close(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: [{ name: 'Secondary Enervate', rank: 0 }] }).critChance, 2.5);
 
   // Projectile multishot is one hit per pellet: 3 pellets give 0, 30 ... 150% over six shots, +75%.
   // Hitscan and shotgun-sidearm pellets are one hit; and at most 30 triggers a second.
   const projectile = (extra: Partial<WeaponData> = {}, fireRate = 1): WeaponData => {
-    const base = weapon({ impact: 100, critChance: 2.5, multishot: 3, fireRate });
+    const base = weapon({ impact: 100, critChance: 2.5, multishot: 3, fireRate }, { category: 'secondary', type: 'Pistol', modClasses: ['Pistol'] });
     return { ...base, ...extra, modes: [{ name: 'Normal Attack', stats: base.stats, trigger: 'Projectile' }] };
   };
   const enervateOn = (w: WeaponData) => resolveBuild(snapshot([w], [], [], { arcanes: [enervate] }), { weapon: 'Test Weapon', mods: [], arcanes: ['Secondary Enervate'] }).critChance;
@@ -415,11 +417,11 @@ test('curated arcane mechanics: Plated Round, Doughty, Duplicate, Crepuscular', 
   close(resolveBuild(melee, { weapon: 'Test Weapon', mods: [], arcanes: ['Melee Duplicate'] }).multishot, 1.3);
 });
 
-test('an arcane in the wrong slot only warns', () => {
+test('an arcane in the wrong slot warns and adds nothing (the game will not equip it)', () => {
   const meleeArcane = arcane('Melee Exposure', 'melee', 5, ['Gain 60% Corrosive Damage on Melee strikes for 25s.']);
   const snap = snapshot([weapon({ impact: 100 })], [], [], { arcanes: [meleeArcane] });
   const resolved = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: ['Melee Exposure'], conditions: { onAbilityCast: 1 } });
-  assert.ok(resolved.warnings.some((warning) => warning.includes('melee arcane')));
+  assert.deepEqual([resolved.warnings, resolved.damage.projectileTotal], [['Melee Exposure is a melee arcane and does not fit a primary weapon; ignored'], 100]);
 });
 
 test('buff registry resolves the curated values from the dataset', () => {

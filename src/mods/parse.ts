@@ -166,6 +166,11 @@ export function mapTarget(rest: string): Mapped | null {
     if (key) return { target: 'factionDamage', faction: key, op: 'add' };
   }
 
+  // Internal Bleeding, Hemorrhage (Slash), Magnetic Welt (Magnetic): each Impact proc may add another proc.
+  // Doubling below 2.5 fire rate is in the engine.
+  const impactProc = /^impact procs add a (\w+) proc$/.exec(text);
+  if (impactProc && ELEMENT_BY_NAME[impactProc[1]]) return { target: 'impactProc', element: ELEMENT_BY_NAME[impactProc[1]], op: 'add' };
+
   // Bare element names, and "<Element> Damage" phrasings.
   const elementName = /^(\w+)(?: damage)?$/.exec(text);
   if (elementName && ELEMENT_BY_NAME[elementName[1]]) {
@@ -289,7 +294,6 @@ const NOISE_RULES: RegExp[] = [
   /^\d+%? (?:heavy attack efficiency|combo efficiency)$/i,
   /^\d+%? magazine reloaded\/s/i,
   /^\d+%? (?:weapon )?recoil and/i,
-  /^impact status effects have/i,
   /^\d+%? from health orbs$/i,
   /^\d+%? movement speed( when aiming| for \d+s)?$/i,
   /^\d+%? magazine reloaded\/s/i,
@@ -394,6 +398,8 @@ export function splitStatLines(stats: string[]): string[] {
       const nonCrit = /^non[- ]critical hits deal ([+-]?\d+(?:[.,]\d+)?)%/i.exec(s);
       return nonCrit ? `${nonCrit[1]}% Non-Critical damage` : s;
     })
+    // "Impact Status Effects have 35% chance to apply a Slash Status Effect" -> "35% Impact procs add a Slash proc".
+    .map((s) => s.replace(/^impact status effects have (\d+(?:[.,]\d+)?)% chance to apply an? (\w+) status effect.*$/i, '$1% Impact procs add a $2 proc'))
     // Arcanes phrase effects as "Gain +60% Corrosive Damage" or "21% chance for +45% Critical Chance".
     .map((s) => s.replace(/^gain\s+/i, ''))
     .map((s) => s.replace(/^\d+(?:[.,]\d+)?%\s+chance\s+(?:for|to gain)\s+/i, ''))

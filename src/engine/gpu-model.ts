@@ -185,6 +185,7 @@ export function vectorModel(snapshot: Snapshot, plan: ModelPlan, items: ModelIte
   params[P.encumber] = zero.encumberChance ?? 0;
   params[P.boss] = enemy.boss ? 1 : 0;
   params[P.debilitate] = zero.debilitateChance ?? 0;
+  // shortcut: Internal Bleeding / Magnetic Welt (impactProcs) are not in the pre-filter; the exact pass ranks them. Add a channel if they get cut early.
   params[P.continuity] = zero.archonContinuity ? 1 : 0;
   params[P.vitality] = zero.archonVitality ? 1 : 0;
   // A held beam's starting share of full damage (simulate.ts), 0 for anything else.
