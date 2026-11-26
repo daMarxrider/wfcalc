@@ -428,3 +428,91 @@ test('Internal Bleeding: the simulated fight bleeds the target, so it dies soone
   const plain = simulatedKill([]);
   assert.ok(bleeding < plain, `${bleeding} s is not below ${plain} s`);
 });
+
+// ------------------------------------------------------------- Hunter Munitions with Internal Bleeding
+
+const hunterMunitions = () => mod('Hunter Munitions', 5, ['+30% chance to apply on Critical'], { classes: ['Primary'] });
+/** The Impact rifle with a set crit chance and fire rate. */
+const critImpactRifle = (critChance: number, fireRate: number) => weapon({ impact: 100, statusChance: 1, critChance, fireRate, magazineSize: 1_000_000 });
+
+test('Hunter Munitions + Internal Bleeding: one Slash proc per hit, so Internal Bleeding only adds 0.35 x (1 - 0.3) (wiki: 54.5% in all)', () => {
+  // Wiki (Internal Bleeding, notes): a crit that also procs Impact lands Slash 54.5% of the time at 2.5+ shots/s,
+  // 30% from Hunter Munitions, so Internal Bleeding's own share is 54.5% - 30% = 24.5%.
+  close(resolve([critImpactRifle(1, 3)], [internalBleeding(), hunterMunitions()], {}).impactProcs.slash ?? 0, 0.245);
+});
+
+test('Hunter Munitions + Internal Bleeding below 2.5 shots/s: 0.7 x (1 - 0.3) = 0.49 (wiki: 79% in all)', () => {
+  close(resolve([critImpactRifle(1, 2)], [internalBleeding(), hunterMunitions()], {}).impactProcs.slash ?? 0, 0.49);
+});
+
+test('Hunter Munitions only overlaps on crits: at 50% crit, 0.7 x (1 - 0.5 x 0.3) = 0.595', () => {
+  close(resolve([critImpactRifle(0.5, 2)], [internalBleeding(), hunterMunitions()], {}).impactProcs.slash ?? 0, 0.595);
+});
+
+test('Hunter Munitions never procs without crits, so Internal Bleeding keeps its full 70%', () => {
+  close(resolve([critImpactRifle(0, 2)], [internalBleeding(), hunterMunitions()], {}).impactProcs.slash ?? 0, 0.7);
+});
+
+test('crit chance above 100% caps the overlap at Hunter Munitions\' 30% (0.7 x 0.7 = 0.49)', () => {
+  close(resolve([critImpactRifle(2, 2)], [internalBleeding(), hunterMunitions()], {}).impactProcs.slash ?? 0, 0.49);
+});
+
+// ------------------------------------------------------------- throwing (glaives)
+
+/** A glaive: 100 Impact swings, a 200 Impact throw and a 400 Impact charged throw. */
+const glaive = () => {
+  const base = weapon({ impact: 100 }, { category: 'melee', type: 'Melee', modClasses: ['Melee'] });
+  return {
+    ...base,
+    modes: [
+      { name: 'Normal Attack', stats: base.stats, trigger: null },
+      { name: 'Throw', stats: { ...base.stats, impact: 200 }, trigger: 'Thrown' },
+      { name: 'Charged Throw', stats: { ...base.stats, impact: 400 }, trigger: 'Thrown' },
+    ],
+  } as WeaponData;
+};
+const powerThrow = () => mod('Power Throw', 5, ['+2 Punch Through', 'On Consecutive throw (Max stacks 3):', '+100% Throw Damage'], { classes: ['Thrown Melee'] });
+
+test('throwing: a glaive fires its throw (200)', () => {
+  close(resolve([glaive()], [], { mods: [], conditions: { throwing: true } }).damage.projectileTotal, 200);
+});
+
+test('throwing with a heavy attack fires the charged throw (400)', () => {
+  close(resolve([glaive()], [], { mods: [], heavyAttack: true, conditions: { throwing: true } }).damage.projectileTotal, 400);
+});
+
+test('throwing: an attack named in the build wins over the switch (Normal Attack: 100)', () => {
+  close(resolve([glaive()], [], { mods: [], mode: 'Normal Attack', conditions: { throwing: true } }).damage.projectileTotal, 100);
+});
+
+test('throwing a weapon without a throw warns and keeps its attack', () => {
+  const resolved = resolve([rifle()], [], { mods: [], conditions: { throwing: true } });
+  assert.deepEqual([resolved.damage.projectileTotal, resolved.warnings], [100, ['Test Weapon has no throw attack; "throwing" ignored']]);
+});
+
+test('Power Throw: 3 consecutive throws are +300% throw damage (200 x 4 = 800)', () => {
+  close(resolve([glaive()], [powerThrow()], { conditions: { throwing: true, consecutiveThrow: 3 } }).damage.projectileTotal, 800);
+});
+
+test('Power Throw: more consecutive throws stop at the 3-stack cap (800)', () => {
+  close(resolve([glaive()], [powerThrow()], { conditions: { throwing: true, consecutiveThrow: 10 } }).damage.projectileTotal, 800);
+});
+
+test('Power Throw does nothing to a melee swing, and says it needs throws', () => {
+  const resolved = resolve([glaive()], [powerThrow()], { conditions: { consecutiveThrow: 3 } });
+  assert.deepEqual([resolved.damage.projectileTotal, resolved.inactiveConditions], [100, ['Power Throw: +100% Throw Damage (throws only: tick "throwing")']]);
+});
+
+test('max stacks never assume throwing: Power Throw stays off on the swing (100)', () => {
+  close(resolve([glaive()], [powerThrow()], { stackMode: 'max' }).damage.projectileTotal, 100);
+});
+
+test('max stacks with throwing ticked: the throw at 3 Power Throw stacks (800)', () => {
+  close(resolve([glaive()], [powerThrow()], { stackMode: 'max', conditions: { throwing: true } }).damage.projectileTotal, 800);
+});
+
+test('a Thrown Melee mod fits a weapon with a throw and warns on one without', () => {
+  const rifleWarnings = resolve([rifle()], [powerThrow()], {}).warnings;
+  const glaiveWarnings = resolve([glaive()], [powerThrow()], { conditions: { throwing: true } }).warnings;
+  assert.deepEqual([glaiveWarnings, rifleWarnings], [[], ['Power Throw does not fit a Rifle (Rifle)']]);
+});

@@ -58,7 +58,13 @@ export const hitZoneOf = (build: Pick<Build, 'hit' | 'headshot'>): HitZone =>
 /** Conditions that only a weak-point or headshot hit can trigger. */
 const WEAK_POINT_CONDITION = /weakpoint|weak_point|headshot/i;
 /** Conditions that describe how the player plays: "max" stacks never assume them, the switch decides. */
-const PLAYED_CONDITIONS = ['aiming', 'surgeShot', 'sliding', 'airborne', 'sprinting'];
+const PLAYED_CONDITIONS = ['aiming', 'surgeShot', 'sliding', 'airborne', 'sprinting', 'throwing'];
+
+/** The throw a glaive fires with the "throwing" switch on: the charged one on a heavy attack. */
+export function throwModeOf(weapon: WeaponData, heavyAttack: boolean): string | undefined {
+  const throws = weapon.modes.filter((mode) => mode.trigger === 'Thrown').map((mode) => mode.name);
+  return heavyAttack ? throws.find((name) => /charged/i.test(name)) ?? throws[0] : throws.find((name) => !/charged/i.test(name)) ?? throws[0];
+}
 
 export const COMPRESSION_NOT_AIMING = 'Primary Compression does nothing while not aiming: tick "aiming" (CLI: --stacks aiming=1)';
 
@@ -607,7 +613,10 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
 
   let aoeWarning: string | null = null;
-  const resolvedMode = statsForMode(weapon, build.mode ?? exaltedDefaultMode(weapon, [...(build.frameMods ?? []), ...(build.augments ?? [])]));
+  // The "throwing" switch fires the glaive's throw unless the build names an attack itself.
+  const throwing = Boolean(build.conditions?.throwing);
+  const throwMode = throwing && !build.mode ? throwModeOf(weapon, Boolean(build.heavyAttack)) : undefined;
+  const resolvedMode = statsForMode(weapon, build.mode ?? throwMode ?? exaltedDefaultMode(weapon, [...(build.frameMods ?? []), ...(build.augments ?? [])]));
   const conditions = build.conditions ?? {};
   let stats = resolvedMode.stats;
   const mode = resolvedMode.mode;
@@ -727,6 +736,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
   const sources: Source[] = [];
   if (aoeWarning) collected.warnings.push(aoeWarning);
+  if (throwing && !build.mode && !throwMode) collected.warnings.push(`${weapon.name} has no throw attack; "throwing" ignored`);
   if (elementBonusWarning) collected.warnings.push(elementBonusWarning);
   const equipped: string[] = [];
   const rivenLines: string[] = [];
@@ -1036,6 +1046,16 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
         && (PHYSICAL_TYPES as readonly string[]).includes(effect.element ?? '') ? 6 : 1;
       const value = effect.value * rankFraction * stacks * comboFactor * bowFactor * setFactor * directOnly * motovore;
       // Timed ammo buffs keep their spec; their value is the chance per event (ammo.ts).
+      // "Throw Damage" (Power Throw) counts on the thrown glaive only, like any other damage bonus there.
+      // shortcut: the bounce and recall explosions are left out; the wiki only names the thrown hit.
+      if (effect.target === 'throwDamage') {
+        if (mode?.trigger !== 'Thrown') {
+          collected.inactive.push(`${source.name}: ${effect.raw} (throws only: tick "throwing")`);
+          continue;
+        }
+        collected.byTarget.set('baseDamage', (collected.byTarget.get('baseDamage') ?? 0) + value);
+        continue;
+      }
       if (effect.target === 'ammoBuff' && effect.ammoBuff) {
         if (value > 0) collected.ammoBuffs.push({ ...effect.ammoBuff, name: source.name, chance: value });
         continue;
@@ -1471,8 +1491,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     cryogenicStacks: bonus('cryogenic'),
     archonContinuity: exalted?.continuity ?? false,
     archonVitality: exalted?.vitality ?? false,
+    // A hit lands one proc of a type however many sources roll it (wiki: Internal Bleeding with Hunter Munitions),
+    // so only the hits no forced proc of that type already covers count: chance x P(no other forced proc).
+    // shortcut: body-shot crit chance; head hits crit more often, so a crit-gated overlap is slightly larger there.
     impactProcs: Object.fromEntries(DAMAGE_TYPES.filter((type) => bonus(`impactProc:${type}`) > 0)
-      .map((type) => [type, Math.min(1, bonus(`impactProc:${type}`) * (fireRate < 2.5 ? 2 : 1))])),
+      .map((type) => [type, Math.min(1, bonus(`impactProc:${type}`) * (fireRate < 2.5 ? 2 : 1))
+        * collected.forcedProcs.filter((proc) => proc.type === type)
+          .reduce((none, proc) => none * (1 - Math.min(1, proc.chance * (proc.requiresCrit ? Math.min(1, Math.max(0, critChance)) : 1))), 1)])),
     irradiateShare: bonus('irradiate'),
     exodiaForceShare: bonus('exodiaForce'),
     ammo,

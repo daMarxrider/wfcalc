@@ -278,7 +278,7 @@ export function arcaneProcRates(
   if (build.archonContinuity) extra.corrosive = (extra.corrosive ?? 0) + rateOf('toxin') + (extra.toxin ?? 0);
   if (build.archonVitality) extra.heat = (extra.heat ?? 0) + rateOf('heat') + (extra.heat ?? 0);
   // Internal Bleeding / Hemorrhage / Magnetic Welt: a proc per Impact proc at its chance, Encumber's and Debilitate's Impact included.
-  // shortcut: a hit that also rolls Slash elsewhere (Hunter Munitions) still lands one Slash proc in game (wiki); counted twice here.
+  // build.ts already leaves out the hits where Hunter Munitions-style forced procs land the same type.
   const impact = rateOf('impact') + (extra.impact ?? 0);
   for (const [type, chance] of Object.entries(build.impactProcs ?? {}) as Array<[DamageType, number]>) extra[type] = (extra[type] ?? 0) + chance * impact;
   return extra;

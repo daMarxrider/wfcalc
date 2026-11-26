@@ -343,6 +343,10 @@ test('parseModEffects: "(x2 for Bows)" marks the effect as doubled on bows (Vigi
   assert.equal(effectsOf('+45% Fire Rate (x2 for Bows)')[0].doublesForBows, true);
 });
 
+test('parseModEffects: a "(Max stacks 3)" header caps the effects below it at 3 (Power Throw)', () => {
+  assert.equal(effectsOf('+2 Punch Through', 'On Consecutive throw (Max stacks 3):', '+100% Throw Damage')[1].maxStacks, 3);
+});
+
 test('parseModEffects: a "Stacks up to 240%" total cap becomes a stack count (240 / 40 = 6)', () => {
   assert.equal(effectsOf('On Kill:', '+40% Damage for 10s. Stacks up to 240%.')[0].maxStacks, 6);
 });

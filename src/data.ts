@@ -90,6 +90,8 @@ export function augmentFits(weapon: WeaponData, modClass: string): boolean {
   const name = weapon.name.toLowerCase();
   const key = modClass.toLowerCase();
   if (key === 'assault rifle') return weapon.category === 'primary' && weapon.type === 'Rifle';
+  // Glaive mods (Power Throw, Whirlwind, Rebound) fit every weapon the data gives a throw.
+  if (key === 'thrown melee' || key === 'thrown') return weapon.modes.some((mode) => mode.trigger === 'Thrown');
   return name === key || name.match(VARIANT)?.[1] === key;
 }
 

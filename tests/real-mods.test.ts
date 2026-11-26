@@ -125,6 +125,7 @@ const CARDS: Array<[string, string[]]> = [
   ['Charged Chamber', ['baseDamage +0.4 firstShot']],
   ['Primed Charged Chamber', ['baseDamage +1.1 firstShot']],
   ['Kill Switch', ['reloadSpeed +0.5 onKill']],
+  ['Power Throw', ['punchThrough +2 flat', 'throwDamage +1 consecutiveThrow x3']],
   // A proc per Impact proc (x2 below 2.5 fire rate, applied by the engine).
   ['Internal Bleeding', ['impactProc:slash +0.35']],
   ['Hemorrhage', ['impactProc:slash +0.35']],
@@ -322,6 +323,23 @@ test('Magnetic Welt on Hek (2.17 shots/s): 70% Magnetic per Impact proc', () => 
   assert.deepEqual(resolve({ weapon: 'Hek', mods: ['Magnetic Welt'] }).impactProcs, { magnetic: 0.7 });
 });
 
+test('Glaive Prime throwing: the Throw attack, 27 + 27 + 126 = 180 per hit', () => {
+  close(resolve({ weapon: 'Glaive Prime', mods: [], quantize: false, conditions: { throwing: true } }).damage.projectileTotal, 180);
+});
+
+test('Glaive Prime throwing with a heavy attack: the Charged Throw, 54 + 54 + 252 = 360 per hit', () => {
+  close(resolve({ weapon: 'Glaive Prime', mods: [], quantize: false, heavyAttack: true, conditions: { throwing: true } }).damage.projectileTotal, 360);
+});
+
+test('Glaive Prime throwing with 3 Power Throw stacks: 180 x (1 + 3 x 1.0) = 720', () => {
+  close(resolve({ weapon: 'Glaive Prime', mods: ['Power Throw'], quantize: false, conditions: { throwing: true, consecutiveThrow: 3 } }).damage.projectileTotal, 720);
+});
+
+test('glaive mods are offered for Glaive Prime (Power Throw), not for a sword (Nikana Prime)', () => {
+  const offered = (weapon: string) => modsForWeapon(snap, snap.weapons[weapon]).some((mod) => mod.name === 'Power Throw');
+  assert.deepEqual([offered('Glaive Prime'), offered('Nikana Prime')], [true, false]);
+});
+
 // ------------------------------------------------------------------ 3. snapshot invariants
 
 /** The first weapon whose mod classes take the class, that fires from a magazine it reloads. */
@@ -352,12 +370,9 @@ function conditionalLines(snapshot: Snapshot, state: 'off' | 'on', build: Partia
   });
 }
 
-/** Thrown glaive mods: throws are not modelled, and no weapon in the data takes the class. */
-const THROWN = new Set(['Combo Fury', 'Power Throw', 'Flawed Power Throw']);
-
-test('snapshot: every conditional weapon mod finds a weapon that takes it (thrown glaive mods aside)', () => {
+test('snapshot: every conditional weapon mod finds a weapon that takes it', () => {
   const orphans = Object.values(snap.mods)
-    .filter((mod) => mod.effects.some((effect) => effect.condition) && !mod.classes.includes('Warframe') && !THROWN.has(mod.name))
+    .filter((mod) => mod.effects.some((effect) => effect.condition) && !mod.classes.includes('Warframe'))
     .filter((mod) => !mod.classes.some((modClass) => weaponFor(snap, modClass)))
     .map((mod) => mod.name);
   assert.deepEqual(orphans, []);
@@ -368,7 +383,7 @@ test('snapshot: stack mode none turns every conditional effect of every weapon m
 });
 
 test('snapshot: stack mode max with every switch on and head hits turns every conditional effect on', () => {
-  const allSwitches = { aiming: true, sliding: true, airborne: true, firstShot: true };
+  const allSwitches = { aiming: true, sliding: true, airborne: true, firstShot: true, throwing: true };
   assert.deepEqual(conditionalLines(snap, 'off', { stackMode: 'max', hit: 'head', conditions: allSwitches }), []);
 });
 

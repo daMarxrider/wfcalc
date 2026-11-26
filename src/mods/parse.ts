@@ -190,7 +190,8 @@ export interface ConditionInfo {
 export function readConditionHeader(line: string): ConditionInfo | null {
   if (!line.endsWith(':')) return null;
   const head = line.slice(0, -1).toLowerCase().trim();
-  const stacks = /stacks up to (\d+)\s*x?/i.exec(line);
+  // "Stacks up to 5x" (most mods) or "(Max stacks 3)" (Power Throw).
+  const stacks = /(?:stacks up to|max stacks) (\d+)\s*x?/i.exec(line);
   const matchers: Array<[RegExp, string]> = [
     [/^on weak point kill$|^on headshot kill$/, 'onWeakPointKill'],
     [/^on weak point hit$|^on headshot$|^on headshot hit$/, 'onWeakPointHit'],
