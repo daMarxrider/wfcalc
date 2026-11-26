@@ -80,10 +80,16 @@ export const findWarframe = (snap: Snapshot, query: string) => findByName(snap.w
 
 // Variant words seen on augment-compatible weapons (wiki augment pages); Dual Skana is its own weapon, not a variant.
 const VARIANT = /^(?:(?:kuva|tenet|coda|prisma|rakta|vaykor|sancti|synoid|secura|carmine|mara|dex) )?(.+?)(?: (?:prime|vandal|wraith))?$/;
-/** Weapon augments carry the weapon's name as their class; variants take them too (Ballistica -> Rakta Ballistica, Ballistica Prime). */
+/**
+ * Mod classes a weapon takes beyond its own `modClasses`. Weapon augments carry the weapon's name as
+ * their class; variants take them too (Ballistica -> Rakta Ballistica, Ballistica Prime). "Assault
+ * Rifle" mods (Tainted Mag, Spring-Loaded Chamber) fit every plain rifle, not bows or snipers (wiki).
+ * shortcut: launchers are left out, the wiki is unclear on them; add them if a mod page says they fit.
+ */
 export function augmentFits(weapon: WeaponData, modClass: string): boolean {
   const name = weapon.name.toLowerCase();
   const key = modClass.toLowerCase();
+  if (key === 'assault rifle') return weapon.category === 'primary' && weapon.type === 'Rifle';
   return name === key || name.match(VARIANT)?.[1] === key;
 }
 
