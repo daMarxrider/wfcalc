@@ -58,7 +58,13 @@ export const hitZoneOf = (build: Pick<Build, 'hit' | 'headshot'>): HitZone =>
 /** Conditions that only a weak-point or headshot hit can trigger. */
 const WEAK_POINT_CONDITION = /weakpoint|weak_point|headshot/i;
 /** Conditions that describe how the player plays: "max" stacks never assume them, the switch decides. */
-const PLAYED_CONDITIONS = ['aiming', 'surgeShot', 'sliding', 'airborne', 'sprinting'];
+const PLAYED_CONDITIONS = ['aiming', 'surgeShot', 'sliding', 'airborne', 'sprinting', 'throwing'];
+
+/** The throw a glaive fires with the "throwing" switch on: the charged one on a heavy attack. */
+export function throwModeOf(weapon: WeaponData, heavyAttack: boolean): string | undefined {
+  const throws = weapon.modes.filter((mode) => mode.trigger === 'Thrown').map((mode) => mode.name);
+  return heavyAttack ? throws.find((name) => /charged/i.test(name)) ?? throws[0] : throws.find((name) => !/charged/i.test(name)) ?? throws[0];
+}
 
 export const COMPRESSION_NOT_AIMING = 'Primary Compression does nothing while not aiming: tick "aiming" (CLI: --stacks aiming=1)';
 
@@ -248,6 +254,8 @@ export interface ResolvedBuild {
   archonContinuity: boolean;
   /** Archon Vitality on an exalted weapon's frame: a second Heat proc per Heat proc. */
   archonVitality: boolean;
+  /** Internal Bleeding / Hemorrhage (Slash), Magnetic Welt (Magnetic): chance of that proc per Impact proc, doubled below 2.5 fire rate (wiki). */
+  impactProcs: Partial<Record<DamageType, number>>;
   /** Secondary Irradiate's share of a hit dealt to nearby enemies (on 10 Radiation stacks), 0 when none. */
   irradiateShare: number;
   /** Exodia Force's share of the weapon's damage a status event deals to enemies within 6m (50% chance), 0 when none. */
@@ -605,7 +613,10 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
 
   let aoeWarning: string | null = null;
-  const resolvedMode = statsForMode(weapon, build.mode ?? exaltedDefaultMode(weapon, [...(build.frameMods ?? []), ...(build.augments ?? [])]));
+  // The "throwing" switch fires the glaive's throw unless the build names an attack itself.
+  const throwing = Boolean(build.conditions?.throwing);
+  const throwMode = throwing && !build.mode ? throwModeOf(weapon, Boolean(build.heavyAttack)) : undefined;
+  const resolvedMode = statsForMode(weapon, build.mode ?? throwMode ?? exaltedDefaultMode(weapon, [...(build.frameMods ?? []), ...(build.augments ?? [])]));
   const conditions = build.conditions ?? {};
   let stats = resolvedMode.stats;
   const mode = resolvedMode.mode;
@@ -725,6 +736,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
   }
   const sources: Source[] = [];
   if (aoeWarning) collected.warnings.push(aoeWarning);
+  if (throwing && !build.mode && !throwMode) collected.warnings.push(`${weapon.name} has no throw attack; "throwing" ignored`);
   if (elementBonusWarning) collected.warnings.push(elementBonusWarning);
   const equipped: string[] = [];
   const rivenLines: string[] = [];
@@ -792,10 +804,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       collected.warnings.push(`${weapon.name} takes no arcanes; ${arcane.name} ignored`);
       continue;
     }
+    // The game will not equip an arcane in the wrong slot, so it adds nothing.
     if (arcane.slot && !allowedArcanes.includes(arcane.slot)) {
-      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.category} weapon`);
+      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.category} weapon; ignored`);
+      continue;
     } else if ((arcane.slot === 'bow' && weapon.type !== 'Bow') || (arcane.slot === 'shotgun' && weapon.type !== 'Shotgun')) {
-      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.type}`);
+      collected.warnings.push(`${arcane.name} is a ${arcane.slot} arcane and does not fit a ${weapon.type}; ignored`);
+      continue;
     }
     const { group, size } = arcaneGroupOf(weapon, arcane.slot ?? '');
     const taken = usedArcaneGroups.get(group) ?? [];
@@ -990,7 +1005,10 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
         hit: hitZoneOf(build),
       }) * (effect.condition === 'on_energy_depleted' ? energyDepletedUptime(stats) : 1)
         // Plated Round counts the shots inside its own window (platedRound), so it only needs the never-reloads gate.
-        * (/\bonReload(Empty)?\b/.test(effect.condition ?? '') ? (effect.target === 'platedRound' ? Math.sign(reloadConditionUptime(stats, '')) : reloadConditionUptime(stats, effect.raw)) : 1);
+        * (/\bonReload(Empty)?\b/.test(effect.condition ?? '') ? (effect.target === 'platedRound' ? Math.sign(reloadConditionUptime(stats, '')) : reloadConditionUptime(stats, effect.raw)) : 1)
+        // Primed Chamber: only the first shot of each magazine gets it, so a shot averages 1/magazine of the bonus.
+        // shortcut: unmodded magazine, magazine mods over-credit it slightly; read the modded one if a sniper build ever cares.
+        * (effect.condition === 'firstShot' ? 1 / Math.max(1, stats.magazineSize ?? 1) : 1);
       if (effect.condition) {
         const entry = conditional.get(source.name)!;
         entry.stacks = Math.max(entry.stacks, effect.perStatusType ? stacks / Math.max(1, Number(conditions.statusTypes ?? 1)) : stacks);
@@ -1011,7 +1029,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       // no melee damage bonus: Pressure Point, Arcane Fury, the stance and the combo
       // multiplier do nothing. Elemental, faction, crit, status and Condition Overload still
       // apply, so only plain "melee damage" rolls are dropped.
-      if (spectralForm && effect.target === 'baseDamage' && !effect.flat && !effect.perStatusType
+      if (spectralForm && effect.target === 'baseDamage' && !effect.flat && !effect.perStatusType && !effect.overloadBucket
         && (source.kind === 'riven' || /melee damage/i.test(effect.raw))) {
         collected.inactive.push(`${source.name}: ${effect.raw} (spectral hits ignore melee damage)`);
         continue;
@@ -1022,12 +1040,22 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       // "(x2 for Bows)": the mod text doubles the effect on bows.
       const bowFactor = effect.doublesForBows && /bow/i.test(weapon.type) ? 2 : 1;
       const setFactor = 1 + amplifyFor(source.set, source.name);
-      const directOnly = effect.perStatusType ? directShare : 1;
+      const directOnly = effect.perStatusType || effect.overloadBucket ? directShare : 1;
       // Coda Motovore (wiki): Impact, Puncture and Slash mods are six times as strong.
       const motovore = weapon.name === 'Coda Motovore' && source.kind === 'mod' && effect.target === 'element'
         && (PHYSICAL_TYPES as readonly string[]).includes(effect.element ?? '') ? 6 : 1;
       const value = effect.value * rankFraction * stacks * comboFactor * bowFactor * setFactor * directOnly * motovore;
       // Timed ammo buffs keep their spec; their value is the chance per event (ammo.ts).
+      // "Throw Damage" (Power Throw) counts on the thrown glaive only, like any other damage bonus there.
+      // shortcut: the bounce and recall explosions are left out; the wiki only names the thrown hit.
+      if (effect.target === 'throwDamage') {
+        if (mode?.trigger !== 'Thrown') {
+          collected.inactive.push(`${source.name}: ${effect.raw} (throws only: tick "throwing")`);
+          continue;
+        }
+        collected.byTarget.set('baseDamage', (collected.byTarget.get('baseDamage') ?? 0) + value);
+        continue;
+      }
       if (effect.target === 'ammoBuff' && effect.ammoBuff) {
         if (value > 0) collected.ammoBuffs.push({ ...effect.ammoBuff, name: source.name, chance: value });
         continue;
@@ -1044,7 +1072,7 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
       }
       // Per-status-type damage: on most attacks it joins the Serration bucket and skips the final
       // multipliers (wiki: Condition Overload (Mechanic), "Adding"); listed attacks multiply.
-      if (effect.perStatusType && effect.op === 'add' && (effect.target === 'directDamage' || effect.target === 'baseDamage')) {
+      if ((effect.perStatusType || effect.overloadBucket) && effect.op === 'add' && (effect.target === 'directDamage' || effect.target === 'baseDamage')) {
         const target = overloadMultiplies(weapon.name, mode?.name ?? null, incarnonForm) ? 'directDamage' : 'baseDamage';
         collected.byTarget.set(target, (collected.byTarget.get(target) ?? 0) + value);
         if (target === 'baseDamage') collected.byTarget.set('overloadAdd', (collected.byTarget.get('overloadAdd') ?? 0) + value);
@@ -1091,6 +1119,8 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
               chance: value,
               requiresCrit: /critical|crit/i.test(effect.raw),
             });
+          } else if (effect.target === 'impactProc' && effect.element) {
+            collected.byTarget.set(`impactProc:${effect.element}`, (collected.byTarget.get(`impactProc:${effect.element}`) ?? 0) + value);
           } else if (effect.target === 'factionDamage' && effect.faction) {
             collected.faction.set(effect.faction, (collected.faction.get(effect.faction) ?? 0) + value);
           } else {
@@ -1461,6 +1491,13 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
     cryogenicStacks: bonus('cryogenic'),
     archonContinuity: exalted?.continuity ?? false,
     archonVitality: exalted?.vitality ?? false,
+    // A hit lands one proc of a type however many sources roll it (wiki: Internal Bleeding with Hunter Munitions),
+    // so only the hits no forced proc of that type already covers count: chance x P(no other forced proc).
+    // shortcut: body-shot crit chance; head hits crit more often, so a crit-gated overlap is slightly larger there.
+    impactProcs: Object.fromEntries(DAMAGE_TYPES.filter((type) => bonus(`impactProc:${type}`) > 0)
+      .map((type) => [type, Math.min(1, bonus(`impactProc:${type}`) * (fireRate < 2.5 ? 2 : 1))
+        * collected.forcedProcs.filter((proc) => proc.type === type)
+          .reduce((none, proc) => none * (1 - Math.min(1, proc.chance * (proc.requiresCrit ? Math.min(1, Math.max(0, critChance)) : 1))), 1)])),
     irradiateShare: bonus('irradiate'),
     exodiaForceShare: bonus('exodiaForce'),
     ammo,

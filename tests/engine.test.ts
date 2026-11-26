@@ -23,115 +23,13 @@ import { enumerateRivens, rivenPicker } from '../src/engine/riven-picker.ts';
 import { loadSnapshot, modsForWeapon } from '../src/data.ts';
 import { viralMultiplier, corrosiveArmorMultiplier } from '../src/engine/dot.ts';
 import type { AbilityData, ArcaneData, EnemyData, ModData, Snapshot, WeaponData, WeaponStats } from '../src/types.ts';
+import { close, mod, snapshot, stats, weapon } from './builders.ts';
 
 /**
  * The golden values below pin each formula on its own, before the game's 1/32 quantization
  * rounds the result; quantization has its own tests at the end of this file.
  */
 const resolveBuild = (snap: Snapshot, build: Build) => resolveQuantized(snap, { quantize: false, ...build });
-
-const close = (actual: number, expected: number, tolerance = 1e-6) =>
-  assert.ok(Math.abs(actual - expected) <= tolerance * Math.max(1, Math.abs(expected)), `${actual} != ${expected}`);
-
-function stats(overrides: Partial<WeaponStats> = {}): WeaponStats {
-  const base: WeaponStats = {
-    impact: 0, puncture: 0, slash: 0, heat: 0, cold: 0, electricity: 0, toxin: 0,
-    blast: 0, corrosive: 0, gas: 0, magnetic: 0, radiation: 0, viral: 0, true: 0, void: 0, tau: 0,
-    critChance: 0.2, critMultiplier: 2, statusChance: 0.1, fireRate: 2, multishot: 1,
-    magazineSize: 10, reloadTime: 1,
-  };
-  return { ...base, ...overrides };
-}
-
-function weapon(overrides: Partial<WeaponStats> = {}): WeaponData {
-  return {
-    id: 'Test Weapon',
-    name: 'Test Weapon',
-    category: 'primary',
-    type: 'Rifle',
-    masteryRank: 0,
-    disposition: 1,
-    dispositionMultiplier: 1,
-    polarities: [],
-    exilusPolarity: null,
-    modClasses: ['Rifle'],
-    stats: stats(overrides),
-    modes: [],
-    hasRivenSlot: true,
-  };
-}
-
-/** Builds a ModData whose effects come from the real text parser, so the parser is under test too. */
-function mod(name: string, maxRank: number, topRankStats: string[], overrides: Partial<ModData> = {}): ModData {
-  const { effects } = parseModEffects([topRankStats]);
-  return {
-    id: name,
-    name,
-    category: 'Primary Mod',
-    classes: ['Rifle'],
-    polarity: 'madurai',
-    rarity: 'Rare',
-    baseDrain: 4,
-    maxRank,
-    description: topRankStats.join('\n'),
-    effects,
-    cardImage: null,
-    partial: false,
-    outOfScopeLines: [],
-    incompatible: [],
-    set: null,
-    upgradeTypes: [],
-    isAugment: false,
-    isRiven: false,
-    conclave: false,
-    ...overrides,
-  };
-}
-
-function snapshot(
-  weapons: WeaponData[],
-  mods: ModData[],
-  enemies: EnemyData[] = [],
-  extras: { abilities?: AbilityData[]; arcanes?: ArcaneData[] } = {},
-): Snapshot {
-  const byName = <T extends { name: string }>(items: T[]) => Object.fromEntries(items.map((i) => [i.name, i]));
-  return {
-    version: 1,
-    generatedAt: '',
-    gameVersion: '',
-    weapons: byName(weapons),
-    mods: byName(mods),
-    arcanes: byName(extras.arcanes ?? []),
-    warframes: {},
-    // Abilities are keyed by ability name (AbilityData has no `name` field).
-    abilities: Object.fromEntries((extras.abilities ?? []).map((a) => [a.ability, a])),
-    enemies: byName(enemies),
-    // Damage 3.0 (Update 36): one table per faction health class.
-    // Grineer: Impact and Corrosive +50. Orokin: Puncture/Viral +50, Radiation -50.
-    // Overguard: Void +50 and neutral to everything else.
-    modifiers: {
-      corrosive: { Grineer: 50 },
-      radiation: { Grineer: 0, Orokin: -50 },
-      puncture: { Orokin: 50 },
-      void: { Overguard: 50 },
-    },
-    healthTypes: { 'Alloy Armor': 'armor', 'Cloned Flesh': 'health' },
-    incarnons: {},
-    setBonuses: {
-      'Sacrificial Set': {
-        set: 'Sacrificial Set', kind: 'amplify', description: 'enhances all equipped mods',
-        amplify: { '2': { '*': 0.25 } },
-      },
-    },
-    rivenStats: {
-      rifle: { Damage: 1.65, Multishot: 0.9, 'Critical Chance': 1.4999, 'Critical Damage': 1.19997, Zoom: 0.5999 },
-      shotgun: { Damage: 1.647 },
-      pistol: { Damage: 2.196 },
-      archgun: { Damage: 0.999 },
-      melee: { Damage: 1.647 },
-    },
-  };
-}
 
 const dummy: EnemyData = {
   id: 'Dummy', name: 'Dummy', faction: 'grineer', healthClass: 'Grineer', kind: 'Grineer', baseLevel: 1,
@@ -457,14 +355,16 @@ test('Secondary Enervate averages its crit chance over the reset cycle', () => {
   // At 195% the first shot is big 95% of the time: E[sum]/E[shots] = (6.05 x 1.95 + 1.53) / 6.05.
   // The wiki's fit (35 + 0.95x = 220.25%) averages per-cycle means, which is not the per-shot average.
   close(enervateCritChance(1.95, 6), 1.95 + 1.53 / 6.05);
-  const snap = snapshot([weapon({ impact: 100, critChance: 2.5 })], [], [], { arcanes: [enervate] });
+  // A secondary arcane needs a secondary weapon: a wrong-slot arcane is ignored.
+  const pistol = weapon({ impact: 100, critChance: 2.5 }, { category: 'secondary', type: 'Pistol', modClasses: ['Pistol'] });
+  const snap = snapshot([pistol], [], [], { arcanes: [enervate] });
   close(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: ['Secondary Enervate'] }).critChance, 2.75);
   close(resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: [{ name: 'Secondary Enervate', rank: 0 }] }).critChance, 2.5);
 
   // Projectile multishot is one hit per pellet: 3 pellets give 0, 30 ... 150% over six shots, +75%.
   // Hitscan and shotgun-sidearm pellets are one hit; and at most 30 triggers a second.
   const projectile = (extra: Partial<WeaponData> = {}, fireRate = 1): WeaponData => {
-    const base = weapon({ impact: 100, critChance: 2.5, multishot: 3, fireRate });
+    const base = weapon({ impact: 100, critChance: 2.5, multishot: 3, fireRate }, { category: 'secondary', type: 'Pistol', modClasses: ['Pistol'] });
     return { ...base, ...extra, modes: [{ name: 'Normal Attack', stats: base.stats, trigger: 'Projectile' }] };
   };
   const enervateOn = (w: WeaponData) => resolveBuild(snapshot([w], [], [], { arcanes: [enervate] }), { weapon: 'Test Weapon', mods: [], arcanes: ['Secondary Enervate'] }).critChance;
@@ -517,11 +417,11 @@ test('curated arcane mechanics: Plated Round, Doughty, Duplicate, Crepuscular', 
   close(resolveBuild(melee, { weapon: 'Test Weapon', mods: [], arcanes: ['Melee Duplicate'] }).multishot, 1.3);
 });
 
-test('an arcane in the wrong slot only warns', () => {
+test('an arcane in the wrong slot warns and adds nothing (the game will not equip it)', () => {
   const meleeArcane = arcane('Melee Exposure', 'melee', 5, ['Gain 60% Corrosive Damage on Melee strikes for 25s.']);
   const snap = snapshot([weapon({ impact: 100 })], [], [], { arcanes: [meleeArcane] });
   const resolved = resolveBuild(snap, { weapon: 'Test Weapon', mods: [], arcanes: ['Melee Exposure'], conditions: { onAbilityCast: 1 } });
-  assert.ok(resolved.warnings.some((warning) => warning.includes('melee arcane')));
+  assert.deepEqual([resolved.warnings, resolved.damage.projectileTotal], [['Melee Exposure is a melee arcane and does not fit a primary weapon; ignored'], 100]);
 });
 
 test('buff registry resolves the curated values from the dataset', () => {

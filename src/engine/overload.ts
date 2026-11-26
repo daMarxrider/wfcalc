@@ -4,10 +4,17 @@
  * (wiki: Condition Overload (Mechanic), "Adding" vs "Multiplying").
  *
  * Attacks listed there as Multiplying, by weapon. '*' is the default profile (no mode picked),
- * 'incarnon' the Incarnon form, anything else a mode name from the snapshot.
- * shortcut: melee heavy/projectile attacks, archguns and amps are left out (Galvanized mods do
- * not fit them, Condition Overload stays additive), re-read the wiki table when it changes.
+ * 'incarnon' the Incarnon form, anything else a mode name from the snapshot. Kitguns are keyed by
+ * "Chamber / Grip" (modular.ts names them "Chamber / Grip / Loader").
+ * Left out: Robotic weapons and Amps (no Condition Overload-style source fits them), and attacks the
+ * data cannot fire (Zenith's disk, Exodia Contagion, Exalted Umbra Blade waves).
+ * tests/condition-overload.test.ts holds the catalog rows; re-read the wiki table when it changes.
  */
+/** Secondary kitgun grips: the wiki lists Catchmoon and Tombfinger secondaries as Multiplying with any grip. */
+const SECONDARY_GRIPS = ['Gibber', 'Haymaker', 'Lovetap', 'Ramble', 'Ulnaris'];
+const secondaryKitgun = (chamber: string): Record<string, string[]> =>
+  Object.fromEntries(SECONDARY_GRIPS.map((grip) => [`${chamber} / ${grip}`, ['*', 'Normal Attack']]));
+
 const MULTIPLYING: Record<string, string[]> = {
   Aeolak: ['*', 'Normal Attack', 'Alt-Fire'],
   Alternox: ['*', 'Normal Attack'],
@@ -47,6 +54,7 @@ const MULTIPLYING: Record<string, string[]> = {
   Shedu: ['*', 'Normal Attack'],
   Stahlta: ['*', 'Auto', 'Alt-Fire'],
   Steflos: ['*', 'Normal Attack'],
+  'Steflos Prime': ['*', 'Normal Attack'],
   'Tenet Envoy': ['*', 'Grenade Impact'],
   Torid: ['*', 'Grenade Impact', 'Poison Cloud'],
   Trumna: ['Grenade Impact'],
@@ -69,11 +77,31 @@ const MULTIPLYING: Record<string, string[]> = {
   Zakti: ['*', 'Dart Impact'],
   'Zakti Prime': ['*', 'Normal Attack'],
   Zymos: ['Homing Spore Contact'],
+  // Kitguns (primary: the grip the wiki tested; secondary: any grip).
+  'Catchmoon / Tremor': ['*', 'Normal Attack'],
+  'Sporelacer / Tremor': ['*', 'Normal Attack'],
+  'Tombfinger / Brash': ['*', 'Normal Attack'],
+  ...secondaryKitgun('Catchmoon'),
+  ...secondaryKitgun('Tombfinger'),
+  // Melee projectiles (Condition Overload).
+  Corufell: ['Charged Projectile'],
+  Nepheri: ['Fireballs'],
+  Syam: ['First Shockwave', 'Second Shockwave'],
+  'Tenet Grigori': ['Energy Disk'],
+  Verdilac: ['Energy Wave'],
+  // Arch-guns (Secondary Shiver).
+  Arbucep: ['1st Attack', '2nd Attack', '3rd Attack', '4th Attack', '5th Attack', '6th Attack'],
+  'Kuva Ayanga': ['*', 'Grenade Impact'],
+  'Corvas Prime': ['*', 'Uncharged Shot', 'Charged Shot'],
+  Grattler: ['*', 'Projectile Impact'],
+  'Larkspur Prime': ['Alt-Fire Projectile Impact'],
+  Mandonel: ['*', 'Horizontal Spread'],
+  Velocitus: ['*', 'Uncharged Shot', 'Charged Shot'],
 };
 
 /** True when this attack multiplies per-status-type damage with Serration instead of adding it. */
 export function overloadMultiplies(weapon: string, mode: string | null, incarnonForm: boolean): boolean {
-  const attacks = MULTIPLYING[weapon];
+  const attacks = MULTIPLYING[weapon] ?? MULTIPLYING[weapon.split(' / ').slice(0, 2).join(' / ')];
   if (!attacks) return false;
   if (incarnonForm) return attacks.includes('incarnon');
   return attacks.includes(mode ?? '*');

@@ -17,7 +17,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { join } from 'node:path';
 import { parseLuaModule } from './parse-lua.ts';
 import { parseRivenStats } from './lib/riven-stats.ts';
-import { parseModEffects } from '../src/mods/parse.ts';
+import { cleanStatText, parseModEffects } from '../src/mods/parse.ts';
 import {
   DAMAGE_TYPES,
   type AbilityData,
@@ -190,13 +190,18 @@ function buildMods(unmatchedReport: string[]): Record<string, ModData> {
 
     // Per-rank stat strings: WFCD if we have them, else the wiki's max-rank description.
     const wfcdRanks = Array.isArray(source?.levelStats) && source!.levelStats.length > 0;
+    const description = String(entry.Description ?? '');
+    // WFCD drops a card's leading condition header (Measured Burst: "When Aiming:"), which made the effects unconditional.
+    const header = /^((?:On|When|While)\b[^:\n]{0,40}:)\n/i.exec(cleanStatText(description))?.[1];
     const ranks: string[][] = wfcdRanks
-      ? source!.levelStats.map((l: Loose) => (Array.isArray(l.stats) ? l.stats : []))
-      : [[String(entry.Description ?? '')].filter(Boolean)];
+      ? source!.levelStats.map((l: Loose) => {
+        const stats: string[] = Array.isArray(l.stats) ? l.stats : [];
+        return header && !stats.some((stat) => cleanStatText(stat).includes(':')) ? [header, ...stats] : stats;
+      })
+      : [[description].filter(Boolean)];
 
     const parsed = parseModEffects(ranks);
     // Cannonade mods carry a rule that no stat line expresses: "Fire Rate cannot be modified".
-    const description = String(entry.Description ?? '');
     if (/fire rate cannot be modified/i.test(description)) {
       parsed.effects.push({ target: 'fireRateLock', op: 'add', value: 1, raw: 'Fire Rate cannot be modified' });
     }

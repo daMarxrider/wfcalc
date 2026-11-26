@@ -67,7 +67,9 @@ export function buildFromJson(snapshot: Snapshot, body: any, weaponName: string)
         .map((shard: any) => ({ color: String(shard.color).toLowerCase(), bonus: String(shard.bonus ?? 'other'), tauforged: Boolean(shard.tauforged) }))
       : undefined,
     sourceStacks: body.sourceStacks && typeof body.sourceStacks === 'object'
-      ? Object.fromEntries(Object.entries(body.sourceStacks).map(([name, value]) => [name, Number(value)]).filter(([, value]) => Number.isFinite(value as number)))
+      // null or "" is "not set" (as everywhere else here), not 0 stacks that switch the source off.
+      ? Object.fromEntries(Object.entries(body.sourceStacks).filter(([, value]) => value !== null && value !== '')
+        .map(([name, value]) => [name, Number(value)]).filter(([, value]) => Number.isFinite(value as number)))
       : undefined,
   };
 }

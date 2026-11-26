@@ -520,6 +520,8 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
     let heatProcs = 0;
     let heatWeight = 0;
     let toxinProcs = 0;
+    let impactProcs = 0;
+    let impactWeight = 0;
     let blastWeight = 0;
     let blastProcs = 0;
     // Cascadia Empowered: flat damage of the proc's type, no crit, through resistances and armour.
@@ -543,6 +545,7 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
         if (target.tick === gasTick) gasProcs += procs;
         if (target.heat) { heatProcs += procs; heatWeight += procs * crit; }
         if (target.type === 'toxin') toxinProcs += procs;
+        if (target.type === 'impact') { impactProcs += procs; impactWeight += procs * crit; }
         if (target.blast) { blastWeight += procs * crit; blastProcs += procs; }
       };
       // A proc's ticks scale with its hit's damage, so a ramping beam's early procs are weaker.
@@ -584,6 +587,13 @@ export function simulateKill(snapshot: Snapshot, initial: ResolvedBuild, scaled:
         const procs = heatProcs;
         add(procTargets('heat'), procs, heatWeight / procs);
         procHit('heat', procs);
+      }
+      // Internal Bleeding / Hemorrhage / Magnetic Welt (dot.ts arcaneProcRates): a proc per Impact proc, with that hit's crit.
+      if (impactProcs > 0) {
+        for (const [type, chance] of Object.entries(build.impactProcs ?? {}) as Array<[DamageType, number]>) {
+          add(procTargets(type), impactProcs * chance, impactWeight / impactProcs);
+          procHit(type, impactProcs * chance);
+        }
       }
     } else combinedProcs.fill(0);
 

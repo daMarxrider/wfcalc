@@ -272,6 +272,8 @@ export interface Effect {
   condition?: string;
   /** True when the effect scales with the number of status types on the target. */
   perStatusType?: boolean;
+  /** Joins the Condition Overload bucket (adds or multiplies per attack, overload.ts) without counting status types: Secondary Shiver. */
+  overloadBucket?: boolean;
   /** True when the value multiplies by the melee combo multiplier (Blood Rush, Weeping Wounds). */
   scalesWithCombo?: boolean;
   /** True when the mod's text says "(x2 for Bows)": the value doubles on bows. */
