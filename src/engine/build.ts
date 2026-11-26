@@ -990,7 +990,10 @@ function resolveOnce(snapshot: Snapshot, build: Build): ResolvedBuild {
         hit: hitZoneOf(build),
       }) * (effect.condition === 'on_energy_depleted' ? energyDepletedUptime(stats) : 1)
         // Plated Round counts the shots inside its own window (platedRound), so it only needs the never-reloads gate.
-        * (/\bonReload(Empty)?\b/.test(effect.condition ?? '') ? (effect.target === 'platedRound' ? Math.sign(reloadConditionUptime(stats, '')) : reloadConditionUptime(stats, effect.raw)) : 1);
+        * (/\bonReload(Empty)?\b/.test(effect.condition ?? '') ? (effect.target === 'platedRound' ? Math.sign(reloadConditionUptime(stats, '')) : reloadConditionUptime(stats, effect.raw)) : 1)
+        // Primed Chamber: only the first shot of each magazine gets it, so a shot averages 1/magazine of the bonus.
+        // shortcut: unmodded magazine, magazine mods over-credit it slightly; read the modded one if a sniper build ever cares.
+        * (effect.condition === 'firstShot' ? 1 / Math.max(1, stats.magazineSize ?? 1) : 1);
       if (effect.condition) {
         const entry = conditional.get(source.name)!;
         entry.stacks = Math.max(entry.stacks, effect.perStatusType ? stacks / Math.max(1, Number(conditions.statusTypes ?? 1)) : stacks);
