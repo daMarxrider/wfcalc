@@ -9,7 +9,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveBuild as resolveQuantized, type Build } from '../src/engine/build.ts';
 import { InputError } from '../src/errors.ts';
-import type { ModData, WeaponData } from '../src/types.ts';
+import { hitEnemy } from '../src/engine/damage.ts';
+import { scaleEnemy } from '../src/engine/enemy.ts';
+import type { EnemyData, ModData, WeaponData } from '../src/types.ts';
 import { close, mod, snapshot, weapon } from './builders.ts';
 
 /** Resolves on 'Test Weapon' with every given mod equipped at max rank, unless `build.mods` says otherwise. */
@@ -196,7 +198,8 @@ test('on reload: a 9 s buff covers a whole 6 s magazine cycle (10 rounds / 2 per
 test('on reload: a 9 s buff covers 9 / 51 of a long cycle (100 rounds / 2 per s + 1 s)', () => {
   const reloadBuff = mod('Reload Test', 5, ['On Reload:', '+100% Damage for 9s']);
   const bigMag = weapon({ impact: 100, magazineSize: 100 });
-  close(resolve([bigMag], [reloadBuff], { stackMode: 'max' }).damage.projectileTotal, 100 * (1 + 9 / 51));
+  // 9 s of buff over a 50 s + 1 s cycle: 9 / 51 = 0.17647 uptime, so 100 x 1.17647.
+  close(resolve([bigMag], [reloadBuff], { stackMode: 'max' }).damage.projectileTotal, 117.647059);
 });
 
 test('on reload: a weapon that never reloads in a fight never triggers it, and says so', () => {
@@ -368,4 +371,60 @@ test('an unknown weapon is an unknown_weapon InputError', () => {
     () => resolve([rifle()], [], { weapon: 'No Such Weapon', mods: [] }),
     (error: unknown) => error instanceof InputError && error.code === 'unknown_weapon',
   );
+});
+
+// ------------------------------------------------------------- a proc per Impact proc (Internal Bleeding)
+
+const internalBleeding = () => mod('Internal Bleeding', 5, ['Impact Status Effects have 35% chance to apply a Slash Status Effect (x2 when Fire Rate is below 2.5)']);
+/** Pure Impact, every pellet procs, a magazine that practically never reloads: 2 Impact procs a second. */
+const impactRifle = (fireRate: number) => weapon({ impact: 100, statusChance: 1, critChance: 0, fireRate, magazineSize: 1_000_000 });
+const dummy: EnemyData = {
+  id: 'Dummy', name: 'Dummy', faction: 'grineer', healthClass: 'Grineer', kind: 'Grineer', baseLevel: 1,
+  health: 1_000_000, shield: 0, armor: 0, pools: [{ type: 'Neutral Flesh', category: 'health', amount: 1_000_000 }], toxinBypassesShields: true,
+};
+
+test('Internal Bleeding: 35% per Impact proc at 2.5 shots/s or more', () => {
+  assert.deepEqual(resolve([impactRifle(3)], [internalBleeding()], {}).impactProcs, { slash: 0.35 });
+});
+
+test('Internal Bleeding: doubled to 70% below 2.5 shots/s', () => {
+  assert.deepEqual(resolve([impactRifle(2)], [internalBleeding()], {}).impactProcs, { slash: 0.7 });
+});
+
+test('Internal Bleeding: exactly 2.5 shots/s does not double (wiki)', () => {
+  assert.deepEqual(resolve([impactRifle(2.5)], [internalBleeding()], {}).impactProcs, { slash: 0.35 });
+});
+
+test('Internal Bleeding: the modded fire rate decides (2 x 1.5 = 3 shots/s: no doubling)', () => {
+  const speed = mod('Speed Test', 5, ['+50% Fire Rate']);
+  assert.deepEqual(resolve([impactRifle(2)], [internalBleeding(), speed], {}).impactProcs, { slash: 0.35 });
+});
+
+test('Internal Bleeding: a rank 0 copy is 1/6 of the card (35% / 6, doubled)', () => {
+  close(resolve([impactRifle(2)], [internalBleeding()], { mods: [{ name: 'Internal Bleeding', rank: 0 }] }).impactProcs.slash ?? 0, 0.7 / 6);
+});
+
+test('without the mod a build has no Impact-triggered procs', () => {
+  assert.deepEqual(resolve([impactRifle(2)], [], {}).impactProcs, {});
+});
+
+test('Internal Bleeding: Slash procs a second = Impact procs x chance (2 x 0.7 = 1.4) in the steady DoT', () => {
+  const snap = snapshot([impactRifle(2)], [internalBleeding()], [dummy]);
+  const resolved = resolveQuantized(snap, { weapon: 'Test Weapon', mods: ['Internal Bleeding'], quantize: false });
+  const slash = hitEnemy(snap, resolved, scaleEnemy(snap, dummy, 1)).dot.find((entry) => entry.type === 'slash');
+  close(slash?.procsPerSecond ?? 0, 1.4, 1e-4);
+});
+
+/** Simulated seconds for the 2-shots/s Impact rifle to kill a 3,000-health target with these mods. */
+function simulatedKill(mods: string[]): number {
+  const small: EnemyData = { ...dummy, health: 3000, pools: [{ type: 'Neutral Flesh', category: 'health', amount: 3000 }] };
+  const snap = snapshot([impactRifle(2)], [internalBleeding()], [small]);
+  const resolved = resolveQuantized(snap, { weapon: 'Test Weapon', mods, quantize: false });
+  return hitEnemy(snap, resolved, scaleEnemy(snap, small, 1), { simulate: true }).timeToKill ?? Infinity;
+}
+
+test('Internal Bleeding: the simulated fight bleeds the target, so it dies sooner than without', () => {
+  const bleeding = simulatedKill(['Internal Bleeding']);
+  const plain = simulatedKill([]);
+  assert.ok(bleeding < plain, `${bleeding} s is not below ${plain} s`);
 });

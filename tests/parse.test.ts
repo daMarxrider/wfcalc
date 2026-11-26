@@ -259,6 +259,17 @@ test('a slide-attack crit line is out of scope, not noise (Maiming Strike)', () 
   assert.deepEqual([isNoise('+150% Critical Chance for Slide Attack'), isOutOfScope('+150% Critical Chance for Slide Attack')], [false, true]);
 });
 
+test('Internal Bleeding\'s Impact line is an Impact-to-Slash proc chance, not noise', () => {
+  assert.deepEqual(
+    effectsOf('<DT_IMPACT_COLOR>Impact Status Effects have 35% chance to apply a <DT_SLASH_COLOR>Slash Status Effect (x2 when Fire Rate is below 2.5)'),
+    [{ target: 'impactProc', element: 'slash', op: 'add', value: 0.35, raw: '35% Impact procs add a Slash proc' }],
+  );
+});
+
+test('Magnetic Welt\'s Impact line is an Impact-to-Magnetic proc chance', () => {
+  assert.equal(effectsOf('Impact Status Effects have 35% chance to apply a Magnetic Status Effect')[0].element, 'magnetic');
+});
+
 test('an on-kill explosion line is noise (Combustion Beam)', () => {
   assert.equal(isNoise('Enemies killed explode, dealing 600 Damage shortly after death.'), true);
 });

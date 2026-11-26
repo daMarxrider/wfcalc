@@ -125,6 +125,10 @@ const CARDS: Array<[string, string[]]> = [
   ['Charged Chamber', ['baseDamage +0.4 firstShot']],
   ['Primed Charged Chamber', ['baseDamage +1.1 firstShot']],
   ['Kill Switch', ['reloadSpeed +0.5 onKill']],
+  // A proc per Impact proc (x2 below 2.5 fire rate, applied by the engine).
+  ['Internal Bleeding', ['impactProc:slash +0.35']],
+  ['Hemorrhage', ['impactProc:slash +0.35']],
+  ['Magnetic Welt', ['impactProc:magnetic +0.35']],
 ];
 
 for (const [name, expected] of CARDS) {
@@ -268,7 +272,8 @@ test('Spring-Loaded Chamber on Soma Prime at max while aiming: +75% fire rate, t
   // Soma Prime: 200 rounds at 15/s = 13.3 s of fire + 3 s reload; the buff covers 9 / 16.3 of it.
   const plain = resolve({ weapon: 'Soma Prime', mods: [], stackMode: 'max', conditions: { aiming: true } }).fireRate;
   const modded = resolve({ weapon: 'Soma Prime', mods: ['Spring-Loaded Chamber'], stackMode: 'max', conditions: { aiming: true } }).fireRate;
-  close(modded / plain, 1 + 0.75 * 9 / (200 / 15.000001 + 3), 1e-4);
+  // 9 / 16.333 = 0.55102 uptime x 0.75 = +41.33%.
+  close(modded / plain, 1.413265, 1e-4);
 });
 
 test('Primary Merciless on Soma Prime, stack mode none: no damage bonus', () => {
@@ -291,9 +296,30 @@ test('Primary Deadhead on Soma Prime, stack mode max: 3 stacks on head shots, da
   close(resolve({ weapon: 'Soma Prime', mods: [], arcanes: ['Primary Deadhead'], stackMode: 'max', hit: 'head', quantize: false }).damage.projectileTotal / plain, 4.6);
 });
 
-test('a secondary arcane on a primary weapon warns that it does not fit', () => {
+test('a secondary arcane on a primary weapon warns that it does not fit and is ignored', () => {
   const resolved = resolve({ weapon: 'Soma Prime', mods: [], arcanes: ['Secondary Merciless'], stackMode: 'max' });
-  assert.deepEqual(resolved.warnings, ['Secondary Merciless is a secondary arcane and does not fit a primary weapon']);
+  assert.deepEqual(resolved.warnings, ['Secondary Merciless is a secondary arcane and does not fit a primary weapon; ignored']);
+});
+
+test('a secondary arcane on a primary weapon adds no damage', () => {
+  const plain = resolve({ weapon: 'Soma Prime', mods: [], stackMode: 'max' }).damage.projectileTotal;
+  close(resolve({ weapon: 'Soma Prime', mods: [], arcanes: ['Secondary Merciless'], stackMode: 'max' }).damage.projectileTotal, plain);
+});
+
+test('Internal Bleeding on Soma Prime (15 shots/s): a Slash proc on 35% of Impact procs', () => {
+  assert.deepEqual(resolve({ weapon: 'Soma Prime', mods: ['Internal Bleeding'] }).impactProcs, { slash: 0.35 });
+});
+
+test('Internal Bleeding on Fulmin semi-auto (2.17 shots/s, below 2.5): the chance doubles to 70%', () => {
+  assert.deepEqual(resolve({ weapon: 'Fulmin', mods: ['Internal Bleeding'] }).impactProcs, { slash: 0.7 });
+});
+
+test('Hemorrhage on Lex Prime (2.08 shots/s): 70% Slash per Impact proc', () => {
+  assert.deepEqual(resolve({ weapon: 'Lex Prime', mods: ['Hemorrhage'] }).impactProcs, { slash: 0.7 });
+});
+
+test('Magnetic Welt on Hek (2.17 shots/s): 70% Magnetic per Impact proc', () => {
+  assert.deepEqual(resolve({ weapon: 'Hek', mods: ['Magnetic Welt'] }).impactProcs, { magnetic: 0.7 });
 });
 
 // ------------------------------------------------------------------ 3. snapshot invariants
@@ -399,4 +425,3 @@ test('snapshot: Cannonade mods lock the fire rate and need a semi-auto trigger',
   assert.deepEqual(cardOf('Semi-Rifle Cannonade'), ['baseDamage +2.4', 'punchThrough +1.5 flat', 'fireRateLock +1', 'requiresSemiTrigger +1']);
 });
 
-test.todo('Internal Bleeding / Hemorrhage: Impact procs add a 35% Slash proc (x2 below 2.5 fire rate) — dropped as noise today, see the follow-up issue');
