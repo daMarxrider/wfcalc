@@ -125,7 +125,8 @@ test('GitHub Pages build answers every API kind from the Web Worker like the Nod
       out.drift = found.drift;
 
       out.riven = await json('/api/riven-picker', ${JSON.stringify(RIVEN)});
-      out.art = globalThis.wfcalcArt.img('x.png');
+      // GDPR: nothing the page loads may come from another host (artwork ships with the build).
+      out.offsite = performance.getEntriesByType('resource').map((entry) => entry.name).filter((name) => new URL(name).origin !== location.origin);
       return out;
     })()`);
 
@@ -151,7 +152,7 @@ test('GitHub Pages build answers every API kind from the Web Worker like the Nod
 
     const riven = await nodeApi('/api/riven-picker', { ...RIVEN, workers: 1 });
     assert.ok(Math.abs(page.riven.picks[0].score - riven.picks[0].score) < 1e-9 * riven.picks[0].score, 'riven pick matches');
-    assert.match(page.art, /^https:\/\/raw\.githubusercontent\.com\//);
+    assert.deepEqual(page.offsite, []);
   } finally {
     // A browser that already died never sends 'exit' again: waiting for it hung CI for 300 s.
     const closed = chrome.exitCode === null && chrome.signalCode === null ? new Promise((resolve) => chrome.once('exit', resolve)) : null;
