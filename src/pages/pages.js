@@ -1,15 +1,9 @@
 /**
  * GitHub Pages build: there is no server, so the UI's /api/ requests go to the same API code in a
- * Web Worker (api-worker.ts), and artwork is linked from where the server would have fetched it.
+ * Web Worker (api-worker.ts). Artwork is bundled into the build (tools/build-pages.ts), so visitors
+ * never contact a third-party host.
  * Loaded before app.js (tools/build-pages.ts adds the script tag).
  */
-const IMG_UPSTREAM = 'https://raw.githubusercontent.com/WFCD/warframe-items/master/data/img';
-const CARD_UPSTREAM = 'https://wiki.warframe.com/w/Special:FilePath';
-globalThis.wfcalcArt = {
-  img: (file) => `${IMG_UPSTREAM}/${file}`,
-  card: (file) => `${CARD_UPSTREAM}/${encodeURIComponent(file)}?width=220`,
-};
-
 const api = new Worker(new URL('./api-worker.js', import.meta.url), { type: 'module', name: 'wfcalc-api' });
 const pending = new Map();
 let nextId = 0;

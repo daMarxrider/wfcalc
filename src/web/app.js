@@ -8,9 +8,10 @@
 
 import { gpuAdapter, adapterName, gpuSearch, gpuRivenSearch } from './gpu-search.js';
 
-/** Artwork: the server caches it under /img/ and /card/; the GitHub Pages build (src/pages/pages.js) links the sources. */
-const imgUrl = (file) => globalThis.wfcalcArt?.img(file) ?? `/img/${file}`;
-const cardUrl = (file) => globalThis.wfcalcArt?.card(file) ?? `/card/${encodeURIComponent(file)}`;
+/** Artwork: the server caches it under img/ and card/; the GitHub Pages build ships the same folders (tools/build-pages.ts). */
+// Relative, so the same paths work from the Node server (/) and the Pages build (/wfcalc/).
+const imgUrl = (file) => `img/${file}`;
+const cardUrl = (file) => `card/${encodeURIComponent(file)}`;
 
 const MAX_SLOTS = 8; // plus exilus; melee also gets a stance slot that adds capacity
 const STORAGE_KEY = 'wfcalc.builds';

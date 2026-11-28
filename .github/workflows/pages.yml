@@ -33,7 +33,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: node tools/build-pages.ts
+      # The artwork ships with the site; the cache keeps the build from refetching ~3,600 images.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            data/img
+            data/cards
+          key: art-${{ hashFiles('data/snapshot.json') }}
+          restore-keys: art-
+      - run: node tools/build-pages.ts --art
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

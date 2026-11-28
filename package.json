@@ -22,7 +22,7 @@
     "public-export": "node tools/public-export.ts",
     "public-export:check": "node tools/public-export.ts --check",
     "serve": "node src/server.ts",
-    "build:pages": "node tools/build-pages.ts",
+    "build:pages": "node tools/build-pages.ts --art",
     "calc": "node src/cli.ts",
     "check": "tsc --noEmit",
     "test": "node --test 'tests/!(*-browser).test.ts' && node --test --test-concurrency=1 'tests/*-browser.test.ts'",

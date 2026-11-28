@@ -5,10 +5,10 @@
  * browser shims in src/pages/shims/, and the snapshot. Only files reachable from the two worker
  * entries are built, so a new node: import in the engine fails here instead of in the browser.
  *
- *   node tools/build-pages.ts [--out dist]
+ *   node tools/build-pages.ts [--out dist] [--art]   (--art: download artwork missing from data/img, data/cards)
  */
 import { stripTypeScriptTypes } from 'node:module';
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
@@ -66,6 +66,47 @@ for (const name of readdirSync(join(ROOT, 'src/web'))) {
 }
 cpSync(join(ROOT, 'src/pages/pages.js'), join(OUT, 'src/pages/pages.js'));
 cpSync(join(ROOT, 'data/snapshot.json'), join(OUT, 'data/snapshot.json'));
+
+// Artwork ships with the site (GDPR: no visitor IP goes to the wiki or raw.githubusercontent.com).
+// Same caches and upstreams as src/server.ts; --art downloads what the cache is missing.
+const snapshot = JSON.parse(readFileSync(join(ROOT, 'data/snapshot.json'), 'utf8'));
+const imgs = new Set<string>();
+const cards = new Set<string>();
+for (const mod of Object.values<any>(snapshot.mods)) {
+  if (mod.image) imgs.add(mod.image);
+  if (mod.cardImage) cards.add(mod.cardImage);
+}
+// Exalted weapon art is a wiki file (app.js shows it through cardUrl), like the Incarnon perk icons.
+for (const weapon of Object.values<any>(snapshot.weapons)) if (weapon.image) (weapon.exalted ? cards : imgs).add(weapon.image);
+for (const options of Object.values<any>(snapshot.incarnons)) for (const option of options) if (option.image) cards.add(option.image);
+
+const ART = [
+  { dir: 'img', files: imgs, url: (file: string) => `https://raw.githubusercontent.com/WFCD/warframe-items/master/data/img/${file}` },
+  { dir: 'card', cache: 'cards', files: cards, url: (file: string) => `https://wiki.warframe.com/w/Special:FilePath/${encodeURIComponent(file)}?width=220` },
+];
+const missing: string[] = [];
+for (const { dir, cache = dir, files, url } of ART) {
+  const queue = [...files].filter((file) => /^[A-Za-z0-9._'()&\x20-]+\.(png|jpe?g|webp|gif)$/i.test(file));
+  mkdirSync(join(ROOT, 'data', cache), { recursive: true });
+  const fetchOne = async (file: string): Promise<void> => {
+    const cached = join(ROOT, 'data', cache, file);
+    if (!existsSync(cached)) {
+      if (!process.argv.includes('--art')) return void missing.push(`${dir}/${file}`);
+      for (let attempt = 1; ; attempt++) {
+        const reply = await fetch(url(file), { headers: { 'user-agent': 'wfcalc/0.1 (static site build)' } });
+        if (reply.ok) { writeFileSync(cached, Buffer.from(await reply.arrayBuffer())); break; }
+        if (reply.status === 404) return void missing.push(`${dir}/${file}`);
+        // Rate limits and server errors: back off, then fail the build rather than ship holes.
+        if (attempt === 4) throw new Error(`${url(file)}: HTTP ${reply.status}`);
+        await new Promise((r) => setTimeout(r, 2000 * attempt));
+      }
+    }
+    cpSync(cached, join(OUT, dir, file));
+  };
+  // A few requests at a time: the wiki is a community server.
+  await Promise.all(Array.from({ length: 4 }, async () => { for (let file; (file = queue.pop());) await fetchOne(file); }));
+}
+if (missing.length) console.warn(`Artwork missing (${missing.length}${process.argv.includes('--art') ? ', 404 upstream' : ', run with --art'}): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ', …' : ''}`);
 // No Jekyll on GitHub Pages: the files are served as they are.
 write(join(OUT, '.nojekyll'), '');
 
