@@ -22,28 +22,50 @@ jobs:
       contents: read
     uses: ./.github/workflows/test.yml
 
-  deploy:
-    needs: test
+  # Builds next to the tests; the upload needs its own job, deploy-pages in the same job listed
+  # 0 artifacts one second after a 265 MB upload (#123), and a re-run then found 2.
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
       # The artwork ships with the site; the cache keeps the build from refetching ~3,600 images.
-      - uses: actions/cache@v4
+      # Cache keys cannot be overwritten, so every run that fetched something saves under its own
+      # key and the next run restores the newest; a half-finished download is kept the same way.
+      - uses: actions/cache/restore@v4
         with:
           path: |
             data/img
             data/cards
-          key: art-${{ hashFiles('data/snapshot.json') }}
+          key: art-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: art-
+      - run: echo "ART_BEFORE=$(ls data/img data/cards 2>/dev/null | wc -l)" >> "$GITHUB_ENV"
       - run: node tools/build-pages.ts --art
+      - id: art
+        if: always()
+        run: echo "fetched=$(( $(ls data/img data/cards 2>/dev/null | wc -l) - ART_BEFORE ))" >> "$GITHUB_OUTPUT"
+      # Also on failure: a partial download is not lost when the build or the wiki gives up.
+      - if: always() && steps.art.outputs.fetched != '0'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/img
+            data/cards
+          key: art-${{ github.run_id }}-${{ github.run_attempt }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
+  deploy:
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4

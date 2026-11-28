@@ -8,7 +8,7 @@
  *   node tools/build-pages.ts [--out dist] [--art]   (--art: download artwork missing from data/img, data/cards)
  */
 import { stripTypeScriptTypes } from 'node:module';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 
 const ROOT = new URL('..', import.meta.url).pathname;
@@ -93,11 +93,22 @@ for (const { dir, cache = dir, files, url } of ART) {
     if (!existsSync(cached)) {
       if (!process.argv.includes('--art')) return void missing.push(`${dir}/${file}`);
       for (let attempt = 1; ; attempt++) {
-        const reply = await fetch(url(file), { headers: { 'user-agent': 'wfcalc/0.1 (static site build)' } });
-        if (reply.ok) { writeFileSync(cached, Buffer.from(await reply.arrayBuffer())); break; }
-        if (reply.status === 404) return void missing.push(`${dir}/${file}`);
-        // Rate limits and server errors: back off, then fail the build rather than ship holes.
-        if (attempt === 4) throw new Error(`${url(file)}: HTTP ${reply.status}`);
+        let problem: string;
+        try {
+          const reply = await fetch(url(file), { headers: { 'user-agent': 'wfcalc/0.1 (static site build)' } });
+          if (reply.status === 404) return void missing.push(`${dir}/${file}`);
+          if (reply.ok) {
+            // Write then rename: a run killed mid-write must not leave a truncated file in the cache.
+            writeFileSync(`${cached}.part`, Buffer.from(await reply.arrayBuffer()));
+            renameSync(`${cached}.part`, cached);
+            break;
+          }
+          problem = `HTTP ${reply.status}`;
+        } catch (error) {
+          problem = String(error);
+        }
+        // Rate limits, server and network errors: back off, then fail the build rather than ship holes.
+        if (attempt === 4) throw new Error(`${url(file)}: ${problem}`);
         await new Promise((r) => setTimeout(r, 2000 * attempt));
       }
     }
